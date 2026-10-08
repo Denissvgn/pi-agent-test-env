@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "name": "node-cli-feature",
+  "required_paths": [
+    "SPEC.md",
+    "normalize.mjs",
+    "test/normalize.test.mjs"
+  ],
+  "protected_paths": [
+    "SPEC.md",
+    "test"
+  ],
+  "setup": [],
+  "agents": [
+    {
+      "name": "implementer",
+      "cwd": ".",
+      "prompt": "Read SPEC.md and test/normalize.test.mjs. Implement normalize.mjs without modifying the spec or tests. Use bash to run node --test test/normalize.test.mjs. Report only observed results.",
+      "tools": [
+        "read",
+        "bash",
+        "edit",
+        "write",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "require_tools": [
+        "read",
+        "bash"
+      ],
+      "access": "rw",
+      "timeout_seconds": 1200,
+      "max_turns": 30,
+      "max_total_tokens": 800000
+    },
+    {
+      "name": "reviewer",
+      "cwd": ".",
+      "prompt": "Read SPEC.md and inspect normalize.mjs and test/normalize.test.mjs. Review empty input, types, boundaries, stable ordering, and mutation. Identify defects and missing coverage independently. Do not modify files.",
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "require_tools": [
+        "read"
+      ],
+      "access": "ro",
+      "timeout_seconds": 600,
+      "max_turns": 16,
+      "max_total_tokens": 400000
+    }
+  ],
+  "checks": [
+    {
+      "name": "node-acceptance",
+      "cwd": ".",
+      "argv": [
+        "node",
+        "--test",
+        "test/normalize.test.mjs"
+      ],
+      "network": "none",
+      "timeout_seconds": 300
+    }
+  ]
+}

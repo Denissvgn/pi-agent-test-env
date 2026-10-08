@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "name": "python-feature",
+  "required_paths": [
+    "SPEC.md",
+    "slug.py",
+    "tests/test_slug.py"
+  ],
+  "protected_paths": [
+    "SPEC.md",
+    "tests"
+  ],
+  "setup": [],
+  "agents": [
+    {
+      "name": "implementer",
+      "cwd": ".",
+      "prompt": "Read SPEC.md and tests/test_slug.py with the read tool. Implement the missing behavior in slug.py without changing SPEC.md or any tests. Use bash to execute python3 /opt/pi-lab/verify-unittest.py --start-dir tests. Report actual commands, failures, and remaining limitations. Do not claim tests ran without invoking them.",
+      "tools": [
+        "read",
+        "bash",
+        "edit",
+        "write",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "require_tools": [
+        "read",
+        "bash"
+      ],
+      "access": "rw",
+      "timeout_seconds": 1200,
+      "max_turns": 30,
+      "max_total_tokens": 800000
+    },
+    {
+      "name": "reviewer",
+      "cwd": ".",
+      "prompt": "Read SPEC.md, slug.py, and the acceptance tests independently. Report concrete discrepancies and edge cases with file/line references. The project is read-only; do not change files. Treat another agent's claim as unverified. State any limitations and whether acceptance criteria are covered.",
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "require_tools": [
+        "read"
+      ],
+      "access": "ro",
+      "timeout_seconds": 600,
+      "max_turns": 16,
+      "max_total_tokens": 400000
+    }
+  ],
+  "checks": [
+    {
+      "name": "acceptance",
+      "cwd": ".",
+      "argv": [
+        "python3",
+        "/opt/pi-lab/verify-unittest.py",
+        "--start-dir",
+        "tests"
+      ],
+      "network": "none",
+      "timeout_seconds": 300
+    }
+  ]
+}

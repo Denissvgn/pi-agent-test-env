@@ -1,0 +1,8 @@
+# Development history is retained locally and excluded from published source archives.
+/plans export-ignore
+/reports export-ignore
+/dist export-ignore
+/development export-ignore
+/tools/release-hardening export-ignore
+/.agents export-ignore
+/.codex export-ignore

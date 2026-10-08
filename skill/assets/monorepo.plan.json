@@ -1,0 +1,106 @@
+{
+  "schema": 1,
+  "name": "monorepo-contract-change",
+  "required_paths": [
+    "docs/feature.md",
+    "services/api",
+    "services/api/tests",
+    "packages/client",
+    "packages/client/test/contract.test.mjs"
+  ],
+  "protected_paths": [
+    "docs/feature.md",
+    "services/api/tests",
+    "packages/client/test/contract.test.mjs"
+  ],
+  "setup": [],
+  "agents": [
+    {
+      "name": "api-implementer",
+      "cwd": "services/api",
+      "prompt": "Read /workspace/docs/feature.md and inspect this service. Implement only the API change, leaving protected tests unchanged. Run python3 /opt/pi-lab/verify-unittest.py --start-dir tests. Do not edit the client package.",
+      "tools": [
+        "read",
+        "bash",
+        "edit",
+        "write",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "require_tools": [
+        "read",
+        "bash"
+      ],
+      "access": "rw",
+      "timeout_seconds": 1200,
+      "max_turns": 30,
+      "max_total_tokens": 800000
+    },
+    {
+      "name": "client-implementer",
+      "cwd": "packages/client",
+      "prompt": "Read /workspace/docs/feature.md and inspect the API changes as data. Update this client package, leaving acceptance tests unchanged. Run node --test test/contract.test.mjs. Do not edit the API service.",
+      "tools": [
+        "read",
+        "bash",
+        "edit",
+        "write",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "require_tools": [
+        "read",
+        "bash"
+      ],
+      "access": "rw",
+      "timeout_seconds": 1200,
+      "max_turns": 30,
+      "max_total_tokens": 800000
+    },
+    {
+      "name": "cross-component-reviewer",
+      "cwd": ".",
+      "prompt": "Read docs/feature.md and review the API and client contract together, including errors and backward compatibility. No file changes. Report concrete findings independently.",
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "require_tools": [
+        "read"
+      ],
+      "access": "ro",
+      "timeout_seconds": 600,
+      "max_turns": 16,
+      "max_total_tokens": 400000
+    }
+  ],
+  "checks": [
+    {
+      "name": "api-tests",
+      "cwd": "services/api",
+      "argv": [
+        "python3",
+        "/opt/pi-lab/verify-unittest.py",
+        "--start-dir",
+        "tests"
+      ],
+      "network": "none",
+      "timeout_seconds": 300
+    },
+    {
+      "name": "client-tests",
+      "cwd": "packages/client",
+      "argv": [
+        "node",
+        "--test",
+        "test/contract.test.mjs"
+      ],
+      "network": "none",
+      "timeout_seconds": 300
+    }
+  ]
+}

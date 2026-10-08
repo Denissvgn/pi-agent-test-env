@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "required_commands": [
+    "rustc",
+    "cargo"
+  ],
+  "probes": [
+    {
+      "name": "rust-version",
+      "argv": [
+        "rustc",
+        "--version"
+      ]
+    },
+    {
+      "name": "cargo-version",
+      "argv": [
+        "cargo",
+        "--version"
+      ]
+    }
+  ]
+}

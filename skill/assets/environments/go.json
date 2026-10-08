@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "required_commands": [
+    "go"
+  ],
+  "probes": [
+    {
+      "name": "go-toolchain",
+      "argv": [
+        "go",
+        "version"
+      ],
+      "stdout_regex": "^go version go1\\."
+    }
+  ]
+}

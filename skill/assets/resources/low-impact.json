@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "runtime": {
+    "cpus": 1,
+    "memory": "2g",
+    "pids_limit": 256,
+    "jobs": 1
+  },
+  "build": {
+    "cpus": 1,
+    "memory": "2g",
+    "max_parallelism": 1,
+    "timeout_seconds": 2400
+  },
+  "host_budget": {
+    "cpu_fraction": 0.5,
+    "memory_fraction": 0.5
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "base_url": "http://model-server:8000/v1",
+  "api_key_env": "VLLM_API_KEY",
+  "model": "${PI_MODEL}",
+  "context_window": 32768,
+  "max_tokens": 4096,
+  "input": [
+    "text"
+  ],
+  "compat": {
+    "maxTokensField": "max_tokens"
+  }
+}

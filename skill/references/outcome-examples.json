@@ -1,0 +1,350 @@
+{
+  "document_type": "outcome_examples",
+  "contract": "EVALUATION-CONTRACT.md",
+  "examples": [
+    {
+      "example": "clean_success",
+      "projection": {
+        "infrastructure": {
+          "status": "ready"
+        },
+        "invocation": {
+          "status": "verified"
+        },
+        "termination": {
+          "reason": "completed",
+          "process_exit_code": 0
+        },
+        "scoring": {
+          "status": "completed"
+        },
+        "task_result": {
+          "status": "pass",
+          "score": 1.0
+        },
+        "assistance": {
+          "status": "autonomous",
+          "intervention_ids": []
+        },
+        "protected_inputs": {
+          "status": "unchanged"
+        },
+        "status": "PASS",
+        "exit_code": 0
+      }
+    },
+    {
+      "example": "infrastructure_failure",
+      "projection": {
+        "infrastructure": {
+          "status": "failed",
+          "phase": "preflight",
+          "reason": "endpoint_unreachable"
+        },
+        "invocation": {
+          "status": "not_started"
+        },
+        "termination": {
+          "reason": "not_started",
+          "process_exit_code": null
+        },
+        "scoring": {
+          "status": "skipped",
+          "reason": "agent_not_started"
+        },
+        "task_result": {
+          "status": "unknown",
+          "score": null
+        },
+        "assistance": {
+          "status": "autonomous",
+          "intervention_ids": []
+        },
+        "protected_inputs": {
+          "status": "unchanged"
+        },
+        "status": "BLOCKED",
+        "exit_code": 2
+      }
+    },
+    {
+      "example": "timeout_with_passing_task_score",
+      "projection": {
+        "infrastructure": {
+          "status": "ready"
+        },
+        "invocation": {
+          "status": "invalid"
+        },
+        "termination": {
+          "reason": "timeout",
+          "process_exit_code": 124
+        },
+        "scoring": {
+          "status": "completed"
+        },
+        "task_result": {
+          "status": "pass",
+          "score": 1.0
+        },
+        "assistance": {
+          "status": "autonomous",
+          "intervention_ids": []
+        },
+        "protected_inputs": {
+          "status": "unchanged"
+        },
+        "status": "FAIL",
+        "exit_code": 1
+      }
+    },
+    {
+      "example": "scorer_error",
+      "projection": {
+        "infrastructure": {
+          "status": "ready"
+        },
+        "invocation": {
+          "status": "verified"
+        },
+        "termination": {
+          "reason": "completed",
+          "process_exit_code": 0
+        },
+        "scoring": {
+          "status": "error",
+          "reason": "nonzero_exit",
+          "process_exit_code": 1
+        },
+        "task_result": {
+          "status": "unknown",
+          "score": null
+        },
+        "assistance": {
+          "status": "autonomous",
+          "intervention_ids": []
+        },
+        "protected_inputs": {
+          "status": "unchanged"
+        },
+        "status": "FAIL",
+        "exit_code": 1
+      }
+    },
+    {
+      "example": "authorized_recovery",
+      "projection": {
+        "infrastructure": {
+          "status": "ready"
+        },
+        "invocation": {
+          "status": "recovered",
+          "segments": [
+            {
+              "segment_id": "s1",
+              "status": "invalid",
+              "termination": "interrupted",
+              "process_exit_code": 130
+            },
+            {
+              "segment_id": "s2",
+              "status": "verified",
+              "termination": "completed",
+              "process_exit_code": 0,
+              "continues_segment_id": "s1"
+            }
+          ]
+        },
+        "termination": {
+          "reason": "completed",
+          "process_exit_code": 0
+        },
+        "scoring": {
+          "status": "completed"
+        },
+        "task_result": {
+          "status": "pass",
+          "score": 1.0
+        },
+        "assistance": {
+          "status": "assisted",
+          "intervention_ids": [
+            "continue-1"
+          ]
+        },
+        "protected_inputs": {
+          "status": "unchanged"
+        },
+        "status": "RECOVERED",
+        "exit_code": 1
+      }
+    },
+    {
+      "example": "retry_original",
+      "projection": {
+        "infrastructure": {
+          "status": "ready"
+        },
+        "invocation": {
+          "status": "invalid"
+        },
+        "termination": {
+          "reason": "process_error",
+          "process_exit_code": 1
+        },
+        "scoring": {
+          "status": "completed"
+        },
+        "task_result": {
+          "status": "fail",
+          "score": 0.0
+        },
+        "assistance": {
+          "status": "autonomous",
+          "intervention_ids": []
+        },
+        "protected_inputs": {
+          "status": "unchanged"
+        },
+        "status": "FAIL",
+        "exit_code": 1,
+        "trial_id": "trial-1",
+        "attempt_id": "attempt-1",
+        "attempt_index": 1,
+        "retry_of_attempt_id": null
+      }
+    },
+    {
+      "example": "retry_success",
+      "projection": {
+        "infrastructure": {
+          "status": "ready"
+        },
+        "invocation": {
+          "status": "verified"
+        },
+        "termination": {
+          "reason": "completed",
+          "process_exit_code": 0
+        },
+        "scoring": {
+          "status": "completed"
+        },
+        "task_result": {
+          "status": "pass",
+          "score": 1.0
+        },
+        "assistance": {
+          "status": "autonomous",
+          "intervention_ids": []
+        },
+        "protected_inputs": {
+          "status": "unchanged"
+        },
+        "status": "PASS",
+        "exit_code": 0,
+        "trial_id": "trial-1",
+        "attempt_id": "attempt-2",
+        "attempt_index": 2,
+        "retry_of_attempt_id": "attempt-1"
+      }
+    },
+    {
+      "example": "cancellation_before_scoring",
+      "projection": {
+        "infrastructure": {
+          "status": "ready"
+        },
+        "invocation": {
+          "status": "invalid"
+        },
+        "termination": {
+          "reason": "cancelled",
+          "process_exit_code": 130
+        },
+        "scoring": {
+          "status": "skipped",
+          "reason": "user_cancelled"
+        },
+        "task_result": {
+          "status": "unknown",
+          "score": null
+        },
+        "assistance": {
+          "status": "autonomous",
+          "intervention_ids": []
+        },
+        "protected_inputs": {
+          "status": "unchanged"
+        },
+        "status": "INTERRUPTED",
+        "exit_code": 2
+      }
+    },
+    {
+      "example": "cancellation_during_scoring",
+      "projection": {
+        "infrastructure": {
+          "status": "ready"
+        },
+        "invocation": {
+          "status": "verified"
+        },
+        "termination": {
+          "reason": "cancelled",
+          "process_exit_code": 0
+        },
+        "scoring": {
+          "status": "cancelled",
+          "reason": "user_cancelled"
+        },
+        "task_result": {
+          "status": "unknown",
+          "score": null
+        },
+        "assistance": {
+          "status": "autonomous",
+          "intervention_ids": []
+        },
+        "protected_inputs": {
+          "status": "unchanged"
+        },
+        "status": "INTERRUPTED",
+        "exit_code": 2
+      }
+    },
+    {
+      "example": "assisted_success",
+      "projection": {
+        "infrastructure": {
+          "status": "ready"
+        },
+        "invocation": {
+          "status": "verified"
+        },
+        "termination": {
+          "reason": "completed",
+          "process_exit_code": 0
+        },
+        "scoring": {
+          "status": "completed"
+        },
+        "task_result": {
+          "status": "pass",
+          "score": 1.0
+        },
+        "assistance": {
+          "status": "assisted",
+          "intervention_ids": [
+            "steer-1"
+          ]
+        },
+        "protected_inputs": {
+          "status": "unchanged"
+        },
+        "status": "ASSISTED",
+        "exit_code": 1
+      }
+    }
+  ]
+}

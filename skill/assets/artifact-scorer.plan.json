@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "name": "independent-artifact-example",
+  "agents": [{"name": "answer", "prompt": "Create answer.txt containing 42.", "require_tools": ["write"]}],
+  "checks": [{
+    "name": "answer-score",
+    "argv": ["python3", "/opt/pi-scorer/artifact.py"],
+    "timeout_seconds": 30,
+    "network": "none",
+    "scorer": {
+      "schema": 1,
+      "id": "answer-artifact",
+      "version": "1",
+      "assets": [{"source": "../examples/scorers/artifact.py", "target": "artifact.py"}],
+      "score_domain": {"min": 0, "max": 1, "direction": "higher", "pass_threshold": 1},
+      "required_assertions": ["answer"],
+      "zero_test_policy": "fail",
+      "all_skipped_policy": "fail"
+    }
+  }]
+}

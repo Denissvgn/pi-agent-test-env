@@ -1,0 +1,151 @@
+{
+  "name": "pi-agent-test-env",
+  "version": "4.0.1",
+  "description": "Evaluate frozen local-agent application cases and the optional reviewed fixture_lookup integration with independent scorers, fresh repeated Pi trials, bounded Docker resources and retained failures; also supports short coding-delegation plans.",
+  "language": "en",
+  "license": "MIT",
+  "author": "Denissvgn",
+  "entrypoint": "scripts/pi_lab.py",
+  "compatibility": {
+    "agent_skills_standard": {
+      "entry_file": "SKILL.md"
+    },
+    "claude_code": {
+      "skill_path": ".claude/skills/pi-agent-test-env",
+      "global_path": "~/.claude/skills/pi-agent-test-env",
+      "command_file": ".claude/commands/pi-agent-test-env.md",
+      "instruction_file": "CLAUDE.md",
+      "discovery_status": "documented layout; CLI unavailable, discovery unqualified"
+    },
+    "codex": {
+      "skill_path": ".agents/skills/pi-agent-test-env",
+      "global_path": "~/.agents/skills/pi-agent-test-env",
+      "instruction_file": "CODEX.md",
+      "discovery_status": "workspace catalog/content observed for the 4.0.1 entry with Codex CLI 0.144.6; no parent model-turn claim",
+      "qualified_versions": [
+        "0.144.6"
+      ]
+    },
+    "antigravity": {
+      "skill_path": ".agents/skills/pi-agent-test-env",
+      "global_path": "~/.gemini/config/skills/pi-agent-test-env",
+      "discovery_status": "historical CLI1.2.9/1.3.1 catalog/content for earlier entries; current catalog/content unavailable through authorized UI; app/IDE unqualified",
+      "cli_global_path": "~/.gemini/antigravity-cli/skills/pi-agent-test-env",
+      "qualified_cli_versions": [
+        "1.2.9",
+        "1.3.1"
+      ]
+    }
+  },
+  "tools": [
+    {
+      "name": "env",
+      "description": "Saved model environment: new-session, status (gate), discover, save, confirm, check, clear",
+      "command": "python3 scripts/pi_lab.py env status --session <SESSION>"
+    },
+    {
+      "name": "doctor",
+      "description": "Evaluate host prerequisites (Python, Docker, context, image, endpoint, secrets) in one pass",
+      "command": "python3 scripts/pi_lab.py doctor --image <QUALIFIED_IMAGE> --session <SESSION>"
+    },
+    {
+      "name": "secrets",
+      "description": "Manage model endpoint credentials in owner-only host store (set, status, clear)",
+      "command": "python3 scripts/pi_lab.py secrets status"
+    },
+    {
+      "name": "status",
+      "description": "Inspect live running child session, turns, tokens, elapsed time, and 80% budget warnings",
+      "command": "python3 scripts/pi_lab.py status"
+    },
+    {
+      "name": "extend-budget",
+      "description": "Queue bounded budget revisions; --wait-seconds reports host application separately from child observations",
+      "command": "python3 scripts/pi_lab.py extend-budget --turns +10 --timeout +300"
+    },
+    {
+      "name": "steer",
+      "description": "Queue guidance for the next linked process; optional parent-applied interrupt, with assisted attribution",
+      "command": "python3 scripts/pi_lab.py steer --message <DIRECTIVE>"
+    },
+    {
+      "name": "patch-session",
+      "description": "Patch a quiescent pending stage under a host writer lease; active/completed stages reject",
+      "command": "python3 scripts/pi_lab.py patch-session --run <RUN_DIR> --stage <STAGE_UUID> --file <PATCH_FILE> --target <RELATIVE_PATH>"
+    },
+    {
+      "name": "run",
+      "description": "Execute a full multi-stage agentic plan with isolated container stages",
+      "command": "python3 scripts/pi_lab.py run --project <PROJECT> --plan <PLAN> --image <QUALIFIED_IMAGE> --session <SESSION>"
+    },
+    {
+      "name": "validate-plan",
+      "description": "Offline reviewed plan structure",
+      "command": "python3 scripts/pi_lab.py validate-plan --plan <PLAN>"
+    },
+    {
+      "name": "validate-agent-profile",
+      "description": "Offline reviewed fixture profile contract; does not load components",
+      "command": "python3 scripts/pi_lab.py validate-agent-profile --agent-profile <PROFILE>"
+    },
+    {
+      "name": "validate-experiment",
+      "description": "Offline fixed cases/scorer/matrix validation",
+      "command": "python3 scripts/pi_lab.py validate-experiment --definition <DEFINITION>"
+    },
+    {
+      "name": "experiment-prepare",
+      "description": "Freeze complete inputs and intended matrix offline",
+      "command": "python3 scripts/pi_lab.py experiment-prepare --definition <DEFINITION> --experiment-dir <NEW_DIRECTORY>"
+    },
+    {
+      "name": "experiment-run",
+      "description": "Collect fresh serial trials with bounded scoring after eligible failures",
+      "command": "python3 scripts/pi_lab.py experiment-run --experiment <DIRECTORY> --session <SESSION>"
+    },
+    {
+      "name": "experiment-resume",
+      "description": "Reconcile owned cleanup and run pending cells; explicit retry-trial creates linked attempt",
+      "command": "python3 scripts/pi_lab.py experiment-resume --experiment <DIRECTORY> --session <SESSION>"
+    },
+    {
+      "name": "experiment-export",
+      "description": "Deterministic complete trial records with missingness/retries",
+      "command": "python3 scripts/pi_lab.py experiment-export --experiment <DIRECTORY>"
+    },
+    {
+      "name": "experiment-report",
+      "description": "Primary denominators, eligible pairs and linked comparison evidence",
+      "command": "python3 scripts/pi_lab.py experiment-report --experiment <DIRECTORY>"
+    },
+    {
+      "name": "preflight",
+      "description": "Container endpoint/model/context checks",
+      "command": "python3 scripts/pi_lab.py preflight --image <QUALIFIED_IMAGE> --session <SESSION>"
+    },
+    {
+      "name": "smoke",
+      "description": "Real paired tool-use challenge plus independent verifier",
+      "command": "python3 scripts/pi_lab.py smoke --image <QUALIFIED_IMAGE> --session <SESSION>"
+    }
+  ],
+  "exit_codes": {
+    "0": "Clean autonomous PASS, command success or ready",
+    "1": "Failed, assisted or recovered run; command error",
+    "2": "Blocked or interrupted run; validation failure",
+    "3": "doctor/secrets: missing key; run/smoke records BLOCKED/2",
+    "10": "env status: no saved environment",
+    "11": "env status: saved environment awaits confirmation in this session",
+    "12": "env status: environment failed its live check"
+  },
+  "homepage": "https://github.com/Denissvgn/pi-agent-test-env",
+  "repository": "https://github.com/Denissvgn/pi-agent-test-env",
+  "security_scope": {
+    "mounts": "read-only root/helpers/controls; configured project access; writable isolated runtime/outbox",
+    "bash_filter": "additional pattern guard, not a full shell parser",
+    "pi_offline": "disables startup network operations; Docker network mode controls routing",
+    "new_environment_key_variable": "PI_API_KEY"
+  },
+  "metadata_role": "Supplemental package descriptor; SKILL.md is the discovery entry",
+  "discovery_evidence_scope": "Version-scoped workspace catalog and selected-content observations only. Direct CLI help and installation are separate checks; no automatic invocation or parent model-turn claim."
+}

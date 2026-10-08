@@ -1,0 +1,8 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>Pi browser probe</title>
+<body><p id="probe">SCRIPT_NOT_EXECUTED</p><canvas id="c"></canvas><p id="webgl">UNKNOWN</p>
+<script>
+  document.getElementById('probe').textContent = 'BROWSER_OK';
+  const c = document.getElementById('c');
+  document.getElementById('webgl').textContent =
+    (c.getContext('webgl2') || c.getContext('webgl')) ? 'WEBGL_OK' : 'WEBGL_UNAVAILABLE';
+</script></body></html>

@@ -1,0 +1,115 @@
+[
+  {
+    "id": "words",
+    "examples": [
+      {
+        "input": "Hello, WORLD!",
+        "expected": "hello-world"
+      },
+      {
+        "input": "Case 01",
+        "expected": "case-01"
+      }
+    ]
+  },
+  {
+    "id": "runs-edges",
+    "examples": [
+      {
+        "input": " --alpha___beta-- ",
+        "expected": "alpha-beta"
+      },
+      {
+        "input": "///a,,,b;;;",
+        "expected": "a-b"
+      }
+    ]
+  },
+  {
+    "id": "empty",
+    "examples": [
+      {
+        "input": "",
+        "expected": ""
+      },
+      {
+        "input": "!!!",
+        "expected": ""
+      },
+      {
+        "input": "   ",
+        "expected": ""
+      }
+    ]
+  },
+  {
+    "id": "ascii-digits",
+    "examples": [
+      {
+        "input": "ITEM 42",
+        "expected": "item-42"
+      },
+      {
+        "input": "a0Z9",
+        "expected": "a0z9"
+      }
+    ]
+  },
+  {
+    "id": "unicode-lower",
+    "examples": [
+      {
+        "input": "café time",
+        "expected": "caf-time"
+      },
+      {
+        "input": "İ ITEM",
+        "expected": "i-item"
+      },
+      {
+        "input": "ß",
+        "expected": ""
+      },
+      {
+        "input": "Straße 9",
+        "expected": "stra-e-9"
+      }
+    ]
+  },
+  {
+    "id": "types",
+    "invalid": [
+      null,
+      true,
+      5,
+      1.5,
+      [],
+      {}
+    ]
+  },
+  {
+    "id": "idempotent",
+    "values": [
+      "Clean",
+      " --hello___42",
+      "A B C"
+    ]
+  },
+  {
+    "id": "separators",
+    "examples": [
+      {
+        "input": "a/b\\c",
+        "expected": "a-b-c"
+      },
+      {
+        "input": "a\tb\nc",
+        "expected": "a-b-c"
+      },
+      {
+        "input": "a🚀b",
+        "expected": "a-b"
+      }
+    ]
+  }
+]

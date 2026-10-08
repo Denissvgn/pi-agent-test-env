@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "document_type": "agent_profile",
+  "id": "builtin",
+  "kind": "builtin",
+  "components": [],
+  "tools": [],
+  "required_tools": [],
+  "assets": [],
+  "service_endpoints": []
+}

@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "document_type": "agent_profile",
+  "id": "fixture-lookup",
+  "kind": "fixture-lookup",
+  "components": [
+    {
+      "id": "fixture-lookup",
+      "kind": "pi-extension",
+      "version": "1",
+      "pi_release": "0.87.1",
+      "entrypoint": "fixture-lookup.mjs"
+    }
+  ],
+  "tools": [
+    "fixture_lookup"
+  ],
+  "required_tools": [
+    "fixture_lookup"
+  ],
+  "assets": [
+    {
+      "source": "config.json",
+      "target": "config.json",
+      "sha256": "5814fe91550e523a7692fa5c5df7a62345ebeef6ec3a366da2c8b307226f6b5d"
+    },
+    {
+      "source": "fixture-lookup.mjs",
+      "target": "fixture-lookup.mjs",
+      "sha256": "5cd2057772db58a5ac7f6b0ee38eef550226c858e36172d0a84f367350e34cdb"
+    },
+    {
+      "source": "fixtures.json",
+      "target": "fixtures.json",
+      "sha256": "baaa1173c021ce18bf70d234347324611be918e8cb514b83e31942bf8599c5ab"
+    },
+    {
+      "source": "instructions.md",
+      "target": "instructions.md",
+      "sha256": "54add0e25837ec70d0a35c2198d547f906a5c1251e9fe5e1c456eb6329c7d42a"
+    }
+  ],
+  "service_endpoints": []
+}

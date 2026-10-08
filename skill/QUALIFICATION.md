@@ -1,0 +1,59 @@
+# Qualification and support
+
+The package implements bounded coding delegation, frozen application experiments
+and one explicit fixture lookup integration. Compatibility depends on the exact
+runtime image, Pi release, model endpoint and resource configuration selected for
+execution. A manifest is an integrity inventory, not a publisher signature or
+image authorization.
+
+## Evidence scope
+
+| Capability | Observed evidence | Limit |
+|---|---|---|
+| Core executor and controls | Native ARM64 Docker and real Pi 0.87.1 traces observed on macOS Apple Silicon, 7 October 2026 | Exact recorded image/model/configuration only |
+| Application comparisons | Fresh scored trials, deliberate failures, cancellation, resume and explicit retries | Finite cases and repetitions; no performance improvement or significance claim |
+| Fixture lookup integration | Real registration, active tool selection, paired calls, independent scores, read-only assets and cleanup | Only the bundled declared profile; arbitrary integrations unsupported |
+| Host admission and stop policy | Native ARM64 checker writes/denials and real controller crash/retry checks, 8 October 2026 | Executor outcomes are synthetic; no new Pi/model measurement |
+| Packaging | Complete extracted manifests, resource hashes, offline regression suite and named-root standards validation | Structural/offline checks do not prove live execution |
+| Parent discovery | Codex CLI 0.144.6 catalog and selected content observed for the entry in version 4.0.1 | No automatic relevance selection or parent model turn claim |
+| Other parents | Antigravity CLI 1.2.9/1.3.1 observations for earlier entries; documented Claude and GUI layouts | Current Antigravity catalog/content unavailable through the authorized UI; Claude/GUI discovery unqualified |
+
+Historical execution evidence remains attached to its original source, runner,
+image, model, experiment and date. Documentation cleanup and repackaging do not
+create new model measurements or requalify a different image/server. Preparing
+new experiments is required when runner bytes change; old frozen experiments are
+never resumed under a different executor identity.
+
+## Safety and correctness contracts
+
+In-place admission scans the entire mounted tree without following links,
+including excluded directories. Symlinks, multiply linked regular files and
+inspection errors block writable admission. Snapshot exclusions and filtered
+change inventories remain separate. The host lease assumes cooperating writers;
+it cannot prevent arbitrary hostile concurrent host mutation.
+
+Stop policy is derived from all validated sealed attempts after cleanup. A
+successful diagnostic retry cannot erase a previous stop condition or reopen
+pending cells. Explicit cancellation, known cleanup and continue-policy resume
+retain distinct behavior.
+
+Each case/variant pair receives a deterministic, collision-checked UUID plan path.
+Repetitions share only their own pair’s plan. Reporting accepts unambiguous legacy
+plans; ambiguous, escaping or missing plan ownership rejects without rewriting
+historical inputs.
+
+Exports reject destinations inside the package before any manifest, archive or
+installation write. All layouts carry complete resources. The entry uses standard
+name/description frontmatter, with English language declared in the body and
+package metadata.
+
+## Unqualified capabilities
+
+Browser/WebGL, native AMD64 execution, forced live OOM, image input, broader child
+integrations and unavailable parent discovery remain unqualified. Requested or
+observed reasoning/sampling settings do not establish server enforcement,
+weights identity, deterministic replay or inference timing. Container resource
+limits do not cap the model server or unrelated host processes.
+
+Read [SECURITY.md](references/SECURITY.md), [PI-COMPATIBILITY.md](references/PI-COMPATIBILITY.md)
+and [VALIDATION.md](VALIDATION.md) for operational requirements and evidence limits.

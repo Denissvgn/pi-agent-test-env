@@ -1,0 +1,13 @@
+{
+  "base_url": "${PI_BASE_URL}",
+  "api_key_env": "PI_API_KEY",
+  "model": "${PI_MODEL}",
+  "context_window": 32768,
+  "max_tokens": 4096,
+  "input": [
+    "text"
+  ],
+  "compat": {
+    "maxTokensField": "max_tokens"
+  }
+}

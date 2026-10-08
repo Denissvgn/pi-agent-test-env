@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "required_commands": [
+    "python3",
+    "node",
+    "npm"
+  ],
+  "probes": [
+    {
+      "name": "python-version",
+      "argv": [
+        "python3",
+        "-c",
+        "import sys; assert sys.version_info >= (3, 10); print(sys.version)"
+      ]
+    },
+    {
+      "name": "node-major",
+      "argv": [
+        "node",
+        "--version"
+      ],
+      "stdout_regex": "^v24\\."
+    }
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "schema": 1,
+  "name": "browser-ui-acceptance",
+  "required_paths": [
+    "docs/feature.md",
+    "package.json",
+    "package-lock.json",
+    "tests/ui.acceptance.mjs"
+  ],
+  "protected_paths": [
+    "docs/feature.md",
+    "package.json",
+    "package-lock.json",
+    "tests/ui.acceptance.mjs"
+  ],
+  "setup": [
+    {
+      "name": "locked-node-deps",
+      "cwd": ".",
+      "argv": [
+        "npm",
+        "ci",
+        "--ignore-scripts"
+      ],
+      "network": "inherit",
+      "timeout_seconds": 600
+    }
+  ],
+  "agents": [
+    {
+      "name": "implementer",
+      "cwd": ".",
+      "prompt": "Read docs/feature.md and inspect the application and tests/ui.acceptance.mjs. Implement the requested UI change. Do not modify the protected specification, dependency manifests, or acceptance test. Run the actual Chromium test using python3 /opt/pi-lab/with-http-server.py --port 4173 -- node tests/ui.acceptance.mjs. The test must already use TEST_BASE_URL and a Linux-compatible executablePath. /opt/pi-lab/browser-options.mjs is available. Save screenshots under .pi-lab. If the app requires a build or non-static server not described by this plan, report BLOCKED rather than inventing a passing test.",
+      "tools": [
+        "read",
+        "bash",
+        "edit",
+        "write",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "require_tools": [
+        "read",
+        "bash"
+      ],
+      "access": "rw",
+      "timeout_seconds": 1200,
+      "max_turns": 30,
+      "max_total_tokens": 800000
+    },
+    {
+      "name": "reviewer",
+      "cwd": ".",
+      "prompt": "Read docs/feature.md, inspect the resulting UI source and acceptance test, and identify concrete correctness or coverage problems. Do not modify files. A screenshot or successful browser launch alone does not prove the requested behavior.",
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "require_tools": [
+        "read"
+      ],
+      "access": "ro",
+      "timeout_seconds": 600,
+      "max_turns": 16,
+      "max_total_tokens": 400000
+    }
+  ],
+  "checks": [
+    {
+      "name": "real-ui-test",
+      "cwd": ".",
+      "argv": [
+        "python3",
+        "/opt/pi-lab/with-http-server.py",
+        "--port",
+        "4173",
+        "--",
+        "node",
+        "tests/ui.acceptance.mjs"
+      ],
+      "network": "none",
+      "timeout_seconds": 300
+    }
+  ]
+}

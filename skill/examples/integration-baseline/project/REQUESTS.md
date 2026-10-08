@@ -1,0 +1,1 @@
+Read records alpha, beta and gamma. Produce answer.json as an object with exactly those keys; each value must be the complete label/amount record. Do not modify REQUESTS.md or fixtures.json. Use the available declared read or fixture lookup mechanism; report actual actions.

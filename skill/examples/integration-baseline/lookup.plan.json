@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "name": "fixture-retrieval",
+  "required_paths": [
+    "REQUESTS.md",
+    "fixtures.json"
+  ],
+  "protected_paths": [
+    "REQUESTS.md",
+    "fixtures.json"
+  ],
+  "agents": [
+    {
+      "name": "retriever",
+      "prompt": "Read REQUESTS.md. Retrieve the requested records using the declared active data mechanism: read fixtures.json in the built-in baseline or fixture_lookup in the explicitly selected integration. Use write to create answer.json with the exact requested keys and complete values. Do not alter protected files. Report actual tool calls and results.",
+      "tools": [
+        "read",
+        "write"
+      ],
+      "require_tools": [
+        "read",
+        "write"
+      ],
+      "access": "rw",
+      "timeout_seconds": 90,
+      "max_turns": 12,
+      "max_total_tokens": 60000
+    }
+  ],
+  "checks": [
+    {
+      "name": "fixture-oracle",
+      "argv": [
+        "python3",
+        "/opt/pi-scorer/oracle.py"
+      ],
+      "network": "none",
+      "timeout_seconds": 30,
+      "scorer": {
+        "schema": 1,
+        "id": "fixture-answer",
+        "version": "1",
+        "assets": [
+          {
+            "source": "oracle.py",
+            "target": "oracle.py"
+          },
+          {
+            "source": "expected.json",
+            "target": "expected.json"
+          }
+        ],
+        "score_domain": {
+          "min": 0,
+          "max": 1,
+          "direction": "higher",
+          "pass_threshold": 1
+        },
+        "required_assertions": [
+          "shape",
+          "alpha",
+          "beta",
+          "gamma"
+        ],
+        "test_counts_required": true,
+        "zero_test_policy": "fail",
+        "all_skipped_policy": "fail"
+      }
+    }
+  ]
+}
