@@ -1,5 +1,29 @@
 # Changelog
 
+## 4.2.0
+
+- Add an explicit pinned native ARM64 Chromium user-namespace seccomp policy,
+  retaining non-root/no-capability/read-only/resource isolation and no-new-privileges.
+- Add credential-free browser-check admission with actual Chromium namespace and
+  seccomp observations; default container policy never silently changes.
+- Freeze/recheck selected policy bytes and retain identity in run/experiment evidence.
+- Reject hidden sandbox opt-outs in browser-options; distinguish environment
+  admission from application/model correctness and preserve blocked-run history.
+
+## 4.1.0
+
+- Add per-agent application-secret references resolved from the owner-only host
+  store, with isolated `PI_APP_*` delivery and no inference-key/persona fallback.
+- Redact exact application values and JSON-escaped forms from capture/diagnostics;
+  exclude sensitive emitted files and untrusted live credential-stage heartbeats.
+- Remove sensitive stage sessions, resume copies, runtime and outbox on stopped
+  success/failure/cancellation; scan shared snapshots before later dispatch and
+  fail closed on contamination, unknown coverage or uncertain cleanup.
+- Purge registered sensitive material after owned-container crash reconciliation.
+- Test two-persona onboarding/authenticated effects with actual local HTTP clients
+  and independent service observations. Docker/Pi fixtures do not establish live
+  WorkChord, container or model qualification.
+
 ## 4.0.1
 
 - Scan the complete tree before in-place writable admission, including ignored

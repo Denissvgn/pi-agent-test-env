@@ -14,9 +14,15 @@ image authorization.
 | Application comparisons | Fresh scored trials, deliberate failures, cancellation, resume and explicit retries | Finite cases and repetitions; no performance improvement or significance claim |
 | Fixture lookup integration | Real registration, active tool selection, paired calls, independent scores, read-only assets and cleanup | Only the bundled declared profile; arbitrary integrations unsupported |
 | Host admission and stop policy | Native ARM64 checker writes/denials and real controller crash/retry checks, 8 October 2026 | Executor outcomes are synthetic; no new Pi/model measurement |
+| Application credential delivery | Offline secure-store, per-stage delivery, redaction/cleanup and real local HTTP client regressions | Synthetic Docker/Pi boundary; live WorkChord and new-runner image/model execution unqualified |
+| Sandboxed ARM64 browser admission | Native Chromium 154.0.8037.92 DOM/JS and observed Namespace/PID/network/seccomp-BPF state under the pinned chromium-userns policy, 12 October 2026 | Exact image sha256:48f4d11fb94abe894ca21420534652412c742440848bdc998dc3b19d8258b031 and Docker 29.8.1/kernel 7.0.14-linuxkit; no WorkChord login/OIDC/API or new Pi participant qualification |
 | Packaging | Complete extracted manifests, resource hashes, offline regression suite and named-root standards validation | Structural/offline checks do not prove live execution |
 | Parent discovery | Codex CLI 0.144.6 catalog and selected content observed for the entry in version 4.0.1 | No automatic relevance selection or parent model turn claim |
 | Other parents | Antigravity CLI 1.2.9/1.3.1 observations for earlier entries; documented Claude and GUI layouts | Current Antigravity catalog/content unavailable through the authorized UI; Claude/GUI discovery unqualified |
+
+The credential and browser implementations in 4.1.0/4.2.0 change runner bytes. Historical native
+Pi/image/model evidence does not qualify this executor; run fresh qualification
+before a live credential-bearing campaign.
 
 Historical execution evidence remains attached to its original source, runner,
 image, model, experiment and date. Documentation cleanup and repackaging do not
@@ -49,7 +55,8 @@ package metadata.
 
 ## Unqualified capabilities
 
-Browser/WebGL, native AMD64 execution, forced live OOM, image input, broader child
+Application browser flows, comprehensive WebGL tests, native AMD64 execution,
+forced live OOM, image input, broader child
 integrations and unavailable parent discovery remain unqualified. Requested or
 observed reasoning/sampling settings do not establish server enforcement,
 weights identity, deterministic replay or inference timing. Container resource

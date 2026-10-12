@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import application_credentials
 
 
 def digest(value):
@@ -27,7 +28,7 @@ def execution(endpoint,image,root):
             'seed_replay':'not_guaranteed'}
 
 
-def collect_emitted(runtime,logs,secret=''):
+def collect_emitted(runtime,logs,secret='',application_secrets=()):
     """After cleanup only. No-follow each ancestor; no authority is derived from child files."""
     artifacts={}
     for name in ('effective-prompt.txt','effective-configuration.json','agent/models.json','agent/settings.json'):
@@ -42,7 +43,8 @@ def collect_emitted(runtime,logs,secret=''):
                 info=os.fstat(handle.fileno())
                 if not stat.S_ISREG(info.st_mode) or info.st_nlink!=1 or info.st_size>2*1024*1024:raise ValueError('unsafe emission file')
                 body=handle.read(2*1024*1024+1)
-            if secret and secret.encode() in body:raise ValueError('credential found in emission')
+            redactor = application_credentials.Redactor([secret, *application_secrets])
+            if redactor.contains(body):raise ValueError('credential found in emission')
             path=logs/('emitted-'+name.replace('/','-'));path.write_bytes(body)
             artifacts[name]={'sha256':hashlib.sha256(body).hexdigest(),'path':str(path),'origin':'worker_reported'}
         except (OSError,ValueError):artifacts[name]={'status':'unavailable_or_unsafe'}

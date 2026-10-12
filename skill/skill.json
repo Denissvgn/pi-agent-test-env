@@ -1,6 +1,6 @@
 {
   "name": "pi-agent-test-env",
-  "version": "4.0.1",
+  "version": "4.2.0",
   "description": "Evaluate frozen local-agent application cases and the optional reviewed fixture_lookup integration with independent scorers, fresh repeated Pi trials, bounded Docker resources and retained failures; also supports short coding-delegation plans.",
   "language": "en",
   "license": "MIT",
@@ -50,7 +50,7 @@
     },
     {
       "name": "secrets",
-      "description": "Manage model endpoint credentials in owner-only host store (set, status, clear)",
+      "description": "Manage inference and stage-referenced application credentials in the owner-only host store (set, status, clear)",
       "command": "python3 scripts/pi_lab.py secrets status"
     },
     {
@@ -127,6 +127,11 @@
       "name": "smoke",
       "description": "Real paired tool-use challenge plus independent verifier",
       "command": "python3 scripts/pi_lab.py smoke --image <QUALIFIED_IMAGE> --session <SESSION>"
+    },
+    {
+      "name": "browser-check",
+      "description": "Credential-free bounded DOM/JavaScript and observed namespace/seccomp admission; explicit pinned ARM64 browser policy",
+      "command": "python3 scripts/pi_lab.py browser-check --image <QUALIFIED_IMAGE> --platform linux/arm64 --browser-sandbox-policy chromium-userns"
     }
   ],
   "exit_codes": {

@@ -61,7 +61,7 @@ entire snapshot, not only their `cwd`.
 
 ## Credentials and network
 
-The key is taken from the parent environment or the host-side secret store
+The inference key is taken from the parent environment or the host-side secret store
 (`~/.config/pi-agent-test-env/secrets/`, permissions `0600`, directory `0700`, refuses symlinks)
 and supplied as `PI_LAB_API_KEY` only to preflight/Pi. Keys are never stored in project checkouts,
 plan files, container CLI arguments, or chat transcripts. Status commands display only a truncated
@@ -70,9 +70,10 @@ Docker is not a credential-withholding proxy. A short-lived inference-only key i
 preferable. Setup/independent checks receive no forwarded model key, but use a
 clean image because the runner cannot prove that no secret exists in image files.
 
-Raw keys are redacted from captured stdout/stderr. Encoded/transformed credentials
-and arbitrary secrets in source files are not comprehensively scrubbed. Session
-files inside the workspace may contain sensitive content. Do not publish logs or
+The resolved inference key is redacted from captured stdout/stderr.
+Encoded/transformed credentials and arbitrary secrets in source files are not
+comprehensively scrubbed. Session files inside the workspace may contain
+sensitive content. Do not publish logs or
 whole workspaces without review. Do not store keys in Git or screenshot them.
 
 Agent containers need the selected model endpoint and retain ordinary network
@@ -82,6 +83,33 @@ requests through ambient proxies, but is not a firewall. A network-accessible mo
 server could expose tool execution or filesystem functions outside this container.
 Constrain it with server permissions/proxy policy, or use a pure inference endpoint.
 Local LLM server CPU/GPU/memory usage is outside the Pi-container quota.
+
+### Scoped application credentials
+
+Version 4.1.0 admits named application keys on individual agent stages through
+`application_secrets`. Only the assigned worker and its continuation segments
+receive those `PI_APP_*` variables. The owner-only host store remains outside
+snapshots and evidence; setup, preflight, image probes and independent checks
+receive no application values. Missing/insecure entries and inference-key reuse
+fail closed before Docker dispatch. Credential-bearing plans require snapshots;
+`--in-place` is unsupported.
+
+Capture redacts all admitted application keys and the inference key, including
+JSON-escaped forms. Sensitive emitted prompt/configuration files are not retained.
+Raw sessions, resume copies, temporary runtime data and outbox are removed at
+stage end after confirmed container cleanup. Shared snapshots are scanned before
+later stages/checks; contamination or unknown coverage discards the snapshot and
+blocks further dispatch. Uncertain cleanup quarantines the private run. Crash
+recovery purges registered sensitive material only after independent owned-writer
+cleanup. Operator-owned store entries require explicit clearing and server-side
+revocation after the campaign.
+
+A worker with Bash can read and disclose its own key, including to the model or
+network. Exact capture redaction does not scrub arbitrary transformations or
+provide credential withholding, a firewall or forensic secure erasure. Live
+WorkChord/Pi qualification remains separate from offline regression coverage.
+See [APPLICATION-CREDENTIALS.md](APPLICATION-CREDENTIALS.md) for the exact schema,
+terminal commands, ownership, bounded scanning, retention and recovery rules.
 
 ## Acceptance evidence and tampering
 
@@ -99,6 +127,24 @@ attestation from the LLM server. No generated claim is an independent verifier.
 The runner's PASS does not parse the reviewer's prose as approval. A reviewer can
 find a defect while mechanical checks pass. The parent must inspect findings and
 report unresolved ones instead of automatically merging.
+
+## Explicit sandboxed browser policy
+
+`--browser-sandbox-policy chromium-userns` selects a pinned deny-by-default
+seccomp profile for native ARM64 browser containers. It admits exact Chromium
+USER/PID/NET clone/unshare operations and chroot inside its user namespace,
+without granting outer capabilities, host IPC/network namespaces, a writable
+root or an unconfined profile. This expands permitted kernel operations for every
+process in that container, including Bash, so it is an explicit security-policy
+choice. The default remains Docker's policy; failures never trigger automatic
+fallback. Profile hash and source are frozen/rechecked before dispatch.
+
+Chromium admission must observe Namespace, PID/network namespaces and seccomp-BPF
+active on its own diagnostic page. Host/kernel/LSM restrictions may still block
+startup. The model-free browser-check gate supplies no credentials. Frozen
+campaigns require reviewed admission of the new policy and fresh qualification;
+blocked results remain blocked. See [BROWSER.md](BROWSER.md) and the
+[exact policy delta](../assets/security/README.md).
 
 ## Browser exceptions
 

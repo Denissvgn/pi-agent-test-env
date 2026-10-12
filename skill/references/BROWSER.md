@@ -37,7 +37,7 @@ or claim compatibility for an arbitrary Puppeteer/Chromium combination.
 
 The helper sets a temporary user profile below `TMPDIR`, uses
 `--disable-dev-shm-usage` for `--ipc=none`, and honors the explicit sandbox/WebGL
-permissions. Profile/cache/temp directories remain under `/workspace`. Do not
+permissions. Profile/cache/temp directories remain under the isolated `/pi-state` runtime. Do not
 add a writable `/tmp`, host IPC, or a writable root to fix a hardcoded path; patch
 the test to use its assigned temporary directory.
 
@@ -73,10 +73,59 @@ a universal replacement for an HTTP application.
 
 ## Sandbox and WebGL
 
-Keep the browser sandbox enabled first. With non-root/no-capability/read-only
-containers, kernel/user-namespace policies can prevent it from starting. Report
-the exact error; do not remove Docker isolation. For explicitly trusted local
-content only, the parent may pass `--allow-browser-no-sandbox`.
+Keep the browser sandbox enabled. With `cap-drop=ALL` and
+`no-new-privileges=true`, Chromium cannot use its setuid helper; its unprivileged
+USER/PID/NET namespace path needs a compatible seccomp/kernel policy. Docker's
+default profile may deny those operations. This is an environment-admission
+failure, not evidence that the application or Pi is defective. Missing executable,
+namespace denial, missing chroot permission, OOM and absent sandbox observations
+must remain separate failures.
+
+The default `--browser-sandbox-policy docker-default` remains unchanged and never
+falls back. An explicit `--browser-sandbox-policy chromium-userns` selects the
+[pinned policy](../assets/security/README.md) on native Linux ARM64, while retaining
+non-root execution, zero outer capabilities, no-new-privileges, read-only root,
+configured network/IPC isolation and finite resource limits. Its exact namespace
+and chroot syscall permissions change the container policy for every process in
+that browser-profile container, including Bash; review this scope before selection.
+No arbitrary seccomp file, SYS_ADMIN, privileged container or unconfined policy
+is admitted. `chromium-userns` rejects `--allow-browser-no-sandbox` and the core
+profile. Kernels/LSM policies can still prohibit user namespaces; no global host
+sysctl or AppArmor setting is changed automatically.
+
+Use the independent credential-free gate before application deployment/dispatch:
+
+```bash
+python3 "$SKILL_DIR/scripts/pi_lab.py" browser-check \
+  --image "$IMAGE" --platform linux/arm64 \
+  --browser-sandbox-policy chromium-userns \
+  --resources "$SKILL_DIR/assets/resources/browser.json" \
+  --cpus 2 --memory 2g --pids-limit 512 --results-dir /path/to/evidence
+```
+
+This command needs no model session or application key and invokes no Pi
+participant/model. It inspects the selected image, tests DOM/JavaScript and
+requires Chromium's `chrome://sandbox` report to show Namespace, PID/network
+namespaces and seccomp-BPF active. Missing/changed diagnostic labels fail closed;
+a successful launch or a no-sandbox flag being absent is insufficient. Receipts
+retain selected policy bytes/hash, exact command, image/host, actual observations,
+applied limits and container cleanup. Exit 0 qualifies only this narrow browser
+scope; exit 2 blocks admission. Browser/application clients still need separate
+navigation, cookies, login/OIDC, API/WebGL and mutation/readback tests.
+
+Use the same explicit policy with `ensure-image`, `doctor`, `preflight`, `smoke`
+and `run --profile browser`. Experiment execution may declare `profile: "browser"`
+and `browser_sandbox_policy: "chromium-userns"`; these choices and the policy
+identity enter the frozen configuration. A source/runner/policy change requires
+fresh experiments and qualification. Do not silently modify a frozen campaign or
+relabel its blocked episodes. Its operator must admit the new policy and install
+this package before preparing a new run. Existing core/endpoint receipts retain
+their original scoped identities.
+
+For explicitly trusted local content only, the parent may separately select
+`--allow-browser-no-sandbox` under the default container policy. That opt-out
+cannot satisfy a contract requiring sandboxing. The browser-options helper rejects
+sandbox-disable arguments supplied through `extra.args` without the explicit opt-out.
 
 WebGL tests in Docker Desktop may have no hardware GPU. Explicit `--software-webgl`
 adds SwiftShader flags and makes the browser smoke require a WebGL context. This

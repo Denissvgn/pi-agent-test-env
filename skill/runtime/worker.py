@@ -8,6 +8,7 @@ ordered events and continued segments require observed runtime evidence.
 from __future__ import annotations
 import argparse
 import errno
+import browser_sandbox
 import json
 import math
 import os
@@ -203,13 +204,22 @@ def browser(webgl=False):
         args += ['--use-gl=angle', '--use-angle=swiftshader-webgl', '--enable-unsafe-swiftshader']
     args += ['--dump-dom', 'file:///opt/pi-lab/browser-fixture.html']
     html = execute(args, timeout=60)
+    sandbox = {'namespace_and_seccomp_verified': False, 'origin': 'explicit sandbox opt-out'}
+    if os.environ.get('CHROME_NO_SANDBOX') != '1':
+        # A fresh Chromium invocation with the same policy/flags checks actual
+        # namespace + seccomp state. Internal scheme navigation is diagnostic only.
+        status_args = args[:-2] + ['--allow-chrome-scheme-url', '--dump-dom', 'chrome://sandbox']
+        sandbox = browser_sandbox.observed(execute(status_args, timeout=20))
     dom_ok = 'id="probe">BROWSER_OK<' in html
     webgl_ok = 'id="webgl">WEBGL_OK<' in html
     emit({'browser_dom_ok': dom_ok, 'webgl_ok': webgl_ok,
           'no_browser_sandbox': os.environ.get('CHROME_NO_SANDBOX') == '1',
           'software_webgl': os.environ.get('CHROME_SOFTWARE_WEBGL') == '1', 'dom': html})
+    emit({'browser_sandbox': sandbox})
     if not dom_ok or (webgl and not webgl_ok):
         raise RuntimeError('Browser execution or required WebGL context failed')
+    if os.environ.get('CHROME_NO_SANDBOX') != '1' and not sandbox['namespace_and_seccomp_verified']:
+        raise RuntimeError('Chromium namespace/seccomp sandbox state not verified')
 
 
 def norm_arch_str(value: str) -> str:

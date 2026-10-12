@@ -115,6 +115,23 @@ test endpoint, and authorizes check networking. This runner does not provision a
 Docker Compose stack or manage its aggregate resource budget automatically. Never
 pass the Docker socket to Pi or use production credentials in integration tests.
 
+### Authenticated external applications
+
+External-service reachability does not supply authentication. Declare each
+worker's application credential through the schema-1 agent `application_secrets`
+map and place values in the owner-only host store outside the project. The runner
+supplies only that stage's declared `PI_APP_*` variables, separately from the
+inference key. Missing/insecure references and incomplete cleanup block dispatch;
+independent checks remain application-key-free. Only isolated snapshots are
+supported for credential-bearing plans.
+
+For persona onboarding and authenticated effects, retain the application's actual
+handoff payload and an independent service-side identity/effects oracle. A local
+fake service tests the client contract but does not qualify real WorkChord
+semantics. The reviewed fixture profile is unrelated to credential delivery.
+See [APPLICATION-CREDENTIALS.md](APPLICATION-CREDENTIALS.md) for exact usage,
+redaction, snapshot scanning, retention and crash recovery limits.
+
 ## Monorepos and multiple agents
 
 `assets/monorepo.plan.json` illustrates separate API/client starting directories.
