@@ -34,6 +34,7 @@ from builder import limited_build
 import secret_store
 import application_credentials
 import browser_security
+import pr_review_gate
 import lab_env
 import stage_control as controls
 import workspace_patch
@@ -141,6 +142,8 @@ def require_host(args) -> dict:
         raise LabError('Use a non-root host user (or explicitly choose a nonzero --uid and prepare ownership).')
     host_machine = norm_arch(platform.machine())
     daemon_arch = norm_arch(info.get('Architecture', ''))
+    if getattr(args, 'browser_sandbox_policy', 'docker-default') == 'chromium-userns' and daemon_arch != 'arm64':
+        raise LabError('chromium-userns requires observed ARM64 daemon architecture; host inference or emulation is insufficient', 'browser-policy-invalid')
     if args.platform is None:
         args.platform = 'linux/' + (daemon_arch or host_machine)
     if args.platform not in ('linux/arm64', 'linux/amd64'):
@@ -1130,7 +1133,7 @@ def _execute_suite(args,attempt,smoke=False):
         if stage_credentials:
             values = [value for assigned in stage_credentials.values() for value in assigned.values()]
             redactor = application_credentials.Redactor([secret, *values])
-            if redactor.contains(json.dumps(plan, ensure_ascii=False).encode()) or not application_credentials.workspace_clean(workspace, redactor):
+            if redactor.contains(json.dumps(plan, ensure_ascii=False).encode()) or not application_credentials.workspace_inspected_clean(workspace, redactor):
                 shutil.rmtree(workspace)
                 raise LabError('Credential-bearing or uninspectable plan/snapshot; no worker dispatched', 'application-credentials')
         summary['provenance']['agent_profile']={'id':profile['id'],'sha256':agent_profiles.identity(profile),'assets':{a['target']:a['sha256'] for a in profile['assets']}}
@@ -1762,6 +1765,7 @@ def default_lock_file() -> str:
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest='op', required=True)
+    pr_review_gate.add_arguments(sub.add_parser('pr-review-gate', help='Read-only parent GitHub review readiness; no Docker/model execution'))
     experiments.add_parser(sub)
     profile=sub.add_parser('validate-agent-profile');profile.add_argument('--agent-profile',required=True)
     validate = sub.add_parser('validate-plan')
@@ -1905,6 +1909,7 @@ def parser():
 
 def main(argv=None):
     args = parser().parse_args(argv)
+    if args.op == 'pr-review-gate':return pr_review_gate.command(args)
     if args.op in ('validate-experiment','experiment-prepare','experiment-run','experiment-resume','experiment-export','experiment-report'):return experiments.command(args,sys.modules[__name__])
     if args.op=='validate-agent-profile':
         profile=agent_profiles.load(args.agent_profile);print(json.dumps({'valid':True,'profile_id':profile['id'],'sha256':agent_profiles.identity(profile)}));return 0
@@ -1940,7 +1945,11 @@ def browser_check(args):
     """Independent, credential-free browser admission; no model environment required."""
     if args.profile != 'browser':
         raise LabError('browser-check requires the browser profile', 'browser-policy-invalid')
+    if args.allow_browser_no_sandbox:
+        raise LabError('browser-check requires verified sandboxing; the opt-out is available only for separate trusted browser runs', 'browser-policy-invalid')
     host = require_host(args)
+    if not host.get('daemon_architecture') or args.platform != getattr(args, 'native_platform', None):
+        raise LabError('browser-check requires the Docker daemon native platform; emulation cannot qualify native admission', 'browser-policy-invalid')
     root = checked_path(Path(args.results_dir)) / ('browser-' + uuid.uuid4().hex)
     root.mkdir(parents=True, mode=0o700)
     args._attempt_root = root
@@ -1967,8 +1976,9 @@ def browser_check(args):
         dom = [row for row in observations if isinstance(row, dict) and row.get('browser_dom_ok') is True]
         sandbox = [row.get('browser_sandbox', {}) for row in observations if isinstance(row, dict) and 'browser_sandbox' in row]
         passed = (process.get('exit_code') == 0 and process.get('cleanup_confirmed') is True and len(dom) == 1
+                  and dom[0].get('no_browser_sandbox') is False
                   and (not args.software_webgl or dom[0].get('webgl_ok') is True)
-                  and (args.allow_browser_no_sandbox or len(sandbox) == 1 and sandbox[0].get('namespace_and_seccomp_verified') is True))
+                  and len(sandbox) == 1 and sandbox[0].get('namespace_and_seccomp_verified') is True)
         report['status'] = 'PASS' if passed else 'BLOCKED'
         if not passed:
             detail = (root / 'browser/stderr.log').read_text(errors='replace')

@@ -29,6 +29,26 @@ inputs, separate from the maintainer suite.
 
 ## Prepare distributables
 
+Before merging a PR, read all review submissions and inline threads, including
+outdated unresolved threads. Wait for this repository's automatic Copilot review
+on the exact final head; it can finish after a PR becomes mergeable. Fix and test
+valid findings, document any rejected finding's evidence, and resolve only
+supported dispositions. A later push requires new exact-head review evidence.
+
+Run the read-only gate immediately before an authorized merge:
+
+```bash
+python3 skill/scripts/pr_review_gate.py --repo Denissvgn/pi-agent-test-env \
+  --pr PR_NUMBER --head VERIFIED_HEAD_SHA --expect-reviewer Copilot
+```
+
+Pending/missing reviews, stale heads, unresolved threads, requests for changes,
+incomplete API evidence and failing/in-progress checks block merging. No timeout
+or admin bypass turns them into a pass. Use `--match-head-commit` for the merge.
+See [the promotion procedure](skill/references/PULL-REQUESTS.md). Build release
+artifacts from the final reviewed tree and preserve published tags/assets when
+shipping a corrective patch version.
+
 ```bash
 python3 tools/build_release.py --output-dir /tmp/pi-agent-release
 python3 tools/verify_release.py --archives /tmp/pi-agent-release \

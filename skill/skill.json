@@ -1,6 +1,6 @@
 {
   "name": "pi-agent-test-env",
-  "version": "4.2.0",
+  "version": "4.2.1",
   "description": "Evaluate frozen local-agent application cases and the optional reviewed fixture_lookup integration with independent scorers, fresh repeated Pi trials, bounded Docker resources and retained failures; also supports short coding-delegation plans.",
   "language": "en",
   "license": "MIT",
@@ -132,6 +132,11 @@
       "name": "browser-check",
       "description": "Credential-free bounded DOM/JavaScript and observed namespace/seccomp admission; explicit pinned ARM64 browser policy",
       "command": "python3 scripts/pi_lab.py browser-check --image <QUALIFIED_IMAGE> --platform linux/arm64 --browser-sandbox-policy chromium-userns"
+    },
+    {
+      "name": "pr-review-gate",
+      "description": "Parent-host read-only GitHub exact-head review/readiness gate; requires authenticated gh CLI and never merges",
+      "command": "python3 scripts/pi_lab.py pr-review-gate --repo OWNER/REPOSITORY --pr 1 --head VERIFIED_HEAD_SHA --expect-reviewer Copilot"
     }
   ],
   "exit_codes": {

@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 export function browserOptions(extra = {}) {
-  const forbidden = ['--no-sandbox', '--disable-namespace-sandbox', '--disable-seccomp-filter-sandbox', '--disable-setuid-sandbox', '--single-process'];
+  const forbidden = ['--no-sandbox', '--disable-namespace-sandbox', '--disable-seccomp-filter-sandbox', '--disable-setuid-sandbox', '--disable-gpu-sandbox', '--single-process'];
   if (process.env.CHROME_NO_SANDBOX !== '1' && (extra.args || []).some(arg => forbidden.includes(arg.split('=')[0]))) {
     throw new Error('Sandbox-disabling browser arguments require the explicit sandbox opt-out');
   }

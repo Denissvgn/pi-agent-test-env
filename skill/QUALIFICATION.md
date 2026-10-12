@@ -20,7 +20,7 @@ image authorization.
 | Parent discovery | Codex CLI 0.144.6 catalog and selected content observed for the entry in version 4.0.1 | No automatic relevance selection or parent model turn claim |
 | Other parents | Antigravity CLI 1.2.9/1.3.1 observations for earlier entries; documented Claude and GUI layouts | Current Antigravity catalog/content unavailable through the authorized UI; Claude/GUI discovery unqualified |
 
-The credential and browser implementations in 4.1.0/4.2.0 change runner bytes. Historical native
+The credential and browser implementations and review corrections in 4.1.0/4.2.x change runner bytes. Historical native
 Pi/image/model evidence does not qualify this executor; run fresh qualification
 before a live credential-bearing campaign.
 

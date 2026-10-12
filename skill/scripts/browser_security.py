@@ -36,8 +36,11 @@ def verify(path):
 
 
 def for_args(args):
-    return selection(getattr(args, 'profile', 'core'), getattr(args, 'browser_sandbox_policy', 'docker-default'),
-                     getattr(args, 'platform', None), getattr(args, 'allow_browser_no_sandbox', False))
+    selected = selection(getattr(args, 'profile', 'core'), getattr(args, 'browser_sandbox_policy', 'docker-default'),
+                         getattr(args, 'platform', None), getattr(args, 'allow_browser_no_sandbox', False))
+    if selected['policy'] == 'chromium-userns' and getattr(args, 'native_platform', None) != 'linux/arm64':
+        raise ValueError('chromium-userns requires a verified native ARM64 Docker daemon; emulation is unsupported')
+    return selected
 
 
 def freeze(args, destination):
