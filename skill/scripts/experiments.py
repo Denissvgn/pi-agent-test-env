@@ -14,6 +14,7 @@ import uuid
 import lab_env
 import agent_profiles
 import provenance
+import browser_security
 import resources
 import scoring
 import stage_control as controls
@@ -80,7 +81,11 @@ def validate(path,lab,endpoint_path=None):
     if type(value['repetitions']) is not int or not 1<=value['repetitions']<=10:raise ExperimentError('repetitions must be 1..10')
     default_budget=budget(value['budgets'])
     execution=copy.deepcopy(value['execution'])
-    object_fields(execution,('image','platform','resources','environment','network'),('image','platform','resources'))
+    object_fields(execution,('image','platform','resources','environment','network','profile','browser_sandbox_policy'),('image','platform','resources'))
+    if execution.get('profile', 'core') not in ('core', 'browser'):
+        raise ExperimentError('Invalid runtime profile')
+    if execution.get('browser_sandbox_policy', 'docker-default') != 'docker-default':
+        execution['browser_security'] = browser_security.selection(execution.get('profile','core'), execution['browser_sandbox_policy'], execution['platform'])
     if not isinstance(execution['image'],str) or not re.fullmatch(r'sha256:[a-f0-9]{64}',execution['image']):raise ExperimentError('Explicit immutable image ID required; qualify a trusted image first')
     if execution['platform'] not in ('linux/arm64','linux/amd64'):raise ExperimentError('Explicit supported native platform required')
     execution['resources']=resources.validate_policy(read_json(input_path(base,execution['resources'])))
@@ -379,8 +384,10 @@ def trial_args(root,metadata,cell,lab,session):
           '--endpoint',str(root/cell['endpoint']),'--agent-profile',str(root/cell['agent_profile']),'--results-dir',str(root/'runs'),
           '--image',metadata['execution']['image'],'--platform',metadata['execution']['platform'],
           '--resources',str(root/'inputs/resources.json'),'--network',metadata['execution']['network']]
+    argv += ['--profile', metadata['execution'].get('profile', 'core'), '--browser-sandbox-policy', metadata['execution'].get('browser_sandbox_policy', 'docker-default')]
     if (root/'inputs/environment.json').exists():argv+=['--environment',str(root/'inputs/environment.json')]
     args=lab.parser().parse_args(argv);args.session=session
+    args._experiment_root = str(root)
     # Core run_suite still acquires the same global admission lease for every trial.
     return args
 
@@ -561,6 +568,9 @@ def cleanup_owned(root,intent,metadata,lab):
             absent=lab.command(['docker','container','inspect',name],timeout=10,required=False)
             if absent.returncode==0 or 'No such container' not in absent.stderr:raise ExperimentError('Abandoned writer absence unconfirmed')
             observations.append({'container':name,'cleanup':'matched_removed_and_absent'})
+        # Keep sensitive filesystem cleanup under the same host writer lease.
+        import application_credentials
+        application_credentials.recover(run)
     return observations
 
 

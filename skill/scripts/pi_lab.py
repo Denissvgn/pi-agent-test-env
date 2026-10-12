@@ -32,6 +32,8 @@ from evidence import analyze
 from resources import configure, requested_policy, thread_environment, admission_lock
 from builder import limited_build
 import secret_store
+import application_credentials
+import browser_security
 import lab_env
 import stage_control as controls
 import workspace_patch
@@ -237,15 +239,20 @@ def docker_args(args, image: str, workspace: Path, control: Path, state: Path,
     else:
         # A reused image must not contain credentials (also checked by image_info).
         result += ['--env', 'PI_LAB_API_KEY=']
+    result += browser_security.docker_options(args, workspace)
     return result + [image, '/opt/pi-lab/worker.py']
 
 
 def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
-               secret: str = '', max_bytes: int = 64 * 1024 * 1024, stage=None, keep_budget=False, resume_budget=False) -> dict:
+               secret: str = '', max_bytes: int = 64 * 1024 * 1024, stage=None, keep_budget=False, resume_budget=False,
+               application_secrets=None, redaction_secrets=()) -> dict:
     """Drain both pipes continuously. Bound wall time/log size; remove the container on all exits."""
     logdir.mkdir(parents=True, exist_ok=True)
     save(logdir / 'command.json', {'argv': argv, 'api_key_inherited': bool(secret), 'started_at': now()})
-    env = dict(os.environ)
+    application_secrets = application_secrets or {}
+    redactor = application_credentials.Redactor([secret, *application_secrets.values(), *redaction_secrets])
+    env = {k: v for k, v in os.environ.items() if not k.startswith('PI_APP_')}
+    env.update(application_secrets)
     if secret:
         env['PI_LAB_API_KEY'] = secret
     else:
@@ -262,14 +269,13 @@ def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
     def drain(pipe, path):
         total = 0
         pending = b''
-        key = secret.encode() if secret else b''
         try:
             with path.open('wb') as out:
                 while True:
                     data = pipe.read(65536)
                     if not data:
                         if pending:
-                            out.write(pending.replace(key, b'<REDACTED>') if key else pending)
+                            out.write(redactor.bytes(pending))
                         break
                     total += len(data)
                     if total > max_bytes:
@@ -278,13 +284,13 @@ def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
                     pending += data
                     while b'\n' in pending:
                         line, pending = pending.split(b'\n', 1)
-                        out.write((line.replace(key, b'<REDACTED>') if key else line) + b'\n')
+                        out.write(redactor.bytes(line) + b'\n')
                         out.flush()
                     if len(pending) > 16 * 1024 * 1024:
                         over.set()
                         pending = b''
         except Exception as exc:
-            capture_errors.append(str(exc))
+            capture_errors.append(redactor.value(str(exc)))
             over.set()
         finally:
             pipe.close()
@@ -392,6 +398,8 @@ def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
         if not result.get('cleanup_confirmed'):
             result['termination_trigger']=trigger;result['termination_reason']='cleanup_error';result['exit_code']=2
         result['elapsed_seconds'] = round(time.monotonic() - start, 3)
+        sanitized = redactor.value(result)
+        result.clear(); result.update(sanitized)
         save(logdir / 'process.json', result)
     return result
 
@@ -405,6 +413,8 @@ def image_info(image: str, selected_platform: str) -> dict:
         raise LabError('Image declares VOLUME entries; implicit writable mounts violate this runtime contract')
     for value in data.get('Config', {}).get('Env') or []:
         name, _, content = value.partition('=')
+        if name.startswith('PI_APP_'):
+            raise LabError('Image declares the reserved application-credential namespace; use a clean image')
         if content and re.search(r'(API_KEY|ACCESS_TOKEN|AUTH_TOKEN|PASSWORD|SECRET)$', name):
             raise LabError(f'Image contains potential baked credential variable {name}; use a clean image')
     return {'id': data['Id'], 'reference': image, 'platform': actual,
@@ -655,9 +665,14 @@ def validate_plan(value: dict, base: Path, agent_profile=None) -> dict:
         if not isinstance(task, dict):
             raise LabError('Each agent stage must be an object')
         if set(task) - {'name', 'prompt', 'prompt_file', 'tools', 'require_tools', 'access',
-                        'timeout_seconds', 'max_turns', 'max_total_tokens', 'cwd'}:
+                        'timeout_seconds', 'max_turns', 'max_total_tokens', 'cwd', 'application_secrets'}:
             raise LabError(f'Unknown field in agent {i}')
         t = dict(task)
+        if 'application_secrets' in t:
+            try:
+                t['application_secrets'] = application_credentials.validate(t['application_secrets'])
+            except application_credentials.CredentialError as exc:
+                raise LabError(str(exc), exc.reason) from None
         if ('prompt' in t) == ('prompt_file' in t):
             raise LabError('Each agent needs exactly one of prompt or prompt_file')
         if 'prompt_file' in t:
@@ -855,7 +870,14 @@ def trusted_runtime(runroot):
 
 
 def run_stage(args, image: str, runroot: Path, workspace: Path, label: str,
-              operation: list[str], task=None, endpoint=None, secret='', access='rw', network=None, timeout=120, scorer_assets=None):
+              operation: list[str], task=None, endpoint=None, secret='', access='rw', network=None, timeout=120, scorer_assets=None,
+              application_secrets=None, redaction_secrets=()):
+    application_secrets = application_secrets or {}
+    if (task or {}).get('application_secrets') and not application_secrets:
+        raise LabError('Assigned application credentials were not resolved', 'application-credentials')
+    if application_secrets and (operation[0] != 'agent' or workspace != runroot / 'workspace'
+                                or set(application_secrets) != set((task or {}).get('application_secrets', {}))):
+        raise LabError('Application credentials require an assigned agent and owned snapshot', 'application-credentials')
     if workspace.resolve()==runroot.resolve() or workspace.resolve() in runroot.resolve().parents:
         raise LabError('Parent run/control sources must remain outside the workspace')
     helpers=trusted_runtime(runroot)
@@ -881,6 +903,9 @@ def run_stage(args, image: str, runroot: Path, workspace: Path, label: str,
     if scorer_assets:
         argv[-2:-2]=['--mount',f"type=bind,src={scorer_assets['root']},dst=/opt/pi-scorer,readonly,bind-recursive=disabled"]
     desc = controls.create(runroot, workspace, label, operation[0], task, control, state, stage_id, name, getattr(args,'lock_file',default_lock_file()))
+    credential_receipt = runroot / 'stages' / stage_id / 'application-credentials.json'
+    if application_secrets:
+        controls.atomic(credential_receipt, {'schema': 1, 'references': task['application_secrets'], 'status': 'pending'})
     argv[-2:-2]=['--env',f"PI_LAB_RUN_ID={desc['run_id']}",'--env',f"PI_LAB_ATTEMPT_ID={desc['attempt_id']}"]
     with controls.lock(runroot):
         running = controls.transition(runroot, desc, 'running', started_at=now())
@@ -888,8 +913,9 @@ def run_stage(args, image: str, runroot: Path, workspace: Path, label: str,
     try:
         controls.atomic(control / 'stage.json', {**desc, 'stage_revision':running['revision']}, 0o644)
         if operation[0]=='agent':
-            result=segments.execute(sys.modules[__name__],args,image,runroot,workspace,label,task,endpoint,secret,desc,access,network or args.network,timeout,helpers)
-        else:result = stream_run(argv + operation, runroot / label, timeout, name, secret)
+            result=segments.execute(sys.modules[__name__],args,image,runroot,workspace,label,task,endpoint,secret,desc,access,network or args.network,timeout,helpers,
+                                    application_secrets=application_secrets, redaction_secrets=redaction_secrets)
+        else:result = stream_run(argv + operation, runroot / label, timeout, name, secret, redaction_secrets=redaction_secrets)
         return result
     finally:
         if not result and (runroot/label/'process.json').exists():
@@ -899,6 +925,16 @@ def run_stage(args, image: str, runroot: Path, workspace: Path, label: str,
         except (OSError,ValueError,controls.ControlError):
             result['observation_error']=True;result['exit_code']=2
         controls.transition(runroot, desc, 'stopping')
+        if application_secrets:
+            receipt = application_credentials.finish(runroot, desc, application_secrets, secret, result, redaction_secrets)
+            controls.atomic(credential_receipt, {**receipt, 'references': task['application_secrets']})
+            result['application_credentials'] = receipt
+            if receipt['status'] != 'removed' or receipt['workspace'] != 'clean':
+                result.update(exit_code=2, termination_reason='application_credential_cleanup')
+                result['cleanup_confirmed'] = False
+                if result.get('evidence'):
+                    result['evidence'].update(agent_invocation_verified=False, completion_verified=False, invocation_status='invalid')
+            save(runroot / label / 'process.json', result)
         controls.transition(runroot, desc, 'stopped', exit_code=result.get('exit_code'),
                             cleanup_confirmed=result.get('cleanup_confirmed', False))
         controls.transition(runroot, desc, 'finalized')
@@ -1023,8 +1059,22 @@ def _execute_suite(args,attempt,smoke=False):
     summary['endpoint']['routes']={name:{'url':endpoint.get(name,endpoint['base_url']),'digest':hashlib.sha256(endpoint.get(name,endpoint['base_url']).encode()).hexdigest()} for name in ('base_url','host_base_url')}
     summary['infrastructure']['phase']='secret'
     secret = endpoint_secret(endpoint, args)
+    # Admit every reference before image probes, setup or any worker dispatch.
+    project = checked_path(Path(args.project)) if args.project else None
+    admitted_plan = None
+    stage_credentials = {}
+    if not smoke and project is not None and args.plan:
+        planpath = checked_path(Path(args.plan))
+        admitted_plan = validate_plan(json.loads(planpath.read_text()), planpath.parent, profile)
+        secret_store_outside(project, args)
+        stage_credentials = application_credentials.resolve(admitted_plan, endpoint, secret,
+            getattr(args, 'secrets_dir', None) or secret_store.default_store(), project, runroot, args.in_place,
+            forbidden_roots=[ROOT, getattr(args, '_experiment_root', None)])
+    redaction_secrets = [value for assigned in stage_credentials.values() for value in assigned.values()]
     summary['infrastructure']['phase']='host'
     summary['host'] = require_host(args)
+    args.frozen_browser_security = browser_security.freeze(args, runroot / 'browser-security')
+    summary['browser_security'] = args.frozen_browser_security
     summary['infrastructure']['phase']='image'
     image = probe_image(args, args.image);summary['image']=image
     observed=re.search(r'\b(\d+\.\d+\.\d+)\b',image.get('capabilities',{}).get('pi',''))
@@ -1036,7 +1086,6 @@ def _execute_suite(args,attempt,smoke=False):
     summary['reasoning']=reasoning_receipt
     summary['provenance']=provenance.execution(endpoint,image,ROOT)
     attempt.persist()
-    project = checked_path(Path(args.project)) if args.project else None
     if project is not None and (not project.is_dir() or project == Path('/') or project == Path.home()):
         raise LabError('Choose a project directory, not / or your complete home','invalid-project')
     secret_store_outside(project, args)
@@ -1066,8 +1115,7 @@ def _execute_suite(args,attempt,smoke=False):
         else:
             if project is None or not args.plan:
                 raise LabError('run needs --project and --plan')
-            planpath = checked_path(Path(args.plan))
-            plan = validate_plan(json.loads(planpath.read_text()), planpath.parent,profile)
+            plan = admitted_plan
             if args.in_place:
                 # Admission covers the complete writable mount; tree_hashes()
                 # remains a filtered change inventory, not a safety scanner.
@@ -1079,6 +1127,12 @@ def _execute_suite(args,attempt,smoke=False):
                 summary['copy'] = snapshot(project, workspace, args.exclude, args.max_project_mb)
                 summary['workspace_mode'] = 'isolated-copy'
         plan=agent_profiles.apply(plan,profile)
+        if stage_credentials:
+            values = [value for assigned in stage_credentials.values() for value in assigned.values()]
+            redactor = application_credentials.Redactor([secret, *values])
+            if redactor.contains(json.dumps(plan, ensure_ascii=False).encode()) or not application_credentials.workspace_clean(workspace, redactor):
+                shutil.rmtree(workspace)
+                raise LabError('Credential-bearing or uninspectable plan/snapshot; no worker dispatched', 'application-credentials')
         summary['provenance']['agent_profile']={'id':profile['id'],'sha256':agent_profiles.identity(profile),'assets':{a['target']:a['sha256'] for a in profile['assets']}}
         check_project_contract(workspace, plan)
         save(runroot / 'plan.json', plan)
@@ -1104,18 +1158,18 @@ def _execute_suite(args,attempt,smoke=False):
                 if t['network'] == 'inherit' and not allowed:
                     raise LabError(f'{phase}/{t["name"]} requests networking: review it and explicitly allow that phase')
         summary['infrastructure']['phase']='preflight'
-        boundary_result = run_stage(args, image['id'], runroot, workspace, 'boundary', ['boundary'], network='none')
+        boundary_result = run_stage(args, image['id'], runroot, workspace, 'boundary', ['boundary'], network='none', redaction_secrets=redaction_secrets)
         attempt.process(boundary_result)
         if boundary_result['exit_code'] or boundary_result.get('cleanup_confirmed') is not True:
             raise LabError('Filesystem isolation probe failed; inspect boundary/stderr.log')
         api = run_stage(args, image['id'], runroot, workspace, 'preflight', ['preflight'],
-                        endpoint=endpoint, secret=secret, timeout=150)
+                        endpoint=endpoint, secret=secret, timeout=150, redaction_secrets=redaction_secrets)
         attempt.process(api)
         if api['exit_code'] or api.get('cleanup_confirmed') is not True:
             raise LabError('Model endpoint preflight failed; inspect preflight/stderr.log. No fallback used.')
         if args.profile == 'browser':
             browser_result = run_stage(args, image['id'], runroot, workspace, 'browser',
-                                      ['browser'] + (['--webgl'] if args.software_webgl else []), network='none')
+                                      ['browser'] + (['--webgl'] if args.software_webgl else []), network='none', redaction_secrets=redaction_secrets)
             attempt.process(browser_result)
             if browser_result['exit_code'] or browser_result.get('cleanup_confirmed') is not True:
                 raise LabError('Real Chromium smoke failed. Inspect browser/stderr.log; do not auto-disable its sandbox.')
@@ -1123,7 +1177,7 @@ def _execute_suite(args,attempt,smoke=False):
         for i, t in enumerate(plan['setup']):
             label = f'setup-{i+1}-{t["name"]}'
             r = run_stage(args, image['id'], runroot, workspace, label, ['check'], task=t,
-                          network=args.network if t['network'] == 'inherit' else 'none', timeout=t['timeout_seconds'])
+                          network=args.network if t['network'] == 'inherit' else 'none', timeout=t['timeout_seconds'], redaction_secrets=redaction_secrets)
             attempt.process(r)
             if r['exit_code'] or r.get('cleanup_confirmed') is not True:
                 raise LabError(f'Setup command failed: {label}')
@@ -1136,7 +1190,8 @@ def _execute_suite(args,attempt,smoke=False):
             summary['invocation']['status']='invalid'
             attempt.persist()
             r = run_stage(args, image['id'], runroot, workspace, label, ['agent'], task=task,
-                          endpoint=endpoint, secret=secret, access=task['access'], timeout=task['timeout_seconds'] + 30)
+                          endpoint=endpoint, secret=secret, access=task['access'], timeout=task['timeout_seconds'] + 30,
+                          application_secrets=stage_credentials.get(task['name']), redaction_secrets=redaction_secrets)
             summary['invocation']['status']='invalid'
             attempt.cause(r.get('termination_reason','completed' if r['exit_code']==0 else 'process_error'),r['exit_code'])
             if not r.get('cleanup_confirmed',False):attempt.cause('cleanup_error')
@@ -1160,7 +1215,7 @@ def _execute_suite(args,attempt,smoke=False):
         summary['measurement']={'usage':combine_usage([row['process'].get('usage',summarize_usage([])) for row in summary['agents']]),
             'agent_process_seconds':sum(row['process'].get('timing',{}).get('stage_end_to_end_seconds',row['process'].get('elapsed_seconds',0)) for row in summary['agents']),
             'inference_seconds':None,'inference_timing_status':'not_exposed'}
-        score_artifacts(args,attempt,plan,image,workspace,scorer_receipts)
+        score_artifacts(args,attempt,plan,image,workspace,scorer_receipts,redaction_secrets=redaction_secrets)
         safe=all(row['process'].get('cleanup_confirmed') is True for row in summary['agents'])
         if safe:
             after = tree_hashes(workspace)
@@ -1179,7 +1234,7 @@ def _execute_suite(args,attempt,smoke=False):
         attempt.persist()
 
 
-def score_artifacts(args,attempt,plan,image,workspace,receipts,post_cancel=False):
+def score_artifacts(args,attempt,plan,image,workspace,receipts,post_cancel=False,redaction_secrets=()):
     summary=attempt.record;runroot=attempt.root
     def skipped(reason,start=0):
         rows=[{'schema':1,'scorer_id':t.get('scorer',{}).get('id','command-only'),
@@ -1217,7 +1272,7 @@ def score_artifacts(args,attempt,plan,image,workspace,receipts,post_cancel=False
             process=run_stage(args,image['id'],runroot,copy_root,label,['check'],task=check,
                               network=args.network if check['network']=='inherit' else 'none',
                               timeout=check['timeout_seconds'],access='ro' if check.get('scorer') else 'rw',
-                              scorer_assets=receipts.get(index))
+                              scorer_assets=receipts.get(index),redaction_secrets=redaction_secrets)
         except KeyboardInterrupt:
             result={'schema':1,'scorer_id':check.get('scorer',{}).get('id','command-only'),'status':'cancelled',
                     'reason':'user_cancelled','task_status':'unknown','score':None,'test_counts':None,'assertions':None}
@@ -1341,7 +1396,8 @@ def cmd_status(args):
     stage_label = active.get('label') or 'unknown'
     heartbeat_file = Path(desc['outbox']) / 'heartbeat.json' if desc else None
     heartbeat = {}
-    if heartbeat_file and heartbeat_file.exists():
+    credential_stage = desc and (runroot / 'stages' / desc['stage_id'] / 'application-credentials.json').exists()
+    if heartbeat_file and heartbeat_file.exists() and not credential_stage:
         try:
             observed = controls.observations(desc)
             heartbeat = observed.get('heartbeat', {})
@@ -1669,7 +1725,7 @@ def cmd_secrets(args) -> int:
             path = secret_store.write_secret(args.name, value, store)
             print(json.dumps({'stored': args.name, 'path': str(path), 'mode': '0600',
                               'fingerprint': secret_store.fingerprint(value),
-                              'note': 'An exported environment variable with the same name still takes precedence.'}, indent=2))
+                              'note': 'Inference resolution prefers exported variables; application references use the store only.'}, indent=2))
             return 0
         if args.secrets_op == 'clear':
             removed = secret_store.delete_secret(args.name, store)
@@ -1746,15 +1802,15 @@ def parser():
     patch_cmd.add_argument('--message', help='Unsupported for pending-stage patching; explicitly rejected')
     patch_cmd.add_argument('--interrupt', action='store_true', help='Unsupported for pending-stage patching; explicitly rejected')
 
-    sec_cmd = sub.add_parser('secrets', help='Manage endpoint keys in the host-side owner-only secret store')
+    sec_cmd = sub.add_parser('secrets', help='Manage inference/application keys in the host-side owner-only secret store')
     sec_sub = sec_cmd.add_subparsers(dest='secrets_op', required=True)
     sec_set = sec_sub.add_parser('set', help='Store a key with hidden terminal input (or --stdin / --from-file)')
-    sec_set.add_argument('name', nargs='?', default='PI_API_KEY', help='Key environment variable name (default: PI_API_KEY)')
+    sec_set.add_argument('name', nargs='?', default='PI_API_KEY', help='Named host-store entry (default inference key: PI_API_KEY)')
     sec_set.add_argument('--stdin', action='store_true', help='Read secret from stdin (e.g. piped from password manager)')
     sec_set.add_argument('--from-file', help='Read secret from an existing local file')
     sec_set.add_argument('--secrets-dir', help='Override secrets store directory')
     sec_clear = sec_sub.add_parser('clear', help='Remove a stored key')
-    sec_clear.add_argument('name', nargs='?', default='PI_API_KEY', help='Key environment variable name (default: PI_API_KEY)')
+    sec_clear.add_argument('name', nargs='?', default='PI_API_KEY', help='Named host-store entry (default inference key: PI_API_KEY)')
     sec_clear.add_argument('--secrets-dir')
     sec_status = sec_sub.add_parser('status', help='Show fingerprint and source (never the secret itself)')
     sec_status.add_argument('names', nargs='*', help='Key names (defaults to key named in endpoint file, or PI_API_KEY)')
@@ -1775,6 +1831,7 @@ def parser():
     doc.add_argument('--lock-wait-seconds', type=int, default=0)
     doc.add_argument('--platform', choices=['linux/arm64', 'linux/amd64'])
     doc.add_argument('--profile', choices=['core', 'browser'], default='core')
+    doc.add_argument('--browser-sandbox-policy', choices=browser_security.POLICIES, default='docker-default')
     doc.add_argument('--environment')
     doc.add_argument('--resources')
     doc.add_argument('--memory')
@@ -1786,10 +1843,12 @@ def parser():
     doc.add_argument('--uid', type=int, default=os.getuid() if hasattr(os, 'getuid') else 1000)
     doc.add_argument('--gid', type=int, default=os.getgid() if hasattr(os, 'getgid') else 1000)
 
-    for name in ('ensure-image', 'preflight', 'smoke', 'run'):
+    for name in ('ensure-image', 'preflight', 'smoke', 'run', 'browser-check'):
         q = sub.add_parser(name)
-        q.add_argument('--image', default=DEFAULT_IMAGE)
-        q.add_argument('--profile', choices=['core', 'browser'], default='core')
+        q.add_argument('--image', default=DEFAULT_IMAGE, required=name=='browser-check')
+        q.add_argument('--profile', choices=['core', 'browser'], default='browser' if name=='browser-check' else 'core')
+        q.add_argument('--browser-sandbox-policy', choices=browser_security.POLICIES, default='docker-default',
+                       help='Explicit browser container policy; chromium-userns retains Chromium namespace/seccomp sandboxing')
         q.add_argument('--environment', help='Reviewed JSON file with additional image commands/version probes')
         q.add_argument('--host-gateway', action='store_true', help='Map host.docker.internal to host-gateway for local Linux Docker')
         q.add_argument('--platform', choices=['linux/arm64', 'linux/amd64'])
@@ -1806,6 +1865,8 @@ def parser():
                        help='Explicit opt-in for trusted local pages only; never auto-enabled')
         q.add_argument('--software-webgl', action='store_true',
                        help='Explicit opt-in to unsafe SwiftShader software rendering for trusted tests')
+        if name == 'browser-check':
+            q.add_argument('--results-dir', default=default_runs_dir())
         if name == 'ensure-image':
             q.add_argument('--policy', choices=['auto', 'reuse', 'build'], default='auto')
             q.add_argument('--reuse', action='append', default=[], metavar='TRUSTED_IMAGE')
@@ -1826,7 +1887,7 @@ def parser():
             q.add_argument('--network', default='bridge')
             q.add_argument('--results-dir', default=default_runs_dir())
             q.add_argument('--secrets-dir', help='Override secrets store directory')
-            q.add_argument('--prompt-secret', action='store_true', help='Prompt interactively on terminal if secret is missing')
+            q.add_argument('--prompt-secret', action='store_true', help='Prompt interactively on terminal if the inference key is missing')
         if name in ('run', 'smoke'):
             q.add_argument('--agent-profile',help='Explicit reviewed integration profile; defaults to empty built-in baseline')
             q.add_argument('--event-contract', choices=['settled', 'process-exit'], default='settled',
@@ -1875,7 +1936,59 @@ def main(argv=None):
         return dispatch(args)
 
 
+def browser_check(args):
+    """Independent, credential-free browser admission; no model environment required."""
+    if args.profile != 'browser':
+        raise LabError('browser-check requires the browser profile', 'browser-policy-invalid')
+    host = require_host(args)
+    root = checked_path(Path(args.results_dir)) / ('browser-' + uuid.uuid4().hex)
+    root.mkdir(parents=True, mode=0o700)
+    args._attempt_root = root
+    args._attempt_identity = {'run_id': str(uuid.uuid4()), 'attempt_id': str(uuid.uuid4())}
+    save(root / 'identity.json', {'schema': 2, **args._attempt_identity})
+    report = {'schema': 1, 'document_type': 'browser_admission', 'status': 'BLOCKED',
+              'image_reference': args.image, 'host': host, 'evidence': str(root),
+              'credentials_supplied': False, 'pi_participant_invocations': 0,
+              'scope': 'Browser DOM/JavaScript and sandbox admission only; no application or model qualification'}
+    save(root / 'browser-admission.json', report)
+    try:
+        args.frozen_browser_security = browser_security.freeze(args, root / 'browser-security')
+        report['browser_security'] = args.frozen_browser_security
+        image = probe_image(args, args.image); report['image'] = image
+        report['provenance'] = provenance.execution({}, image, ROOT)
+        workspace = root / 'workspace'; workspace.mkdir()
+        args.network = 'none'
+        process = run_stage(args, image['id'], root, workspace, 'browser',
+                            ['browser'] + (['--webgl'] if args.software_webgl else []), network='none', timeout=90)
+        report['process'] = process
+        stdout = root / 'browser' / 'stdout.jsonl'
+        observations = [json.loads(line) for line in stdout.read_text().splitlines() if line.strip()]
+        report['observations'] = observations
+        dom = [row for row in observations if isinstance(row, dict) and row.get('browser_dom_ok') is True]
+        sandbox = [row.get('browser_sandbox', {}) for row in observations if isinstance(row, dict) and 'browser_sandbox' in row]
+        passed = (process.get('exit_code') == 0 and process.get('cleanup_confirmed') is True and len(dom) == 1
+                  and (not args.software_webgl or dom[0].get('webgl_ok') is True)
+                  and (args.allow_browser_no_sandbox or len(sandbox) == 1 and sandbox[0].get('namespace_and_seccomp_verified') is True))
+        report['status'] = 'PASS' if passed else 'BLOCKED'
+        if not passed:
+            detail = (root / 'browser/stderr.log').read_text(errors='replace')
+            report['reason'] = 'browser-sandbox-blocked' if any(s in detail for s in ('namespace', 'sys_chroot', 'No usable sandbox')) else 'browser-admission-failed'
+            if report['reason'] == 'browser-sandbox-blocked':report['remedy'] = remedy(report['reason'])
+    except KeyboardInterrupt:
+        report['reason'] = 'cancelled'
+        raise
+    except (OSError, ValueError, LabError, controls.ControlError) as exc:
+        report['reason'] = getattr(exc, 'reason', '') or 'browser-admission-failed'
+        report['error_type'] = type(exc).__name__
+    finally:
+        save(root / 'browser-admission.json', report)
+    print(json.dumps(report, indent=2))
+    return 0 if report['status'] == 'PASS' else 2
+
+
 def dispatch(args):
+    if args.op == 'browser-check':
+        return browser_check(args)
     if args.op == 'ensure-image':
         print(json.dumps(ensure_image(args), indent=2))
         return 0

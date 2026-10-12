@@ -1,6 +1,6 @@
 # pi-agent-test-env
 
-[![Version](https://img.shields.io/badge/version-4.0.1-blue)](skill/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.2.0-blue)](skill/CHANGELOG.md)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](skill/README.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-compatible-7B61FF)](skill/SKILL.md)
@@ -40,6 +40,8 @@ Start with the [skill workflow](skill/SKILL.md), then choose a
 [single coding plan](skill/README.md), a
 [repeated application experiment](skill/references/EXPERIMENTS.md) or the
 [optional fixture lookup profile](skill/references/AGENT-PROFILES.md).
+Use [per-stage application credentials](skill/references/APPLICATION-CREDENTIALS.md)
+for scoped authenticated client tasks, separately from the inference key.
 The environment gate confirms the selected model once per conversation. It never
 silently chooses a fallback server or model.
 

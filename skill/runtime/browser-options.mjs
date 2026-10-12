@@ -9,6 +9,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 export function browserOptions(extra = {}) {
+  const forbidden = ['--no-sandbox', '--disable-namespace-sandbox', '--disable-seccomp-filter-sandbox', '--disable-setuid-sandbox', '--single-process'];
+  if (process.env.CHROME_NO_SANDBOX !== '1' && (extra.args || []).some(arg => forbidden.includes(arg.split('=')[0]))) {
+    throw new Error('Sandbox-disabling browser arguments require the explicit sandbox opt-out');
+  }
   const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH || process.env.CHROME_BIN ||
     (process.platform === 'darwin'
       ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'

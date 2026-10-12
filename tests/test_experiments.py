@@ -46,6 +46,18 @@ class ExperimentFixture(unittest.TestCase):
 
 
 class DefinitionTests(ExperimentFixture):
+    def test_browser_policy_identity_is_frozen_and_reaches_trial_dispatch(self):
+        import browser_security
+        self.definition['execution'].update(profile='browser',browser_sandbox_policy='chromium-userns')
+        self.write('experiment.json',self.definition)
+        self.prepare()
+        metadata,matrix=experiments.verify(self.root/'prepared',lab)
+        self.assertEqual(metadata['execution']['browser_security']['sha256'],browser_security.SHA256)
+        args=experiments.trial_args(self.root/'prepared',metadata,matrix['cells'][0],lab,None)
+        self.assertEqual(args.profile,'browser');self.assertEqual(args.browser_sandbox_policy,'chromium-userns')
+        self.definition['execution']['profile']='core'
+        with self.assertRaises(ValueError):self.validate(self.definition)
+
     def test_missing_duplicates_baseline_unsupported_and_invalid_bounds_reject(self):
         invalid=[]
         for field in self.definition:

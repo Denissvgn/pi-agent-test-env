@@ -10,6 +10,7 @@ SANDBOX_HINT = ('If this command runs inside an AI agent\'s command sandbox, the
                 'approves it. Never mount the Docker socket into a Pi child to work around this.')
 
 REMEDIES = {
+    'browser-sandbox-blocked': 'Review BROWSER.md and the explicit chromium-userns policy. Qualify it with browser-check on the selected native image, then freeze a new admitted run. Do not disable Chromium sandboxing, add capabilities or silently change a frozen campaign.',
     'docker-cli-missing': 'Install Docker Desktop (macOS/Windows) or Docker Engine (Linux) on the host, then re-run `doctor`.',
     'docker-permission-denied': SANDBOX_HINT + ' Outside a sandbox: make sure Docker Desktop is running as this user; '
                                 'on Linux add the user to the `docker` group and log in again, or use rootless Docker with DOCKER_HOST set.',

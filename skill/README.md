@@ -1,4 +1,4 @@
-# Pi Agent Test Environment 4.0.1
+# Pi Agent Test Environment 4.2.0
 
 **English, project-adaptable, resource-bounded workflows for real local-LLM agents.**
 
@@ -56,11 +56,22 @@ different release and must be independently checked. On Apple Silicon use explic
 |---|---|
 | `--project` and `--plan` | Task, required/protected files, stages, independent tests, working directories |
 | `--image`, `--environment`, `--profile` | Trusted runtime/tools, architecture, versions, browser requirements |
-| `--session` (saved environment) or `--endpoint` | Exact served model, `/v1` base URL, credentials by environment, real context |
+| `--session` (saved environment) or `--endpoint` | Exact served model, `/v1` base URL, inference key by name, real context |
 | `--resources` | CPU, RAM, process, worker, builder, and host-budget limits |
 
 The runner code has no built-in model or address. The environment gate (below) saves the
 user's server once and asks for confirmation in each new session.
+
+Per-stage application credentials use the agent `application_secrets` map and
+named owner-only host-store entries. Only explicitly assigned workers receive
+`PI_APP_*` variables; inference credentials remain separate and independent checks
+stay key-free. See [the application-credential contract](references/APPLICATION-CREDENTIALS.md)
+for exact configuration, client use, redaction, sensitive cleanup and qualification
+limits. Missing/insecure references or incomplete cleanup fail closed.
+
+For sandboxed browser admission, use the [credential-free browser-check gate](references/BROWSER.md#sandbox-and-webgl)
+and explicitly select the reviewed `chromium-userns` policy where required.
+Default Docker policy and frozen campaign permissions are never silently changed.
 
 ## Resource limits are on by default
 
@@ -236,7 +247,7 @@ budget as the test; large browser runs may require a reviewed bounded increase.
   ```
   Classifies failure reasons with machine-readable codes and actionable remedies. Exits with code `3` (`EXIT_NEEDS_SECRET`) if the model key is missing.
 
-- **Host-side Secret Store:** Store model keys securely in `~/.config/pi-agent-test-env/secrets/` (`0600` permissions, directory `0700`):
+- **Host-side Secret Store:** Store inference and named application keys securely in `~/.config/pi-agent-test-env/secrets/` (`0600` permissions, directory `0700`):
   ```bash
   # Hidden terminal prompt:
   python3 "$SKILL_DIR/scripts/pi_lab.py" secrets set PI_API_KEY

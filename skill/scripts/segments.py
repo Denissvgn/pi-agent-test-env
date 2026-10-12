@@ -116,7 +116,8 @@ def classify_worker_limit(process,evidence,prior_turns=0,prior_tokens=0):
                        observed_budget_counts={'turns':observed_turns,'known_reported_tokens':observed_tokens})
     return process
 
-def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,access,network,timeout,helpers):
+def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,access,network,timeout,helpers,application_secrets=None,redaction_secrets=()):
+    application_secrets = application_secrets or {}
     root=runroot/label;root.mkdir(parents=True,exist_ok=True)
     parent_records=runroot/'stages'/desc['stage_id']/'segments';parent_records.mkdir()
     session_id=str(uuid.uuid4());records=[];consumed=set();turns=0;tokens=0;known=True
@@ -147,6 +148,8 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
             controls.atomic(control/'task.json',segment_task,0o644)
             controls.atomic(control/'stage.json',{**desc,'segment_id':segment_id,'stage_revision':state['revision']},0o644)
             argv=lab.docker_args(args,image,workspace,Path(desc['control']),runtime,desc['container'],network,access,bool(secret),helpers=helpers)
+            for variable in application_secrets:
+                argv[-2:-2] = ['--env', variable]
             if receipt and profile['kind']!='builtin':argv[-2:-2]=['--mount',f"type=bind,src={receipt['root']},dst=/opt/pi-profile,readonly,bind-recursive=disabled"]
             argv[-2:-2]=['--env',f'PI_LAB_STAGE_CONTEXT=/opt/pi-control/segments/{segment_id}/stage.json']
             meta={'schema':2,'segment_id':segment_id,'ordinal':ordinal,'stage_id':desc['stage_id'],
@@ -159,7 +162,7 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
             if directive:controls.audit(runroot,directive,'applied',action='continuation_launch',successor_segment_id=segment_id,session_sha256=digest)
             try:
                 result=lab.stream_run(argv+['agent','--task',f'/opt/pi-control/segments/{segment_id}/task.json'],logs,timeout,desc['container'],secret,
-                                  stage=(runroot,desc),keep_budget=True,resume_budget=bool(records))
+                                  stage=(runroot,desc),keep_budget=True,resume_budget=bool(records),application_secrets=application_secrets,redaction_secrets=redaction_secrets)
             except KeyboardInterrupt:
                 result=controls.read(logs/'process.json') if (logs/'process.json').exists() else {'exit_code':130,'cancelled':True,'cleanup_confirmed':False}
                 meta.update(process=result,finished_at=controls.now())
@@ -174,7 +177,7 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
                 ev['errors']+=observation['errors'];ev.update(agent_invocation_verified=False,completion_verified=False,invocation_status='invalid')
             classify_worker_limit(result,ev,turns,tokens)
             lab.save(logs/'process.json',result)
-            effective=provenance.collect_emitted(runtime,logs,secret) if result.get('cleanup_confirmed') is True else {'status':'cleanup_unconfirmed'}
+            effective=provenance.collect_emitted(runtime,logs,secret,[*application_secrets.values(), *redaction_secrets]) if result.get('cleanup_confirmed') is True else {'status':'cleanup_unconfirmed'}
             meta.update(process=result,evidence=ev,finished_at=controls.now(),provenance={'task_sha256':provenance.digest(segment_task),'emitted':effective})
             controls.atomic(parent_records/(segment_id+'.json'),meta);records.append(meta)
             turns+=ev.get('events',{}).get('turn_start',0)
@@ -201,8 +204,13 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
         lab.save(root/'process.json',result);lab.save(root/'evidence.json',evidence)
         return result
     except (OSError,ValueError,controls.ControlError) as exc:
-        if not records:raise
-        result={**records[-1]['process'],'segments':records,'recovery_error':type(exc).__name__,
+        # A failed launch still has a supervisor cleanup receipt. Never use the
+        # preceding segment's cleanup status for a failed successor launch.
+        current = controls.read(logs/'process.json') if 'logs' in locals() and (logs/'process.json').exists() else None
+        if not records:
+            if current is not None:lab.save(root/'process.json', current)
+            raise
+        result={**(current or records[-1]['process']),'segments':records,'recovery_error':type(exc).__name__,
                 'evidence':{'agent_invocation_verified':False,'completion_verified':False,
                             'invocation_status':'invalid','errors':['Continuation preparation failed'],'final_text':''}}
         lab.save(root/'process.json',result)

@@ -16,6 +16,10 @@ pi_release: "0.87.1", entrypoint: fixture-lookup.mjs}` and exactly one declared 
 required successful tool, fixture_lookup. Service endpoints must be empty: this
 profile adds no network service, credentials, setup command or privileges.
 
+Application credentials use the runner's separate per-stage
+[application_secrets contract](APPLICATION-CREDENTIALS.md), not profile assets or
+service declarations. That channel adds no profile, tool or child extension.
+
 Each asset declares relative source, exact target filename and SHA-256. Source
 paths stay inside the profile directory; absolute/parent/backslash/NUL paths,
 linked/special/multiply-linked files, missing/changed/duplicate assets reject.

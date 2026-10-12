@@ -238,26 +238,38 @@ class SegmentTests(unittest.TestCase):
         if abort:final_event(ev)['message']['stopReason']='aborted'
         return ev
 
-    def run_chain(self,top,fault=None,multiple=False):
+    def run_chain(self,top,fault=None,multiple=False,application=False):
         from test_controls import args
         import time
-        run=top/'run';run.mkdir();workspace=top/'subject';workspace.mkdir()
+        run=top/'run';run.mkdir();workspace=(run/'workspace') if application else top/'subject';workspace.mkdir()
         a=args(event_contract='settled',lock_file=str(top/'lease'))
         task={'name':'dev','prompt':'fixture','tools':['read'],'require_tools':['read'],'max_turns':10,'max_total_tokens':1000,'timeout_seconds':5}
+        application_key = 'synthetic-application-chain-123456'
+        if application:task['application_secrets']={'PI_APP_KEY':'CHAIN_PERSONA'}
         endpoint={'model':'fixture-model'};calls=[]
         def fake(argv,logs,timeout,name,secret='',stage=None,keep_budget=False,resume_budget=False,**kw):
             desc=stage[1];state=lab.controls.resolve(run,desc['stage_id'])[1];segment_id=state['segment_id']
             control=Path(desc['control'])/'segments'/segment_id
             data=lab.controls.read(control/'task.json');calls.append(data)
+            if application:
+                self.assertEqual(kw['application_secrets'], {'PI_APP_KEY': application_key})
+                self.assertIn('PI_APP_KEY', argv)
+                self.assertNotIn(application_key, str(argv))
             if not resume_budget:lab.controls.start_budget(run,desc,time.monotonic(),.1)
             else:lab.controls.publish_budget(run,desc,lab.controls.read(lab.controls.budget_path(run,desc)))
             logs.mkdir(parents=True)
+            if fault=='successor_launch' and len(calls)>1:
+                lab.save(logs/'process.json',{'exit_code':2,'started':False,'cleanup_confirmed':False})
+                raise OSError('Synthetic successor launch/cleanup failure')
             trace=self.trace(data['session_id'],abort=len(calls)==1,model='wrong' if fault=='model' and len(calls)>1 else 'fixture-model')
             if fault=='session' and len(calls)>1:trace[0]['id']='unrelated'
             (logs/'stdout.jsonl').write_text(''.join(json.dumps(e)+'\n' for e in trace));(logs/'stderr.log').write_text('')
             runtime=next(x.split('src=',1)[1].split(',dst=',1)[0] for x in argv if 'dst=/pi-state,' in x)
             sessions=Path(runtime)/'sessions';sessions.mkdir(exist_ok=True)
-            if fault!='missing_session':(sessions/'session.jsonl').write_text(json.dumps(trace[0])+'\n')
+            if fault!='missing_session':
+                body=json.dumps(trace[0])+'\n'
+                if application:body+=json.dumps({'type':'message','message':{'role':'user','content':application_key}})+'\n'
+                (sessions/'session.jsonl').write_text(body)
             result={'exit_code':130 if len(calls)==1 else 0,'cleanup_confirmed':True,'started':True}
             if len(calls)==1:
                 for index in range(2 if multiple else 1):
@@ -271,8 +283,29 @@ class SegmentTests(unittest.TestCase):
                 lab.controls.process_budget_requests(run,desc)
             return result
         with mock.patch.object(lab,'stream_run',side_effect=fake):
-            result=lab.run_stage(a,'fixture',run,workspace,'agent',['agent'],task=task,endpoint=endpoint)
+            result=lab.run_stage(a,'fixture',run,workspace,'agent',['agent'],task=task,endpoint=endpoint,
+                                 application_secrets={'PI_APP_KEY':application_key} if application else None)
         return result,calls,run
+
+    def test_application_credential_continuations_keep_scope_and_purge_raw_sessions(self):
+        with tempfile.TemporaryDirectory() as td:
+            result,calls,run=self.run_chain(Path(td),application=True)
+            self.assertTrue(result['evidence']['completion_verified'],result['evidence'])
+            self.assertEqual(len(calls),2)
+            self.assertEqual(result['application_credentials']['status'],'removed')
+            self.assertFalse(list((run/'children').rglob('session.jsonl')))
+            self.assertFalse(list((run/'controls').rglob('session.jsonl')))
+            for path in run.rglob('*'):
+                if path.is_file():self.assertNotIn(b'synthetic-application-chain-123456',path.read_bytes())
+
+    def test_failed_application_successor_cannot_reuse_previous_cleanup_receipt(self):
+        with tempfile.TemporaryDirectory() as td:
+            result,calls,run=self.run_chain(Path(td),fault='successor_launch',application=True)
+            self.assertEqual(len(calls),2)
+            self.assertFalse(result['cleanup_confirmed'])
+            self.assertFalse(result['evidence']['completion_verified'])
+            self.assertEqual(result['application_credentials']['status'],'cleanup_unconfirmed')
+            self.assertTrue(list((run/'controls').rglob('session.jsonl')))
 
     def test_authorized_recovery_uses_exact_session_and_cumulative_budgets(self):
         with tempfile.TemporaryDirectory() as td:
