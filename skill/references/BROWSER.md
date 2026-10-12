@@ -89,8 +89,9 @@ configured network/IPC isolation and finite resource limits. Its exact namespace
 and chroot syscall permissions change the container policy for every process in
 that browser-profile container, including Bash; review this scope before selection.
 No arbitrary seccomp file, SYS_ADMIN, privileged container or unconfined policy
-is admitted. `chromium-userns` rejects `--allow-browser-no-sandbox` and the core
-profile. Kernels/LSM policies can still prohibit user namespaces; no global host
+is admitted. `chromium-userns` rejects `--allow-browser-no-sandbox`, the core profile and
+daemons whose observed native architecture is not ARM64. Selected ARM64 images
+under emulation cannot qualify native admission. Kernels/LSM policies can still prohibit user namespaces; no global host
 sysctl or AppArmor setting is changed automatically.
 
 Use the independent credential-free gate before application deployment/dispatch:
@@ -102,6 +103,10 @@ python3 "$SKILL_DIR/scripts/pi_lab.py" browser-check \
   --resources "$SKILL_DIR/assets/resources/browser.json" \
   --cpus 2 --memory 2g --pids-limit 512 --results-dir /path/to/evidence
 ```
+
+This gate always requires sandboxing and rejects `--allow-browser-no-sandbox`
+before Docker admission. It also requires a known matching native daemon platform.
+The separate trusted opt-out route remains available for ordinary browser runs.
 
 This command needs no model session or application key and invokes no Pi
 participant/model. It inspects the selected image, tests DOM/JavaScript and
@@ -125,7 +130,8 @@ their original scoped identities.
 For explicitly trusted local content only, the parent may separately select
 `--allow-browser-no-sandbox` under the default container policy. That opt-out
 cannot satisfy a contract requiring sandboxing. The browser-options helper rejects
-sandbox-disable arguments supplied through `extra.args` without the explicit opt-out.
+sandbox-disable arguments, including GPU sandbox opt-outs and their `=...` forms,
+supplied through `extra.args` without the explicit opt-out.
 
 WebGL tests in Docker Desktop may have no hardware GPU. Explicit `--software-webgl`
 adds SwiftShader flags and makes the browser smoke require a WebGL context. This

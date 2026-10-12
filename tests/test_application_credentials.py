@@ -35,6 +35,22 @@ def plan():
 
 
 class AdmissionTests(unittest.TestCase):
+    def test_snapshot_scan_exceptions_discard_owned_copy_before_dispatch(self):
+        for error in (OSError('unreadable entry'),RecursionError('inspection depth')):
+            with self.subTest(error=type(error).__name__),tempfile.TemporaryDirectory() as td,contextlib.ExitStack() as stack:
+                top=Path(td);args=fixture(top);lab.save(Path(args.plan),plan());args.secrets_dir=str(top/'secrets')
+                secret_store.write_secret('WORKCHORD_A',KEY_A,args.secrets_dir)
+                secret_store.write_secret('WORKCHORD_B',KEY_B,args.secrets_dir)
+                mocked_suite(stack)
+                stack.enter_context(mock.patch.object(credentials,'workspace_clean',side_effect=error))
+                dispatch=stack.enter_context(mock.patch.object(lab,'run_stage'))
+                self.assertEqual(lab.run_suite(args),2)
+                dispatch.assert_not_called()
+                root=(top/'results/latest').resolve()
+                self.assertFalse((root/'workspace').exists())
+                self.assertTrue((top/'project/code.py').exists())
+                self.assertEqual(lab.controls.read(root/'result.json')['infrastructure']['reason'],'application-credentials')
+
     def test_images_cannot_supply_ambient_application_variables(self):
         image = [{'Os': 'linux', 'Architecture': 'arm64', 'Id': 'sha256:synthetic', 'Config': {'Env': ['PI_APP_PERSONA=synthetic-baked-value']}}]
         with mock.patch.object(lab, 'command', return_value=argparse.Namespace(stdout=json.dumps(image))), self.assertRaises(lab.LabError):

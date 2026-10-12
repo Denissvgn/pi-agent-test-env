@@ -8,11 +8,12 @@ description: >-
   reviewed fixture lookup integration, coding/review/tool-use acceptance and tested
   API/CLI/browser plans. Reuse the confirmed environment within a conversation, enforce
   CPU/memory/process/time/concurrency limits, and distinguish real invocations from fixtures.
+  Also use when maintaining or releasing this package and promoting its verified changes.
 ---
 
 # Local agent evaluation with Pi
 
-Package version: 4.2.0. Instructions are in English.
+Package version: 4.2.1. Instructions are in English.
 
 Resolve `SKILL_DIR` to this complete installed folder; scripts, runtime, assets,
 examples, docker and references must remain beside SKILL.md. See
@@ -252,6 +253,13 @@ sequence. PASS is mechanical plan acceptance; reviewer prose is not parsed into
 approval. Read and fix findings before parent approval/promotion. Visible tests
 are limited evidence, not proof of all inputs, correctness or absence of flaws.
 Review the isolated-copy diff before applying changes to the original.
+
+Before promoting changes through a GitHub PR, or releasing this package, follow
+[PULL-REQUESTS.md](references/PULL-REQUESTS.md). Wait for the configured reviewers
+(including Copilot where enabled) on the exact final head; triage every finding,
+resolve supported dispositions, and run the read-only review gate immediately
+before an authorized exact-head merge. Mergeability or green tests alone cannot
+substitute for completed review; pending, stale or unresolved review blocks merging.
 
 ## Controls and recovery
 

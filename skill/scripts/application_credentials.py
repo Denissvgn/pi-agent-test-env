@@ -161,6 +161,14 @@ def workspace_clean(workspace, redactor):
         os.close(root)
 
 
+def workspace_inspected_clean(workspace, redactor):
+    """Inspection failures have the same fail-closed disposition as contamination."""
+    try:
+        return workspace_clean(workspace, redactor)
+    except (OSError, RecursionError):
+        return False
+
+
 def purge_stage(runroot, desc):
     """Remove raw sessions, temporary material and outbox after writer cleanup only."""
     runroot = Path(runroot)
@@ -201,10 +209,7 @@ def finish(runroot, desc, values, inference_key, result, redaction_secrets=()):
         workspace = Path(runroot) / 'workspace'
         if Path(desc['workspace']) != workspace.resolve() or workspace.is_symlink():
             raise CredentialError('Application credentials require the owned snapshot workspace')
-        try:
-            clean = workspace_clean(workspace, Redactor([inference_key, *values.values(), *redaction_secrets]))
-        except (OSError, RecursionError):
-            clean = False
+        clean = workspace_inspected_clean(workspace, Redactor([inference_key, *values.values(), *redaction_secrets]))
         if not clean:
             shutil.rmtree(workspace)
         receipt.update(status='removed', workspace='clean' if clean else 'discarded')

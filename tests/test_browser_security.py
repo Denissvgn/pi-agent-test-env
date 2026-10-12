@@ -50,10 +50,11 @@ class PolicyTests(unittest.TestCase):
             for profile,platform,optout in (('core','linux/arm64',False),('browser','linux/amd64',False),('browser','linux/arm64',True)):
                 with self.assertRaises(ValueError):policy.selection(profile,'chromium-userns',platform,optout)
             args.browser_sandbox_policy='chromium-userns'
+            args.native_platform='linux/arm64'
             args.frozen_browser_security=policy.freeze(args,Path(td)/'policy')
             a=argparse.Namespace(platform='linux/arm64',uid=os.getuid(),gid=os.getgid(),memory='2g',cpus=2,pids_limit=512,
                                  allow_browser_no_sandbox=False,software_webgl=False,profile='browser',browser_sandbox_policy='chromium-userns',
-                                 frozen_browser_security=args.frozen_browser_security)
+                                 frozen_browser_security=args.frozen_browser_security,native_platform='linux/arm64')
             argv=lab.docker_args(a,'synthetic',Path(td)/'workspace',Path(td)/'control',Path(td)/'state','synthetic','none')
             for flag in ('--cap-drop=ALL','--security-opt=no-new-privileges=true','--read-only','--ipc=none','--platform'):
                 self.assertIn(flag,argv)
@@ -66,10 +67,19 @@ class PolicyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             top=Path(td);source=ROOT/'assets/security/chromium-userns.json'
             args=lab.parser().parse_args(['browser-check','--image','synthetic','--platform','linux/arm64','--browser-sandbox-policy','chromium-userns'])
+            args.native_platform='linux/arm64'
             args.frozen_browser_security=policy.freeze(args,top/'project')
             with self.assertRaises(ValueError):policy.docker_options(args,top)
             path=Path(args.frozen_browser_security['path']);path.unlink();path.symlink_to(source)
             with self.assertRaises((ValueError,OSError)):policy.docker_options(args,top/'workspace')
+
+    def test_selected_arm64_cannot_qualify_unknown_or_amd64_daemon(self):
+        args=lab.parser().parse_args(['browser-check','--image','synthetic','--platform','linux/arm64','--browser-sandbox-policy','chromium-userns'])
+        for native in (None,'linux/amd64'):
+            args.native_platform=native
+            with self.subTest(native=native),self.assertRaises(ValueError):policy.for_args(args)
+        args.native_platform='linux/arm64'
+        self.assertEqual(policy.for_args(args)['policy'],'chromium-userns')
 
 
 class SandboxTests(unittest.TestCase):
@@ -92,17 +102,31 @@ class SandboxTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('node'),'Node is needed for the browser-options helper fixture')
     def test_helper_cannot_silently_disable_sandbox(self):
         source=ROOT/'runtime/browser-options.mjs'
-        code="import fs from 'node:fs'; import {browserOptions} from "+json.dumps(source.as_uri())+"; const safe=browserOptions(); fs.rmSync(safe.userDataDir,{recursive:true}); for (const arg of ['--no-sandbox','--disable-namespace-sandbox','--disable-seccomp-filter-sandbox','--single-process']) { let rejected=false; try { browserOptions({args:[arg]}); } catch(e) { rejected=e.message.includes('Sandbox-disabling browser arguments'); } if(!rejected) process.exit(1); }"
+        code="import fs from 'node:fs'; import {browserOptions} from "+json.dumps(source.as_uri())+"; const safe=browserOptions(); fs.rmSync(safe.userDataDir,{recursive:true}); for (const arg of ['--no-sandbox','--disable-namespace-sandbox','--disable-seccomp-filter-sandbox','--disable-gpu-sandbox','--disable-gpu-sandbox=true','--single-process']) { let rejected=false; try { browserOptions({args:[arg]}); } catch(e) { rejected=e.message.includes('Sandbox-disabling browser arguments'); } if(!rejected) process.exit(1); } process.env.CHROME_NO_SANDBOX='1'; const opted=browserOptions({args:['--disable-gpu-sandbox']}); if(!opted.args.includes('--no-sandbox'))process.exit(1); fs.rmSync(opted.userDataDir,{recursive:true});"
         result=subprocess.run(['node','--input-type=module','-e',code],env={**os.environ,'CHROME_NO_SANDBOX':'0','PUPPETEER_EXECUTABLE_PATH':sys.executable},capture_output=True,text=True,timeout=10)
         self.assertEqual(result.returncode,0,result.stderr)
 
 
 class AdmissionTests(unittest.TestCase):
+    def test_gate_rejects_explicit_optout_before_any_docker_operation(self):
+        args=lab.parser().parse_args(['browser-check','--image','synthetic','--allow-browser-no-sandbox'])
+        with mock.patch.object(lab,'require_host') as host,mock.patch.object(lab,'probe_image') as image,self.assertRaises(lab.LabError):
+            lab.browser_check(args)
+        host.assert_not_called();image.assert_not_called()
+
+    def test_gate_rejects_emulated_platform_before_image_probe(self):
+        args=lab.parser().parse_args(['browser-check','--image','synthetic','--platform','linux/arm64'])
+        def host(a):a.native_platform='linux/amd64';return {'selected_platform':'linux/arm64','daemon_architecture':'amd64'}
+        with mock.patch.object(lab,'require_host',side_effect=host),mock.patch.object(lab,'probe_image') as image,self.assertRaises(lab.LabError):
+            lab.browser_check(args)
+        image.assert_not_called()
+
     def test_key_free_admission_cannot_pass_without_sandbox_evidence(self):
         for valid in (True,False):
             with tempfile.TemporaryDirectory() as td, contextlib.ExitStack() as stack:
                 top=Path(td);seen=[]
-                stack.enter_context(mock.patch.object(lab,'require_host',return_value={'selected_platform':'linux/arm64'}))
+                def host(args):args.native_platform='linux/arm64';return {'selected_platform':'linux/arm64','daemon_architecture':'arm64'}
+                stack.enter_context(mock.patch.object(lab,'require_host',side_effect=host))
                 stack.enter_context(mock.patch.object(lab,'probe_image',return_value={'id':'synthetic'}))
                 endpoint=stack.enter_context(mock.patch.object(lab,'endpoint_secret'))
                 def stage(args,image,root,workspace,label,operation,**kwargs):
@@ -111,7 +135,7 @@ class AdmissionTests(unittest.TestCase):
                     if valid:
                         with (root/label/'stdout.jsonl').open('a') as out:out.write(json.dumps({'browser_sandbox':{'namespace_and_seccomp_verified':True}})+'\n')
                     # stream JSONL is compact, unlike ordinary pretty JSON receipts.
-                    rows=[{'browser_dom_ok':True}]+([{'browser_sandbox':{'namespace_and_seccomp_verified':True}}] if valid else [])
+                    rows=[{'browser_dom_ok':True,'no_browser_sandbox':False}]+([{'browser_sandbox':{'namespace_and_seccomp_verified':True}}] if valid else [])
                     (root/label/'stdout.jsonl').write_text(''.join(json.dumps(row)+'\n' for row in rows));(root/label/'stderr.log').write_text('')
                     return {'exit_code':0,'cleanup_confirmed':True}
                 stack.enter_context(mock.patch.object(lab,'run_stage',side_effect=stage));stack.enter_context(contextlib.redirect_stdout(io.StringIO()))

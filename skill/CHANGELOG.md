@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.2.1
+
+- Require observed sandboxing for browser-check; trusted opt-out runs cannot
+  qualify sandbox admission. Reject hidden GPU sandbox-disabling arguments.
+- Verify the daemon architecture for native ARM64 browser policy/admission;
+  selected or emulated image architecture is insufficient.
+- Discard credential snapshots on scan exceptions through the same fail-closed
+  inspection path used after stages.
+- Add exact-head asynchronous review completion and finding triage before merge,
+  with a read-only paginated GitHub readiness gate and regression fixtures.
+
 ## 4.2.0
 
 - Add an explicit pinned native ARM64 Chromium user-namespace seccomp policy,
