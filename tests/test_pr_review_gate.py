@@ -122,6 +122,34 @@ class ReviewGateTests(unittest.TestCase):
              mock.patch.object(gate, 'combined_status', return_value=([], snapshot()['status_summary'])), self.assertRaises(ValueError):
             gate.collect('owner/repository', 3, HEAD)
 
+    def test_check_or_status_churn_blocks_even_with_unchanged_pr_timestamp(self):
+        before = snapshot()['pr']
+        check={'id':1,'name':'tests','head_sha':HEAD,'status':'completed','conclusion':'success'}
+        success=[{'context':'external','state':'success','id':1}]
+        success_summary={'sha':HEAD,'state':'success','total_count':1}
+        for fault in ('check-rerun','status-change','new-thread','new-review'):
+            with self.subTest(fault=fault):
+                checks2=[{**check,'status':'in_progress','conclusion':None}] if fault=='check-rerun' else [check]
+                statuses2=[{**success[0],'state':'pending','id':2}] if fault=='status-change' else success
+                summary2={**success_summary,'state':'pending'} if fault=='status-change' else success_summary
+                threads2=[{'id':'late','isResolved':False}] if fault=='new-thread' else []
+                reviews2=snapshot()['reviews'] if fault=='new-review' else []
+                with mock.patch.object(gate,'api',return_value=before), \
+                     mock.patch.object(gate,'pages',side_effect=[[],[check],reviews2,checks2]), \
+                     mock.patch.object(gate,'threads',side_effect=[([],None),(threads2,None)]), \
+                     mock.patch.object(gate,'combined_status',side_effect=[(success,success_summary),(statuses2,summary2)]), self.assertRaises(ValueError):
+                    gate.collect('owner/repository',3,HEAD)
+
+    def test_stable_collection_revalidates_all_sources_before_readiness(self):
+        state=snapshot()
+        with mock.patch.object(gate,'api',return_value=state['pr']), \
+             mock.patch.object(gate,'pages',side_effect=[state['reviews'],[],state['reviews'],[]]) as pages, \
+             mock.patch.object(gate,'threads',return_value=([],None)) as threads, \
+             mock.patch.object(gate,'combined_status',return_value=([],state['status_summary'])) as statuses:
+            collected=gate.collect('owner/repository',3,HEAD)
+        self.assertEqual(self.evaluate(collected)['status'],'PASS')
+        self.assertEqual(pages.call_count,4);self.assertEqual(threads.call_count,2);self.assertEqual(statuses.call_count,2)
+
     def test_status_pages_are_complete_and_preserve_late_failures(self):
         visible = [{'context': 'check-'+str(i), 'state': 'success'} for i in range(100)]
         first = {'sha': HEAD, 'state': 'failure', 'total_count': 101, 'statuses': visible}

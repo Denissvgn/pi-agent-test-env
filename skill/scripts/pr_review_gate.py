@@ -123,6 +123,19 @@ def collect(repo, number, head):
     review_threads, decision = threads(repo, number, head)
     checks = pages('repos/' + repo + '/commits/' + head + '/check-runs?per_page=100&filter=latest', 'check_runs')
     statuses, status_summary = combined_status(repo, head)
+    # CI updates need not change PR.updated_at. Re-read each independent source
+    # and compare complete, identity-ordered evidence before emitting readiness.
+    latest_reviews = pages(path + '/reviews?per_page=100')
+    latest_threads, latest_decision = threads(repo, number, head)
+    latest_checks = pages('repos/' + repo + '/commits/' + head + '/check-runs?per_page=100&filter=latest', 'check_runs')
+    latest_statuses, latest_summary = combined_status(repo, head)
+    def ordered(rows, key):
+        return sorted(rows, key=lambda row: row[key])
+    if (ordered(reviews, 'id') != ordered(latest_reviews, 'id')
+            or ordered(review_threads, 'id') != ordered(latest_threads, 'id') or decision != latest_decision
+            or ordered(checks, 'id') != ordered(latest_checks, 'id')
+            or ordered(statuses, 'context') != ordered(latest_statuses, 'context') or status_summary != latest_summary):
+        raise ValueError('Review/check/status evidence changed during collection; rerun the gate')
     after = api([path])
     if (after['head']['sha'] != head or before['updated_at'] != after['updated_at']
             or before['state'] != after['state'] or before['draft'] != after['draft']):

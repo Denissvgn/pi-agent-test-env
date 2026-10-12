@@ -40,7 +40,9 @@ unresolved threads and successful/completed commit checks/statuses. Copilot's
 COMMENTED review counts as completed after findings are triaged and threads
 resolved; a COMMENTED review does not clear an earlier request for changes.
 Outdated does not mean resolved. Review/check pages are fully read and the PR's
-head and update state are rechecked after collection. Thread/check/status coverage
+head and update state are rechecked after collection. Review, thread, check-run
+and combined-status sources are independently re-read and compared; CI changes
+need not update the PR timestamp. Any observed churn blocks readiness. Thread/check/status coverage
 counts and supported metadata enums are validated. Combined commit-status SHA
 and aggregate state are retained; no configured commit statuses is distinct from
 a pending configured status. See [GitHub status semantics](https://docs.github.com/en/rest/commits/statuses#get-the-combined-status-for-a-specific-reference).
@@ -55,7 +57,9 @@ using the supported GitHub flow and wait. Do not merge while it is running.
 After the gate passes, within authorization, merge with an exact-head guard such
 as `gh pr merge --match-head-commit VERIFIED_HEAD_SHA` and the repository's allowed
 method. Do not use an admin bypass. If the head changes, repeat validation and
-review; do not reuse the old receipt.
+review; do not reuse the old receipt. The gate is a point-in-time observation,
+not an atomic GitHub merge lock. Required server-side branch protections remain
+authoritative at merge time; do not weaken or bypass them.
 
 For releases, build/verify distributables from the final reviewed tree, confirm
 the merged tree matches it, tag the immutable merge commit and verify uploaded
