@@ -76,7 +76,7 @@ def freeze(root,images_file,endpoint_file,session=None):
         for profile in ('core','browser'):
             name=profile+'-'+release;image=selected[name]['id']
             images[name]={'id':pi_release.native(image),'platform':'linux/arm64'}
-    host=pi_release.native();endpoint=lab.load_endpoint(endpoint_file)
+    host=pi_release.native();endpoint=lab.load_endpoint(Path(endpoint_file))
     parallel_contract.admit_capacity(CONCURRENCY,resources.validate_policy(WORKER),host)
     root.mkdir(mode=0o700,parents=True)
     controls.atomic(root/'endpoint.json',endpoint)

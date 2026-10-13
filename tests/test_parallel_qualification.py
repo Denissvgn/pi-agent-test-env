@@ -134,7 +134,7 @@ class FreezeIntegrityTests(unittest.TestCase):
             images.write_text(json.dumps({p+'-'+r:{'id':'sha256:'+'a'*64} for p in ('core','browser') for r in ('0.87.1','1.2.0')}))
             endpoint.write_text(json.dumps({'base_url':'http://example.invalid/v1','model':'fixture','api_key_env':'MODEL_KEY','context_window':32768,'max_tokens':1024}))
             def native(image=None):return image or {'NCPU':18,'MemTotal':8*1024**3,'OSType':'linux','Architecture':'arm64'}
-            with mock.patch.object(qualification.pi_release,'native',side_effect=native):qualification.freeze(root,images,endpoint)
+            with mock.patch.object(qualification.pi_release,'native',side_effect=native):qualification.freeze(str(root),str(images),str(endpoint),session='synthetic-confirmed-session')
             qualification.verify(root)
             bad=copy.deepcopy(qualification.WORKER);bad['runtime']['cpus']=3;qualification.controls.atomic(root/'worker.json',bad)
             with mock.patch.object(qualification,'command') as docker,self.assertRaisesRegex(ValueError,'policy bytes changed'):
