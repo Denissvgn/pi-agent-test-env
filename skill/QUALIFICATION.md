@@ -25,6 +25,13 @@ All primary repetitions passed, all six coding reviewer reports were inspected,
 and owned-container/network/private-store cleanup was confirmed. No automatic
 retry occurred within the completed collection; earlier blocked attempts remain retained.
 
+These native measurements retain their original runner identity. A later isolated
+parent PR-review gate correction has separate offline quota-refusal regressions;
+Pi dispatch/worker/contracts/profiles, qualification harness and task inputs remain
+byte-identical. That correction changes aggregate package/runner provenance and
+does not create a new native measurement or authorize execution of old frozen
+experiments under the new identity.
+
 The exact images used Node 24.21.0 and, in the browser lane, Chromium 155.0.8059.39
 with the pinned chromium-userns policy and sandbox enabled. Core workers used
 1 CPU/2 GiB/256 PIDs; browser workers used 2 CPUs/2 GiB/512 PIDs, with one stage

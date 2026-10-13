@@ -20,7 +20,8 @@ def snapshot():
                    'mergeable_state': 'clean', 'requested_reviewers': [], 'requested_teams': [],
                    'updated_at': '2026-10-12T20:00:00Z'},
             'reviews': [{'id': 1, 'user': {'login': 'copilot-pull-request-reviewer[bot]'},
-                         'state': 'COMMENTED', 'commit_id': HEAD, 'submitted_at': '2026-10-12T20:00:00Z'}],
+                         'state': 'COMMENTED', 'commit_id': HEAD, 'submitted_at': '2026-10-12T20:00:00Z',
+                         'body': '<!-- ccr-overview-v2 -->\n\n### 🟢 Approval recommended\n\n**0 open findings**'}],
             'threads': [], 'review_decision': None, 'checks': [], 'statuses': [],
             'status_summary': {'sha': HEAD, 'state': 'pending', 'total_count': 0}}
 
@@ -33,6 +34,33 @@ class ReviewGateTests(unittest.TestCase):
         result = self.evaluate(snapshot())
         self.assertEqual(result['status'], 'PASS')
         self.assertEqual(result['completed_reviews'][0]['head'], HEAD)
+
+    def test_commented_quota_refusal_empty_and_unknown_overviews_are_not_completed_reviews(self):
+        refusal='Copilot was unable to review this pull request because the user who requested the review has reached their quota limit.'
+        for body in (refusal, '', None, 'Review could not be completed.',
+                     '<!-- ccr-overview-v2 -->\n### Review unavailable\n0 open findings',
+                     '<!-- ccr-overview-v2 -->\n### 🟢 Approval recommended'):
+            state=snapshot();state['reviews'][0]['body']=body
+            with self.subTest(body=body):
+                result=self.evaluate(state)
+                self.assertEqual(result['status'],'BLOCKED')
+                self.assertEqual(result['completed_reviews'],[])
+                self.assertIn('No completed exact-head review from Copilot',result['blockers'])
+
+    def test_real_changes_overview_requires_triaged_threads_and_later_completion_can_clear_refusal(self):
+        state=snapshot();state['reviews'][0]['body']='<!-- ccr-overview-v2 -->\n### 🟡 Changes recommended\n<strong>1 open finding</strong>'
+        state['threads']=[{'id':'finding','isResolved':False,'isOutdated':False,'path':'code.py'}]
+        self.assertEqual(self.evaluate(state)['status'],'BLOCKED')
+        state['threads'][0]['isResolved']=True
+        self.assertEqual(self.evaluate(state)['status'],'PASS')
+        refusal=copy.deepcopy(state['reviews'][0]);refusal['id']=2
+        refusal['body']='Copilot was unable to review this pull request because quota was reached.'
+        state['reviews'].insert(0,refusal)
+        self.assertEqual(self.evaluate(state)['status'],'PASS')
+
+    def test_human_structured_approval_is_not_copilot_overview_parsing(self):
+        state=snapshot();state['reviews'][0].update(user={'login':'human-reviewer'},state='APPROVED',body='')
+        self.assertEqual(gate.evaluate(state,'owner/repository',3,HEAD,['human-reviewer'])['status'],'PASS')
 
     def test_mergeable_before_async_review_is_not_ready(self):
         state = snapshot(); state['reviews'] = []

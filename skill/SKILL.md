@@ -264,6 +264,7 @@ Before promoting changes through a GitHub PR, or releasing this package, follow
 resolve supported dispositions, and run the read-only review gate immediately
 before an authorized exact-head merge. Mergeability or green tests alone cannot
 substitute for completed review; pending, stale or unresolved review blocks merging.
+Copilot quota/error notices marked COMMENTED do not establish that code was reviewed.
 
 ## Controls and recovery
 
