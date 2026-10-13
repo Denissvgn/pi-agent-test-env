@@ -4,12 +4,16 @@ import argparse
 import json
 from pathlib import Path
 import re
+import sys
 
 HERE=Path(__file__).resolve().parent
 SKILL=HERE.parents[1]
+sys.path.insert(0, str(SKILL/'runtime'))
+import release_contracts
 
 
-def definitions(image):
+def definitions(image, release='0.87.1'):
+    release_contracts.contract(release)
     common={'schema':1,'name':'slug-baseline','baseline':'baseline','repetitions':2,
             'cases':[{'name':'slug','project':str(HERE/'project'),'plan':str(HERE/'application.plan.json')},
                      {'name':'cutoff','project':str(HERE/'project'),'plan':str(HERE/'cutoff.plan.json'),
@@ -25,12 +29,14 @@ def definitions(image):
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--image-receipt',required=True);p.add_argument('--output-dir',required=True)
     args=p.parse_args();receipt=json.loads(Path(args.image_receipt).read_text())
-    if not re.fullmatch(r'sha256:[a-f0-9]{64}',receipt.get('id','')) or receipt.get('platform')!='linux/arm64' or receipt.get('capabilities',{}).get('pi')!='0.87.1':
-        p.error('Requires a reviewed native ARM64 Pi 0.87.1 capability receipt; no release/image substitution')
+    try: release = release_contracts.image_identity(receipt)['release']
+    except ValueError as exc: p.error(str(exc))
+    if not re.fullmatch(r'sha256:[a-f0-9]{64}',receipt.get('id','')) or receipt.get('platform')!='linux/arm64':
+        p.error('Requires a reviewed native ARM64 Pi capability receipt; no release/image substitution')
     target=Path(args.output_dir).expanduser().absolute()
     if target.exists():p.error('Use a new output directory; existing definitions are preserved')
     target.mkdir(parents=True)
-    for name,value in definitions(receipt['id']).items():(target/name).write_text(json.dumps(value,indent=2)+'\n')
+    for name,value in definitions(receipt['id'], release).items():(target/name).write_text(json.dumps(value,indent=2)+'\n')
     print(json.dumps({'definitions':str(target),'image':receipt['id'],'trust':'Receipt identifies the selected image; review provenance and qualify it before execution.'},indent=2))
 
 if __name__=='__main__':main()

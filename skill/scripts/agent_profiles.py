@@ -6,6 +6,9 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'runtime'))
+import release_contracts
 
 ROOT=Path(__file__).resolve().parents[1]
 TARGETS={'fixture-lookup.mjs','fixtures.json','config.json','instructions.md'}
@@ -48,7 +51,12 @@ def validate(value,base):
         if value!=builtin():raise ProfileError('Built-in profile must be explicitly empty')
         return copy.deepcopy(value)
     if value['kind']!='fixture-lookup' or value['id']!='fixture-lookup':raise ProfileError('Unsupported integration kind/id; only reviewed fixture-lookup is supported')
-    if value['components']!=[{'id':'fixture-lookup','kind':'pi-extension','version':'1','pi_release':'0.87.1','entrypoint':'fixture-lookup.mjs'}]:raise ProfileError('Exact reviewed component/release/entrypoint required')
+    components = value['components']
+    if not isinstance(components, list) or len(components) != 1 or not isinstance(components[0], dict):
+        raise ProfileError('Exact reviewed component/release/entrypoint required')
+    try: selected = release_contracts.contract(components[0].get('pi_release'))
+    except ValueError as exc: raise ProfileError(str(exc)) from exc
+    if components != [selected['fixture_component']]:raise ProfileError('Exact reviewed component/release/entrypoint required')
     if value['tools']!=['fixture_lookup'] or value['required_tools']!=['fixture_lookup']:raise ProfileError('Declare only fixture_lookup and require its successful use')
     if value['service_endpoints']!=[]:raise ProfileError('This integration needs no service endpoint or additional network privilege')
     if not isinstance(value['assets'],list) or len(value['assets'])!=4:raise ProfileError('Declare exactly four reviewed profile assets')
@@ -77,7 +85,7 @@ def validate(value,base):
     if not prompt.strip() or len(bodies['instructions.md'])>8192:raise ProfileError('Bounded nonempty profile instructions required')
     # The caller's declaration is copied, not normalized from child observations.
     return {'schema':1,'document_type':'agent_profile','id':'fixture-lookup','kind':'fixture-lookup',
-            'components':[{'id':'fixture-lookup','kind':'pi-extension','version':'1','pi_release':'0.87.1','entrypoint':'fixture-lookup.mjs'}],
+            'components':copy.deepcopy(components),
             'tools':['fixture_lookup'],'required_tools':['fixture_lookup'],'assets':assets,'service_endpoints':[]}
 
 
@@ -86,6 +94,13 @@ def load(path):
     if path.is_symlink():raise ProfileError('Linked profile declaration rejected')
     path=path.parent.resolve()/path.name
     return validate(json.loads(read_asset(path)),path.parent)
+
+
+def admit(profile, release):
+    selected = release_contracts.contract(release)
+    if profile['kind'] != 'builtin' and profile['components'] != [selected['fixture_component']]:
+        raise ProfileError('Fixture profile release differs from the observed Pi contract; no substitution')
+    return release_contracts.identity(release)
 
 
 def toolset(task,profile):

@@ -10,6 +10,7 @@ SANDBOX_HINT = ('If this command runs inside an AI agent\'s command sandbox, the
                 'approves it. Never mount the Docker socket into a Pi child to work around this.')
 
 REMEDIES = {
+    'unsupported-pi-release': 'Select an explicitly reviewed Pi 0.87.1 or 1.2.0 native image. Verify the observed version and contract; do not bypass admission or fall back to another release.',
     'browser-sandbox-blocked': 'Review BROWSER.md and the explicit chromium-userns policy. Qualify it with browser-check on the selected native image, then freeze a new admitted run. Do not disable Chromium sandboxing, add capabilities or silently change a frozen campaign.',
     'docker-cli-missing': 'Install Docker Desktop (macOS/Windows) or Docker Engine (Linux) on the host, then re-run `doctor`.',
     'docker-permission-denied': SANDBOX_HINT + ' Outside a sandbox: make sure Docker Desktop is running as this user; '

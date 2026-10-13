@@ -189,7 +189,7 @@ to remain current. The inventory is change detection, not a signature.
 ## Runnable application baseline
 
 [The Python slug walkthrough](../examples/application-baseline/README.md) renders
-fixed baseline/candidate definitions from a reviewed ARM64 Pi 0.87.1 image receipt.
+fixed baseline/candidate definitions from a reviewed ARM64 Pi 0.87.1 or 1.2.0 image receipt.
 It uses an external eight-group oracle, two fresh repetitions and a bounded
 cutoff/resume demonstration. The candidate differs only in its predeclared prompt
 instruction; it is not assumed to improve results. No integration profile is

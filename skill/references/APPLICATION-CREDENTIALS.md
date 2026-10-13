@@ -121,7 +121,9 @@ Captured stdout/stderr (including tool events and transport errors), process
 diagnostics and emitted-configuration admission use exact-value redaction for
 the inference key and all application keys admitted for the plan. Redaction-only
 values stay in parent memory; they are not forwarded to unassigned workers.
-JSON-escaped forms are covered, including UTF-8/Unicode escaping and values spanning pipe reads.
+Up to three JSON-string escape layers are covered, including client JSON inside
+tool JSON, UTF-8/Unicode escaping and values spanning pipe reads. Other transformed
+or encoded secrets remain outside exact-value redaction guarantees.
 Credential-bearing emitted prompt/configuration files are not copied into
 evidence. Status omits untrusted raw child heartbeat fields for credential stages.
 Plans, task configuration, ownership receipts and frozen metadata retain names

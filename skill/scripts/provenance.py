@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import stat
 import application_credentials
+import release_contracts
 
 
 def digest(value):
@@ -18,7 +19,10 @@ def execution(endpoint,image,root):
             if path.is_file() and not path.is_symlink() and '__pycache__' not in path.parts:
                 runner[str(path.relative_to(root))]=hashlib.sha256(path.read_bytes()).hexdigest()
     safe={k:v for k,v in endpoint.items() if k!='api_key_env'}
+    observed_pi = image.get('capabilities', {}).get('pi')
+    selected = release_contracts.identity(observed_pi) if observed_pi in release_contracts.RELEASES else None
     return {'schema':1,'configuration_sha256':digest(safe),'credential_identity':'excluded',
+            'release_contract':selected,
             'runner_content_sha256':digest(runner),'runner_files':runner,
             'image':{k:image.get(k) for k in ('id','platform','repo_digests')},
             'pi_version':image.get('capabilities',{}).get('pi'),

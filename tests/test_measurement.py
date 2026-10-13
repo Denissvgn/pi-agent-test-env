@@ -38,7 +38,7 @@ class ReasoningTests(unittest.TestCase):
         config['reasoning']=True
         with self.assertRaisesRegex(ValueError,'No version/model substitution'):pi_contract.model_configuration(config,'different')
         config['reasoning']=False
-        self.assertEqual(pi_contract.model_configuration(config,None)[2],['--thinking','off'])
+        with self.assertRaises(ValueError):pi_contract.model_configuration(config,None)
 
 import context_contract
 import lab_env

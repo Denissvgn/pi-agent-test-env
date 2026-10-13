@@ -13,7 +13,11 @@ description: >-
 
 # Local agent evaluation with Pi
 
-Package version: 4.2.1. Instructions are in English.
+Package version: 4.3.0. Instructions are in English.
+
+Exact reviewed Pi releases: 0.87.1 and 1.2.0. Use
+[PI-1.2.0.md](references/PI-1.2.0.md) for the newer contract and migration limits;
+the existing 0.87.1 route, profile and historical receipts remain available.
 
 Resolve `SKILL_DIR` to this complete installed folder; scripts, runtime, assets,
 examples, docker and references must remain beside SKILL.md. See
@@ -191,8 +195,8 @@ Docker network configuration remains a separate fact.
 Smoke must demonstrate actual paired read/write/bash tool calls and a fresh
 key-free verifier's challenge result. Synthetic protocol/unit fixtures do not
 satisfy smoke. Default reviewed Pi 0.87.1 requires ordered `agent_settled` evidence.
-`--event-contract process-exit` is only an explicit separately audited older
-release route; never downgrade a missing event on 0.87.1. Stop dependent execution
+`process-exit` is explicit historical trace inspection only, not live execution
+for either reviewed release; never downgrade missing settlement. Stop dependent execution
 if qualification fails. Reuse valid receipts only for unaffected exact scope.
 Browser profiles need actual DOM/API/WebGL checks, not command presence alone;
 see [BROWSER.md](references/BROWSER.md).

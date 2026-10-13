@@ -1,5 +1,18 @@
 # Changelog
 
+## 4.3.0
+
+- Add exact reviewed Pi 1.2.0 support alongside preserved 0.87.1 behavior and
+  fixture declaration/asset identities, with shared host/worker admission.
+- Validate release-specific cancellation settlement, reject live legacy fallback,
+  and bind continuation to image/release/contract identity.
+- Retain profile and tool-policy violations across authorized recovery.
+- Freeze release contracts in experiments while preserving historical reading.
+- Cover nested client/tool JSON credential escaping without general transformed
+  secret guarantees; retain scoped delivery, stopped cleanup and snapshot scanning.
+- Add a separately bounded maintainer ARM64 qualification harness with private
+  evidence and independent protocol, model, credential, browser and fault oracles.
+
 ## 4.2.1
 
 - Require observed sandboxing for browser-check; trusted opt-out runs cannot

@@ -8,6 +8,12 @@ image authorization.
 
 ## Evidence scope
 
+Version 4.3.0 adds reviewed contracts for Pi 0.87.1 and 1.2.0, with offline
+admission, cancellation, profile, continuation and historical-reading tests.
+The native migration matrix is separate from these fixtures. Pending or failed
+native cells do not qualify a release; actual native observations are summarized
+only after complete collection, with private configuration/evidence retained locally.
+
 | Capability | Observed evidence | Limit |
 |---|---|---|
 | Core executor and controls | Native ARM64 Docker and real Pi 0.87.1 traces observed on macOS Apple Silicon, 7 October 2026 | Exact recorded image/model/configuration only |
