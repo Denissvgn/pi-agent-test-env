@@ -12,6 +12,20 @@ def reviewer_name(name):
     return 'copilot' if name in ('copilot', 'copilot-pull-request-reviewer') else name
 
 
+def review_performed(row):
+    """Copilot can submit COMMENTED quota/error notices without reviewing code."""
+    if reviewer_name(row.get('user', {}).get('login')) != 'copilot':
+        return True
+    body = row.get('body')
+    if not isinstance(body, str):
+        return False
+    # Require the completion overview observed on this repository's real reviews.
+    # Empty submissions, refusal notices and unknown formats fail closed.
+    return (body.lstrip().startswith('<!-- ccr-overview-v2 -->')
+            and re.search(r'^### [^\n]*(?:Approval|Changes) recommended\s*$', body, re.M) is not None
+            and re.search(r'\b\d+ open findings?\b', body) is not None)
+
+
 def api(arguments):
     result = subprocess.run(['gh', 'api', *arguments], capture_output=True, text=True, timeout=30)
     if result.returncode:
@@ -178,7 +192,7 @@ def evaluate(snapshot, repo, number, head, expected_reviewers):
     for expected in expected_reviewers:
         matching = [row for row in reviews if reviewer_name(row.get('user', {}).get('login')) == reviewer_name(expected)]
         fresh = [row for row in matching if row.get('commit_id') == head and row.get('submitted_at')
-                 and row.get('state') in ('APPROVED', 'COMMENTED')]
+                 and row.get('state') in ('APPROVED', 'COMMENTED') and review_performed(row)]
         if not fresh:
             blockers.append('No completed exact-head review from ' + expected)
         else:

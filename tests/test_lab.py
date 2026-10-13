@@ -291,14 +291,14 @@ class ImagePolicyTests(unittest.TestCase):
                                        '--reuse', 'pi-workspace:chromium', '--uid', '1000'])
     def test_reuse_existing_target_without_build(self):
         with mock.patch.object(lab, 'require_host', return_value={}), \
-             mock.patch.object(lab, 'probe_image', return_value={'id': 'sha256:unit'}), \
+             mock.patch.object(lab, 'probe_image', return_value={'id': 'sha256:unit', 'capabilities': {'pi': '0.87.1'}}), \
              mock.patch.object(lab.subprocess, 'run') as build:
             self.assertEqual(lab.ensure_image(self.args())['action'], 'reused')
             build.assert_not_called()
 
     def test_reuse_candidate_and_alias(self):
         with mock.patch.object(lab, 'require_host', return_value={}), \
-             mock.patch.object(lab, 'probe_image', side_effect=[lab.LabError('missing'), {'id':'sha256:unit'}]), \
+             mock.patch.object(lab, 'probe_image', side_effect=[lab.LabError('missing'), {'id':'sha256:unit','capabilities':{'pi':'0.87.1'}}]), \
              mock.patch.object(lab, 'command') as cmd:
             r = lab.ensure_image(self.args())
             self.assertEqual(r['action'], 'reused')
@@ -314,15 +314,15 @@ class ImagePolicyTests(unittest.TestCase):
     def test_build_policy_uses_dedicated_context(self):
         a = self.args('build')
         a.platform = 'linux/arm64'
-        a.pi_version = '1.0.3'  # A synthetic fixture, not a release claim.
+        a.pi_version = '0.87.1'  # A synthetic fixture, not a release claim.
         with mock.patch.object(lab, 'require_host', return_value={}), \
-             mock.patch.object(lab, 'probe_image', return_value={'id':'sha256:unit'}), \
+             mock.patch.object(lab, 'probe_image', return_value={'id':'sha256:unit','capabilities':{'pi':'0.87.1'}}), \
              mock.patch.object(lab, 'limited_build', return_value={'argv': ['fixture']}) as build:
             r = lab.ensure_image(a)
             self.assertEqual(r['action'], 'built')
             self.assertEqual(build.call_args.args[1], ROOT / 'docker/Dockerfile')
             self.assertEqual(build.call_args.args[2], ROOT / 'docker')
-            self.assertEqual(r['requested_pi_version'], '1.0.3')
+            self.assertEqual(r['requested_pi_version'], '0.87.1')
 
     def test_missing_build_pin_does_not_build(self):
         with mock.patch.object(lab, 'require_host', return_value={}), \

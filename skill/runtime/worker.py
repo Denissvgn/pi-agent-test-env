@@ -26,12 +26,11 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, ProxyHandler, build_opener
 import uuid
 from pi_contract import model_configuration
+import release_contracts
 from context_contract import interpret_context, check_context
 from usage_contract import summarize
 
-REQUIRED_FLAGS = ['--mode', '--provider', '--model', '--tools', '--session-dir', '--session', '--session-id',
-                  '--no-extensions', '--no-skills', '--no-context-files',
-                  '--no-prompt-templates', '--no-themes', '--no-approve', '--offline']
+REQUIRED_FLAGS = list(release_contracts.COMMON_FLAGS)
 
 
 def emit(value):
@@ -98,11 +97,14 @@ def probe(profile):
     version = tuple(int(x) for x in result['node'].lstrip('v').split('.')[:2])
     if version < (22, 19):
         raise RuntimeError(f'This baseline requires Node >=22.19, found {result["node"]}')
+    release = release_contracts.observed(result['pi'])
+    required_flags = release_contracts.contract(release)['required_flags']
     help_text = execute(['pi', '--help'])
-    missing = [flag for flag in REQUIRED_FLAGS if flag not in help_text]
+    missing = [flag for flag in required_flags if flag not in help_text]
     if missing:
         raise RuntimeError(f'Pi CLI incompatible: missing {missing}. Pin a compatible version and rebuild.')
-    result['required_flags'] = REQUIRED_FLAGS
+    result['required_flags'] = required_flags
+    result['release_contract'] = release_contracts.identity(release)
     if profile == 'browser':
         result['chromium_path'] = chromium_path()
         result['chromium'] = execute([result['chromium_path'], '--version'])
@@ -377,6 +379,7 @@ def acknowledge_steering(outbox_dir, steer_id, status='active'):
 
 
 def agent_pi_arguments(config,task,home,thinking_args,profile_context=None):
+    selected = release_contracts.contract(task.get('pi_release', '0.87.1'))
     boundary_ext = '/opt/pi-lab/workspace-boundary.mjs'
     base_args = ['pi', '--provider', 'local-lab', '--model', config['model'],
                  '--mode', 'json', '--print', '--offline',
@@ -384,7 +387,7 @@ def agent_pi_arguments(config,task,home,thinking_args,profile_context=None):
                  '--no-extensions', '--no-skills',
                  '--no-prompt-templates', '--no-context-files', '--no-themes', '--no-approve',
                  '--session-dir', str(home.parent / 'sessions'), '--tools', ','.join(task['tools'])]
-    base_args += thinking_args
+    base_args += selected['extra_cli_flags'] + thinking_args
     if profile_context:
         base_args += ['-e','/opt/pi-lab/profile-monitor.mjs']
         if profile_context['profile']['kind']!='builtin':base_args += ['-e','/opt/pi-profile/fixture-lookup.mjs']
@@ -392,6 +395,10 @@ def agent_pi_arguments(config,task,home,thinking_args,profile_context=None):
 
 
 def agent(config, task):
+    actual_release = release_contracts.observed(execute(['pi', '--version']))
+    if actual_release != task.get('pi_release'):
+        raise ValueError('Worker Pi version differs from the admitted image/task')
+    release_contracts.validate_binding(task.get('release_contract'), actual_release)
     cwd = select_cwd(task)
     home = Path(os.environ['PI_CODING_AGENT_DIR'])
     home.mkdir(parents=True, exist_ok=True)
@@ -401,6 +408,10 @@ def agent(config, task):
     (home/'settings.json').write_text(json.dumps(settings,indent=2))
     (home.parent/'effective-configuration.json').write_text(json.dumps(configuration_receipt,indent=2))
     profile_context=json.loads(Path(task['agent_profile_context']).read_text()) if task.get('agent_profile_context') else None
+    if profile_context:
+        profile = profile_context['profile']
+        if profile.get('kind') != 'builtin' and profile.get('components') != [release_contracts.contract(actual_release)['fixture_component']]:
+            raise ValueError('Worker fixture profile differs from the admitted Pi release')
     if profile_context:os.environ['PI_LAB_PROFILE_CONTEXT']=task['agent_profile_context']
     base_args=agent_pi_arguments(config,task,home,thinking_args,profile_context)
     manifest = get_capabilities_manifest(task, cwd)

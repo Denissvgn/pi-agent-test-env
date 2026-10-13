@@ -1,6 +1,6 @@
 {
   "name": "pi-agent-test-env",
-  "version": "4.2.1",
+  "version": "4.3.0",
   "description": "Evaluate frozen local-agent application cases and the optional reviewed fixture_lookup integration with independent scorers, fresh repeated Pi trials, bounded Docker resources and retained failures; also supports short coding-delegation plans.",
   "language": "en",
   "license": "MIT",

@@ -12,7 +12,8 @@ Exact fields: schema 1, document_type `agent_profile`, id, kind, components,
 tools, required_tools, assets, service_endpoints. The empty builtin declaration
 has id/kind builtin and empty arrays. The only custom kind/id is fixture-lookup,
 with one component `{id: fixture-lookup, kind: pi-extension, version: "1",
-pi_release: "0.87.1", entrypoint: fixture-lookup.mjs}` and exactly one declared and
+pi_release: "0.87.1", entrypoint: fixture-lookup.mjs}` (or the separately reviewed
+exact `1.2.0` declaration) and exactly one declared and
 required successful tool, fixture_lookup. Service endpoints must be empty: this
 profile adds no network service, credentials, setup command or privileges.
 
@@ -54,8 +55,10 @@ ambient extensions/skills/context files/templates/themes remain in effect.
 The trusted profile monitor reads immutable per-segment context, selects exactly
 the declared active tools and emits a pi_lab_profile entry with parent IDs,
 profile digest, observed registered/active tools and loaded asset hashes. Custom
-fixture code is loaded only by an explicit -e argument on reviewed Pi 0.87.1.
-Pi 0.87.1 CLI --tools is a hard allowlist for both built-in and registered custom
+fixture code is loaded only by an explicit -e argument on reviewed Pi 0.87.1 or 1.2.0.
+The direct-tool selection is retained on both reviewed releases. Pi 1.2.0 keeps
+MCP tools unless separately excluded, so `--no-extensions` and its `--no-mcp`
+flag are mandatory in the newer contract. The CLI selection constrains built-in and registered custom
 tools; it includes the full declared set before the explicit registry selection.
 Unknown tool names cannot silently become effective tools.
 
@@ -84,3 +87,7 @@ Native observations on 7 October 2026 qualify this exact profile on Pi 0.87.1
 with its recorded image/model configuration. They retain actual registered
 fixture calls/read-only mounts and original failures; arbitrary configurations
 remain unqualified. See VALIDATION.md for evidence scope.
+
+For Pi 1.2.0 select `assets/profiles/fixture-lookup/profile.pi-1.2.0.json` explicitly.
+The original `profile.json` remains release-bound to 0.87.1 with unchanged bytes.
+See [PI-1.2.0.md](PI-1.2.0.md) for the exact newer contract.

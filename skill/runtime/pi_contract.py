@@ -1,12 +1,14 @@
-"""Source-inspected Pi 0.87.1 configuration mapping; enforcement needs live receipts."""
+"""Reviewed Pi 0.87.1/1.2.0 mappings; server enforcement needs live receipts."""
 import copy
 import math
+import release_contracts
 
 PI_RELEASE='0.87.1'
 LEVELS=('off','minimal','low','medium','high')
 
 
 def reasoning_settings(config,release):
+    selected = release_contracts.contract(release)
     value=config.get('reasoning',False)
     if not isinstance(value,(bool,dict)):raise ValueError('Reasoning must be a boolean or explicit settings object')
     enabled=value if isinstance(value,bool) else value.get('enabled',True)
@@ -15,16 +17,14 @@ def reasoning_settings(config,release):
     level=('low' if enabled else 'off') if isinstance(value,bool) else value.get('level','low' if enabled else 'off')
     budget=None if isinstance(value,bool) else value.get('budget_tokens')
     if not enabled:level='off'
-    if level not in LEVELS:raise ValueError('Unsupported thinking level; supported runner levels are off/minimal/low/medium/high')
+    if level not in selected['reasoning_levels']:raise ValueError('Unsupported thinking level; supported runner levels are off/minimal/low/medium/high')
     if budget is not None:
-        raise ValueError('Numeric reasoning budgets are unsupported for the reviewed Pi 0.87.1 CLI profile: omit budget_tokens or qualify an explicit release-specific ingestion/request route. No budget is silently dropped.')
-    if level!='off' and release!=PI_RELEASE:
-        raise ValueError(f'Reasoning settings require a reviewed release contract; selected Pi {release or "unknown"} is unsupported. No version/model substitution.')
+        raise ValueError('Numeric reasoning budgets are unsupported for the reviewed Pi CLI contracts: omit budget_tokens or qualify a separate ingestion/request route. No budget is silently dropped.')
     settings={'packages':[],'extensions':[],'defaultThinkingLevel':level,
               'retry':{'enabled':False,'provider':{'maxRetries':0}},'compaction':{'enabled':False},'cacheWarming':'off'}
     receipt={'requested':copy.deepcopy(value),'pi_configuration':{'model_reasoning':bool(enabled),'thinking_level':level},
              'ingestion':'unverified','server_enforcement':'unverified','budget_enforcement':'unsupported' if budget else 'not_requested',
-             'release':release}
+             'release':release,'release_contract':release_contracts.identity(release)}
     return bool(enabled),level,settings,receipt
 
 
@@ -39,7 +39,7 @@ def sampling_settings(config,release=None):
         low,high=SAMPLING_RANGES[key]
         if type(number) not in (int,float) or not math.isfinite(number) or not low<=number<=high or (key in ('top_k','seed') and type(number) is not int):
             raise ValueError(f'Invalid sampling.{key}: bounded numeric value required ({low}..{high})')
-    if value and release is not None and release!=PI_RELEASE:raise ValueError('Sampling requires reviewed Pi '+PI_RELEASE+'; no version/model substitution')
+    if release is not None: release_contracts.contract(release)
     return copy.deepcopy(value)
 
 

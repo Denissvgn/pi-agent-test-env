@@ -29,7 +29,7 @@ demonstration; retries are allowed only explicitly, at most two attempts per cel
 
 ## From a clean checkout
 
-Prerequisites: Python 3.10+, local Docker on native ARM64, trusted Pi 0.87.1 core
+Prerequisites: Python 3.10+, local Docker on native ARM64, trusted Pi 0.87.1 or 1.2.0 core
 image, and a confirmed reachable OpenAI-compatible model with the stored key.
 Use the skill's environment gate once per conversation; keep `SESSION` and do not
 put keys in chat, definitions or commands. Set `SKILL_DIR` to the absolute `skill/`

@@ -2,6 +2,7 @@
 import copy
 import provenance
 import agent_profiles
+import release_contracts
 import hashlib
 import json
 import os
@@ -68,7 +69,7 @@ def freeze_session(runtime,session_id,cwd,model,target):
         os.close(root)
 
 
-def aggregate(records,model,required_tools,authorized_ids):
+def aggregate(records,model,required_tools,authorized_ids,execution_identity=None):
     errors=[];success={};recovered=False
     if not records:return {'agent_invocation_verified':False,'completion_verified':False,'invocation_status':'invalid','errors':['No segments'],'final_text':''}
     session=records[0]['session_id'];seen=set()
@@ -76,6 +77,8 @@ def aggregate(records,model,required_tools,authorized_ids):
         ev=record['evidence'];segment_id=record['segment_id']
         if segment_id in seen or record['ordinal']!=index+1:errors.append('Duplicate/out-of-order segment')
         seen.add(segment_id)
+        if execution_identity is not None and record.get('execution_identity') != execution_identity:
+            errors.append('Segment release/image/contract identity differs from admitted execution')
         if record['session_id']!=session or ev.get('session_id')!=session:errors.append('Unrelated session continuation')
         if ev.get('identity_conflict') or (index==len(records)-1 and not ev.get('identity_verified')):errors.append('Segment model/provider identity invalid')
         if index:
@@ -86,6 +89,13 @@ def aggregate(records,model,required_tools,authorized_ids):
                 successor=records[index+1]
                 allowed=successor.get('command_id') in record['process'].get('interrupts_applied',[]) and successor.get('command_id') in authorized_ids
                 benign=all(any(label in text for label in ('pending at process exit','Pending tool','Final settlement')) or (ev.get('truncated_tail') and text.startswith('Malformed JSONL record ') and sum(e.startswith('Malformed JSONL') for e in ev['protocol_errors'])==1) for text in ev.get('protocol_errors',[]))
+                allowed_abort_policy = {
+                    'No successful final assistant/process completion',
+                    'Unsuccessful assistant messages retained',
+                    'Pi settled with aborted work; no clean completion',
+                }
+                benign = benign and all(text in allowed_abort_policy for text in ev.get('policy_errors', []))
+                benign = benign and not (ev.get('agent_profile') or {}).get('errors', [])
                 if not allowed or not benign:errors.append('Original abort/invalid trace not authorised for recovery')
                 recovered=True
         for name,count in ev.get('successful_tools',{}).items():success[name]=success.get(name,0)+count
@@ -118,6 +128,10 @@ def classify_worker_limit(process,evidence,prior_turns=0,prior_tokens=0):
 
 def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,access,network,timeout,helpers,application_secrets=None,redaction_secrets=()):
     application_secrets = application_secrets or {}
+    release = getattr(args, 'observed_pi_version', None)
+    selected = release_contracts.identity(release)
+    release_contracts.validate_binding(getattr(args, 'release_contract', selected), release)
+    execution_identity = {'image_id': image, 'release_contract': selected}
     root=runroot/label;root.mkdir(parents=True,exist_ok=True)
     parent_records=runroot/'stages'/desc['stage_id']/'segments';parent_records.mkdir()
     session_id=str(uuid.uuid4());records=[];consumed=set();turns=0;tokens=0;known=True
@@ -133,7 +147,10 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
             segment_task=copy.deepcopy(task)
             segment_task.update(session_id=session_id,prior_turns=turns,prior_reported_tokens=tokens,prior_usage_known=known,
                                 pi_release=getattr(args,'observed_pi_version',None),allowed_tools=task['tools'])
+            segment_task['release_contract'] = release_contracts.identity(segment_task['pi_release'])
             if directive:
+                if records[-1].get('execution_identity') != execution_identity:
+                    raise controls.ControlError('Cannot continue across Pi release/image/contract identities')
                 segment_task['prompt']=directive['message'];segment_task['resume_session']='/opt/pi-control/segments/'+segment_id+'/session.jsonl'
                 digest=freeze_session(records[-1]['runtime'],session_id,cwd,endpoint['model'],control/'session.jsonl')
                 consumed.add(directive['id'])
@@ -153,6 +170,7 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
             if receipt and profile['kind']!='builtin':argv[-2:-2]=['--mount',f"type=bind,src={receipt['root']},dst=/opt/pi-profile,readonly,bind-recursive=disabled"]
             argv[-2:-2]=['--env',f'PI_LAB_STAGE_CONTEXT=/opt/pi-control/segments/{segment_id}/stage.json']
             meta={'schema':2,'segment_id':segment_id,'ordinal':ordinal,'stage_id':desc['stage_id'],
+                  'execution_identity':copy.deepcopy(execution_identity),
                   'run_id':desc['run_id'],'attempt_id':desc['attempt_id'],'session_id':session_id,
                   'runtime':str(runtime),'logs':str(logs),'started_at':controls.now(),
                   'continues_segment_id':records[-1]['segment_id'] if records else None,
@@ -174,7 +192,10 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
             observation=agent_profiles.observed(logs/'stdout.jsonl',{**context,'asset_root':receipt['root']}) if receipt else {'loading':'unverified','errors':[]}
             ev['agent_profile']=observation
             if observation['errors']:
-                ev['errors']+=observation['errors'];ev.update(agent_invocation_verified=False,completion_verified=False,invocation_status='invalid')
+                profile_errors = ['Agent profile violation: ' + text for text in observation['errors']]
+                ev.setdefault('policy_errors', []).extend(profile_errors)
+                ev['errors'] += profile_errors
+                ev.update(agent_invocation_verified=False,completion_verified=False,invocation_status='invalid')
             classify_worker_limit(result,ev,turns,tokens)
             lab.save(logs/'process.json',result)
             effective=provenance.collect_emitted(runtime,logs,secret,[*application_secrets.values(), *redaction_secrets]) if result.get('cleanup_confirmed') is True else {'status':'cleanup_unconfirmed'}
@@ -194,7 +215,7 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
             budget=controls.read(controls.budget_path(runroot,desc))
             if time.monotonic()>=budget['deadline_host_monotonic'] or turns>=budget['effective_limits']['max_turns'] or tokens>=budget['effective_limits']['max_total_tokens']:break
         accepted={e['id'] for e in controls.history(runroot) if e['status']=='accepted'}
-        evidence=aggregate(records,endpoint['model'],task['require_tools'],accepted)
+        evidence=aggregate(records,endpoint['model'],task['require_tools'],accepted,execution_identity)
         result=dict(records[-1]['process']) if records else {'exit_code':2,'cleanup_confirmed':False}
         result.update(segments=records,evidence=evidence,stage_turns=turns,
                       usage=combine([r['evidence'].get('usage',summarize([])) for r in records]),

@@ -20,13 +20,13 @@ new profile/configuration hashes; assets never load through ambient discovery.
 ## Run the fixed comparison
 
 First apply the current-session environment gate and qualify a trusted native ARM64
-Pi 0.87.1 image as in SKILL.md. Reuse an already confirmed environment within the
+Pi 0.87.1 or 1.2.0 image as in SKILL.md. Reuse an already confirmed environment within the
 conversation; do not ask for the key again. Use explicit image identity from a
-reviewed capability receipt and new output paths, outside the subject project:
+reviewed capability receipt and new output paths, outside the subject project. Set IMAGE to that trusted image; the generator selects its exact matching release profile:
 
 ```bash
 python3 "$SKILL_DIR/scripts/pi_lab.py" ensure-image \
-  --image pi-agent-tests:wave3-0.87.1-arm64 --policy reuse --platform linux/arm64 \
+  --image "$IMAGE" --policy reuse --platform linux/arm64 \
   --resources "$SKILL_DIR/assets/resources/low-impact.json" --receipt /tmp/lookup-image.json
 python3 "$SKILL_DIR/examples/integration-baseline/configure.py" \
   --image-receipt /tmp/lookup-image.json --output /tmp/lookup-definition.json

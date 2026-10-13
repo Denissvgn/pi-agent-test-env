@@ -65,6 +65,14 @@ whole Docker daemon. If you introduce separate parallel jobs, the aggregate
 ceiling is approximately `parallel jobs * per-job CPU/RAM limit`; use a real parent
 scheduler or cgroup budget before doing that. No parallel-agent mode is shipped.
 
+Known admission failures use a closed nonsecret diagnostic catalog:
+`host-admission-busy`, `resource-policy-invalid`, `admission-lock-insecure` and
+`admission-lock-unavailable`. Run/smoke retain sealed BLOCKED/2 outcomes with zero
+dispatch when rejected before execution. Other admission CLI failures emit a
+structured `admission_failure` on stderr with exit 2. Guidance is static and
+bounded; raw exception details remain represented only by their SHA-256 digest.
+Unknown errors are not classified by matching messages or digest values.
+
 The following worker hints are set from the effective job count:
 `PI_TEST_JOBS`, `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`,
 `NUMEXPR_NUM_THREADS`, `VECLIB_MAXIMUM_THREADS`, `UV_THREADPOOL_SIZE`,

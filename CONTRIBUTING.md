@@ -45,7 +45,9 @@ python3 skill/scripts/pr_review_gate.py --repo Denissvgn/pi-agent-test-env \
 Pending/missing reviews, stale heads, unresolved threads, requests for changes,
 incomplete API evidence and failing/in-progress checks block merging. No timeout
 or admin bypass turns them into a pass. Use `--match-head-commit` for the merge.
-See [the promotion procedure](skill/references/PULL-REQUESTS.md). Build release
+See [the promotion procedure](skill/references/PULL-REQUESTS.md). The
+[opt-in parallel-agent design](docs/design/parallel-agents.md) is a future plan;
+serial execution remains the shipped default. Build release
 artifacts from the final reviewed tree and preserve published tags/assets when
 shipping a corrective patch version.
 

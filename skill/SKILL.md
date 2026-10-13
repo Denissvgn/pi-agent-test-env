@@ -13,7 +13,11 @@ description: >-
 
 # Local agent evaluation with Pi
 
-Package version: 4.2.1. Instructions are in English.
+Package version: 4.3.0. Instructions are in English.
+
+Exact reviewed Pi releases: 0.87.1 and 1.2.0. Use
+[PI-1.2.0.md](references/PI-1.2.0.md) for the newer contract and migration limits;
+the existing 0.87.1 route, profile and historical receipts remain available.
 
 Resolve `SKILL_DIR` to this complete installed folder; scripts, runtime, assets,
 examples, docker and references must remain beside SKILL.md. See
@@ -138,7 +142,7 @@ These numbers are examples, not detected capacity. Save validates exact model
 listing and a tiny chat request. Keyless servers use `--no-auth`. Optional
 `--host-base-url` provides a distinct host route; the child route remains base-url.
 Reasoning level is off/minimal/low/medium/high only when supported. Numeric
-reasoning token budgets are unsupported on reviewed Pi 0.87.1; omit them.
+reasoning token budgets are unsupported on both reviewed Pi releases; omit them.
 Sampling is supplied as reviewed JSON via `--sampling`, not invented Pi flags.
 See [PI-COMPATIBILITY.md](references/PI-COMPATIBILITY.md) for exact allowed fields.
 Requested/ingested values do not prove server enforcement, deterministic seeds,
@@ -191,8 +195,8 @@ Docker network configuration remains a separate fact.
 Smoke must demonstrate actual paired read/write/bash tool calls and a fresh
 key-free verifier's challenge result. Synthetic protocol/unit fixtures do not
 satisfy smoke. Default reviewed Pi 0.87.1 requires ordered `agent_settled` evidence.
-`--event-contract process-exit` is only an explicit separately audited older
-release route; never downgrade a missing event on 0.87.1. Stop dependent execution
+`process-exit` is explicit historical trace inspection only, not live execution
+for either reviewed release; never downgrade missing settlement. Stop dependent execution
 if qualification fails. Reuse valid receipts only for unaffected exact scope.
 Browser profiles need actual DOM/API/WebGL checks, not command presence alone;
 see [BROWSER.md](references/BROWSER.md).
@@ -260,6 +264,7 @@ Before promoting changes through a GitHub PR, or releasing this package, follow
 resolve supported dispositions, and run the read-only review gate immediately
 before an authorized exact-head merge. Mergeability or green tests alone cannot
 substitute for completed review; pending, stale or unresolved review blocks merging.
+Copilot quota/error notices marked COMMENTED do not establish that code was reviewed.
 
 ## Controls and recovery
 
@@ -301,8 +306,11 @@ pending cells stay halted. See EXPERIMENTS.md for exact lease/retry semantics.
 
 Timeout/OOM/auth/network failures retain their evidence. Request a bounded
 adjustment only when authorized, never remove limits or switch model. Wait for
-host admission with --lock-wait-seconds rather than bypassing its lock. Repair
-Docker/sandbox access on the parent; do not mount Docker into children or install
+host admission with --lock-wait-seconds rather than bypassing its lock.
+Known admission reasons and bounded nonsecret next actions are documented in
+[RESOURCES.md](references/RESOURCES.md); preserve sealed blocked outcomes instead
+of treating a busy lease as permission to dispatch through another lock.
+Repair Docker/sandbox access on the parent; do not mount Docker into children or install
 packages into the model server. Browser sandbox/software rendering exceptions
 require explicit approval for trusted local tests.
 

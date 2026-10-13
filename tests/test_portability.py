@@ -156,7 +156,9 @@ class LegacyEventTests(unittest.TestCase):
     def result(self,ev,contract):
         with tempfile.TemporaryDirectory() as td:
             p=Path(td)/'events.jsonl';p.write_text(''.join(json.dumps(e)+'\n' for e in ev))
-            return analyze(p,'test-model',['read'],0,contract)
+            return analyze(p,'test-model',['read'],0,contract,
+                           release=None if contract=='process-exit' else '0.87.1',
+                           historical=contract=='process-exit')
 
     def test_explicit_legacy_accepts_clean_exit(self):
         self.assertTrue(self.result(events()[:-1],'process-exit')['agent_invocation_verified'])

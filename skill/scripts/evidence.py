@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"runtime"))
 from usage_contract import summarize
+import release_contracts
 
 METADATA={'thinking_level_changed','session_info_changed','entry_appended'}
 UPDATES={'start','text_start','text_delta','text_end','thinking_start','thinking_delta','thinking_end',
@@ -13,13 +14,21 @@ UPDATES={'start','text_start','text_delta','text_end','thinking_start','thinking
 
 
 def analyze(path: Path, model: str, required_tools: list[str], exit_code: int,
-            completion_contract: str='settled', *, allow_retries=False, release=None, allowed_tools=None) -> dict:
+            completion_contract: str='settled', *, allow_retries=False, release='0.87.1',
+            allowed_tools=None, historical=False) -> dict:
     if completion_contract not in ('settled','process-exit'):raise ValueError('Unknown completion contract')
     protocol=[];policy=[];counts={};assistants=[];failed_tools=[];succeeded={}
     agent=False;turn=False;message=None;settled=False;ever_started=False
     retry=False;will_retry=False;compaction=False;compaction_retry=False;summarization=False;queue=False
     declared={};started={};finished=set();turn_calls=set();last_assistant=None;header=None;retry_attempt=0;retry_max=None;truncated_tail=False
     def error(text):protocol.append(text)
+    selected = None
+    if completion_contract == 'process-exit':
+        if not historical or release in release_contracts.RELEASES:
+            policy.append('Legacy adapter is historical inspection only; not allowed for reviewed settled releases')
+    else:
+        try: selected = release_contracts.contract(release)
+        except ValueError as exc: error(str(exc))
     try:records=path.read_bytes().split(b'\n')
     except OSError as exc:
         records=[];error('Event artifact unavailable: '+type(exc).__name__)
@@ -80,6 +89,8 @@ def analyze(path: Path, model: str, required_tools: list[str], exit_code: int,
                 call=msg.get('toolCallId')
                 if not isinstance(call,str) or call not in finished or started.get(call)!=msg.get('toolName'):error('Unpaired tool-result message')
         elif kind in ('tool_execution_start','tool_execution_update','tool_execution_end'):
+            if event.get('parentToolCallId') is not None:
+                error('Nested tool execution is unsupported by the direct-tool contract')
             call=event.get('toolCallId');name=event.get('toolName')
             if not isinstance(call,str) or not agent or not turn or message is not None or call not in turn_calls or declared.get(call)!=name:
                 error('Unpaired/undeclared tool execution');continue
@@ -137,13 +148,19 @@ def analyze(path: Path, model: str, required_tools: list[str], exit_code: int,
             if settled and queue:error('Queued work after settlement')
         elif kind=='agent_settled':
             if not ever_started or agent or turn or message is not None or retry or will_retry or compaction or compaction_retry or summarization or queue:error('Premature/incomplete settlement')
+            if selected and selected['settlement_aborted'] == 'required_boolean':
+                if type(event.get('aborted')) is not bool:
+                    error('Pi 1.2.0 settlement requires boolean aborted')
+                elif event['aborted']:
+                    policy.append('Pi settled with aborted work; no clean completion')
+            elif selected and 'aborted' in event:
+                error('Unexpected settlement aborted field for the Pi 0.87.1 contract')
             settled=True
         elif kind not in METADATA:error('Unsupported lifecycle event: '+kind)
     if not ever_started or not counts.get('agent_end') or agent or turn or message is not None or retry or will_retry or compaction or compaction_retry or summarization or queue:
         error('Agent/message/tool/retry work pending at process exit')
     if set(started)-finished:error('Pending tool executions')
     if completion_contract=='settled' and (not settled or not header):error('Final settlement/session header missing')
-    if completion_contract=='process-exit' and release=='0.87.1':policy.append('Legacy adapter not allowed for settled release 0.87.1')
     final=assistants[-1] if assistants else {}
     content=final.get('content') if isinstance(final.get('content'),list) else []
     text='\n'.join(b.get('text','') for b in content if isinstance(b,dict) and b.get('type')=='text' and isinstance(b.get('text'),str))
@@ -161,6 +178,8 @@ def analyze(path: Path, model: str, required_tools: list[str], exit_code: int,
             'completion_verified':completion,'agent_invocation_verified':clean,
             'invocation_status':'verified' if clean else ('recovered' if completion and failures else 'invalid'),
             'completion_contract':completion_contract,'errors':protocol+policy,
+            'analysis_scope':'historical trace inspection' if historical else 'release-specific trace analysis; live qualification separate',
+            'release_contract':release_contracts.identity(release) if selected else None,
             'unsuccessful_messages':failures,'session_id':header.get('id') if header else None,
             'session_cwd':header.get('cwd') if header else None,'events':counts,'assistant_responses':len(assistants),
             'successful_tools':succeeded,'failed_tools':failed_tools,'provider_reported_total_tokens':total,

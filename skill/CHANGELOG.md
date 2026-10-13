@@ -1,5 +1,22 @@
 # Changelog
 
+## 4.3.0
+
+- Retain typed, whitelisted host-busy, invalid-policy and insecure/unavailable-lock
+  diagnostics with bounded nonsecret guidance, sealed accounting and real lease tests.
+- Reject Copilot quota/error/empty submissions as completed review; require the
+  recognized completion overview before exact-head review readiness.
+- Add exact reviewed Pi 1.2.0 support alongside preserved 0.87.1 behavior and
+  fixture declaration/asset identities, with shared host/worker admission.
+- Validate release-specific cancellation settlement, reject live legacy fallback,
+  and bind continuation to image/release/contract identity.
+- Retain profile and tool-policy violations across authorized recovery.
+- Freeze release contracts in experiments while preserving historical reading.
+- Cover nested client/tool JSON credential escaping without general transformed
+  secret guarantees; retain scoped delivery, stopped cleanup and snapshot scanning.
+- Add a separately bounded maintainer ARM64 qualification harness with private
+  evidence and independent protocol, model, credential, browser and fault oracles.
+
 ## 4.2.1
 
 - Require observed sandboxing for browser-check; trusted opt-out runs cannot

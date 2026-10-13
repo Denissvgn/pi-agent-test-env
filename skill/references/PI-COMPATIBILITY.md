@@ -1,5 +1,9 @@
 # Pi 0.87.1 release contract
 
+This preserved contract is supported alongside the separately reviewed
+[Pi 1.2.0 contract](PI-1.2.0.md). Historical observations retain their original
+identities; the newer adapter does not requalify older receipts.
+
 Source inspected on 7 October 2026. Native ARM64 executor observations used
 Pi 0.87.1 with an exact recorded model/image configuration. Low/off reasoning and
 sampling request ingestion were observed; server enforcement remains unverified.

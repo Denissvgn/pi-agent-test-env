@@ -88,14 +88,19 @@ def resolve(plan, endpoint, inference_key, store, project, runroot, in_place=Fal
 
 
 class Redactor:
-    """Single-pass exact-value and JSON-escaped redaction, including overlaps."""
+    """Exact values and up to three JSON-string escape layers, including overlaps."""
     def __init__(self, values):
         patterns = set()
         for value in values:
             if value:
                 patterns.add(value.encode())
-                for ascii_only in (True, False):
-                    patterns.add(json.dumps(value, ensure_ascii=ascii_only)[1:-1].encode())
+                current = {value}
+                # Tool JSON may wrap a client's JSON-encoded value again. Bound
+                # lossless escape expansion; arbitrary transformations stay out of scope.
+                for _ in range(3):
+                    current = {json.dumps(text, ensure_ascii=ascii_only)[1:-1]
+                               for text in current for ascii_only in (True, False)}
+                    patterns.update(text.encode() for text in current)
         self.pattern = re.compile(b'|'.join(re.escape(p) for p in sorted(patterns, key=lambda p: (-len(p), p)))) if patterns else None
         self.overlap = max((len(p) for p in patterns), default=1) - 1
 

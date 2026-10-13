@@ -1,4 +1,4 @@
-# Pi Agent Test Environment 4.2.1
+# Pi Agent Test Environment 4.3.0
 
 **English, project-adaptable, resource-bounded workflows for real local-LLM agents.**
 
@@ -7,6 +7,11 @@ an Agent Skills `SKILL.md`, a host-side runner, a Docker build, capability contr
 sequential agent plans, independent checks, and small starter projects. The parent
 can be any development agent or a human with permission to run the host scripts;
 children are real Pi Coding Agent processes.
+
+Exact reviewed runtime contracts are Pi 0.87.1 and 1.2.0. The
+[1.2.0 reference](references/PI-1.2.0.md) explains cancellation, isolation,
+profile selection and compatibility limits. Old 0.87.1 profiles and evidence
+remain intact; builds still require an explicit version.
 
 The supplied executor targets Linux ARM64/AMD64 containers and an OpenAI-compatible
 Chat Completions endpoint. Other project stacks need their own tested toolchains;
@@ -289,9 +294,9 @@ the child's mount. The output reports the exact directory. Inspect:
 
 An invocation is structurally verified only with matching model/provider,
 completed message/agent lifecycles, required successful tool calls, and exit 0.
-Default completion requires `agent_settled`; an audited older one-shot JSON CLI
-can use `--event-contract process-exit` explicitly. Neither mode accepts prose
-instead of tool events or substitutes another model.
+Both reviewed releases require `agent_settled`; 1.2.0 also requires a valid
+non-aborted settlement flag. Historical `process-exit` trace inspection cannot
+weaken live execution. Prose cannot replace tool events or authorize another model.
 
 `PASS`/0 is a clean autonomous mechanical plan result. Assisted/recovered success
 returns exit 1; blocked/cancelled runs return exit 2. Invocation and independent
@@ -330,7 +335,8 @@ establish model performance; real trials require retained execution and scoring 
 
 [Agent profile contracts](references/AGENT-PROFILES.md) and the
 [fixed lookup comparison](examples/integration-baseline/README.md) support exactly
-one opt-in fixture_lookup extension on reviewed Pi 0.87.1. Explicit hashes and
+one opt-in fixture_lookup extension on reviewed Pi 0.87.1 or 1.2.0 through exact
+release-bound declarations. Explicit hashes and
 read-only assets preserve isolated defaults; real registration/tool-use evidence
 is required separately from independent task scores. Historical observations
 remain limited to their exact selected configuration. Broader integrations are unsupported.

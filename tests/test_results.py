@@ -19,6 +19,7 @@ def fixture(top):
     project=top/'project';project.mkdir();(project/'code.py').write_text('pass')
     plan=top/'plan.json';lab.save(plan,{'schema':1,'agents':[{'name':'dev','prompt':'Synthetic task','require_tools':[]}],'checks':[{'name':'oracle','argv':['true']}]})
     a=lab.parser().parse_args(['run','--project',str(project),'--plan',str(plan),'--endpoint',str(top/'endpoint.json'),'--results-dir',str(top/'results'),'--lock-file',str(top/'lease'),'--platform','linux/arm64','--memory','1g','--cpus','1'])
+    a.observed_pi_version='0.87.1'
     return a
 
 
@@ -27,7 +28,7 @@ def mocked_suite(stack, stage=None):
     stack.enter_context(mock.patch.object(lab,'load_endpoint',return_value=endpoint))
     stack.enter_context(mock.patch.object(lab,'endpoint_secret',return_value='synthetic-key'))
     stack.enter_context(mock.patch.object(lab,'require_host',return_value={}))
-    stack.enter_context(mock.patch.object(lab,'probe_image',return_value={'id':'fixture','reference':'fixture'}))
+    stack.enter_context(mock.patch.object(lab,'probe_image',return_value={'id':'fixture','reference':'fixture','capabilities':{'pi':'0.87.1'}}))
     def fake(argv,logdir,timeout,name,secret='',stage=None,**kw):
         logdir.mkdir(parents=True,exist_ok=True);(logdir/'stdout.jsonl').write_text('');(logdir/'stderr.log').write_text('')
         return {'exit_code':0,'cleanup_confirmed':True}
@@ -145,7 +146,7 @@ class ProtocolTests(unittest.TestCase):
 
     def test_legacy_is_explicit_and_cannot_weaken_pinned_release(self):
         ev=self.examples()[:-1]
-        self.assertTrue(self.analyze(ev,completion_contract='process-exit')['agent_invocation_verified'])
+        self.assertTrue(self.analyze(ev,completion_contract='process-exit',release=None,historical=True)['agent_invocation_verified'])
         self.assertFalse(self.analyze(ev,completion_contract='process-exit',release='0.87.1')['agent_invocation_verified'])
         self.assertFalse(self.analyze(ev)['agent_invocation_verified'])
 
@@ -242,7 +243,7 @@ class SegmentTests(unittest.TestCase):
         from test_controls import args
         import time
         run=top/'run';run.mkdir();workspace=(run/'workspace') if application else top/'subject';workspace.mkdir()
-        a=args(event_contract='settled',lock_file=str(top/'lease'))
+        a=args(event_contract='settled',lock_file=str(top/'lease'),observed_pi_version='0.87.1')
         task={'name':'dev','prompt':'fixture','tools':['read'],'require_tools':['read'],'max_turns':10,'max_total_tokens':1000,'timeout_seconds':5}
         application_key = 'synthetic-application-chain-123456'
         if application:task['application_secrets']={'PI_APP_KEY':'CHAIN_PERSONA'}
@@ -360,7 +361,7 @@ class SegmentTests(unittest.TestCase):
         import time
         with tempfile.TemporaryDirectory() as td:
             top=Path(td);run=top/'run';run.mkdir();workspace=top/'subject';workspace.mkdir();calls=[]
-            a=args(event_contract='settled',lock_file=str(top/'lease'))
+            a=args(event_contract='settled',lock_file=str(top/'lease'),observed_pi_version='0.87.1')
             task={'name':'dev','prompt':'fixture','tools':['read'],'require_tools':['read'],'max_turns':10,'max_total_tokens':1000,'timeout_seconds':3}
             def cancel(argv,logs,timeout,name,secret='',stage=None,**kw):
                 calls.append(1);desc=stage[1];lab.controls.start_budget(run,desc,time.monotonic())

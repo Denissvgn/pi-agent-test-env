@@ -39,6 +39,12 @@ completed expected exact-head reviews, no undismissed requests for changes, zero
 unresolved threads and successful/completed commit checks/statuses. Copilot's
 COMMENTED review counts as completed after findings are triaged and threads
 resolved; a COMMENTED review does not clear an earlier request for changes.
+Copilot can also submit COMMENTED quota/error notices without reviewing code.
+These do not satisfy the review requirement. The gate requires the recognized
+Copilot completion overview (currently ccr-overview-v2 with a recommended outcome
+and finding count); empty or unknown overviews fail closed. Read the submission
+body even when the metadata gate passes. A quota refusal requires an actual later
+exact-head review when service access is available, never a reviewer-policy bypass.
 Outdated does not mean resolved. Review/check pages are fully read and the PR's
 head and update state are rechecked after collection. Review, thread, check-run
 and combined-status sources are independently re-read and compared; CI changes

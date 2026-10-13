@@ -18,6 +18,7 @@ import browser_security
 import resources
 import scoring
 import stage_control as controls
+import release_contracts
 
 class ExperimentError(ValueError):pass
 
@@ -154,6 +155,7 @@ def prepare(path,destination,lab,endpoint_path=None):
         if root==project or project in root.parents or lexical==project or project in lexical.parents:raise ExperimentError('Experiment evidence must be outside every project')
     if root.exists():raise ExperimentError('Experiment destination already exists; never replace it')
     runner_sha=provenance.execution({}, {},lab.ROOT)['runner_content_sha256']
+    frozen_contracts = release_contracts.snapshot()
     experiment_id=str(uuid.uuid4());cells=[]
     plan_paths=plan_path_map(experiment_id,[(case['name'],variant['name'])
         for case in definition['cases'] for variant in definition['variants']])
@@ -210,7 +212,8 @@ def prepare(path,destination,lab,endpoint_path=None):
         metadata={'schema':1,'document_type':'experiment','experiment_id':experiment_id,'name':definition['name'],
                   'baseline':definition['baseline'],'repetitions':definition['repetitions'],'policies':definition['policies'],
                   'execution':{k:v for k,v in definition['execution'].items() if k not in ('resources','environment')},
-                  'profile':'explicit-agent-profiles' if any(v['profile_explicit'] for v in definition['variants']) else 'builtin-only','created_at':controls.now(),'source_receipts':source_receipts,'runner_content_sha256':runner_sha,'prepared_root':str(root)}
+                  'profile':'explicit-agent-profiles' if any(v['profile_explicit'] for v in definition['variants']) else 'builtin-only','created_at':controls.now(),'source_receipts':source_receipts,'runner_content_sha256':runner_sha,'prepared_root':str(root),
+                  'release_contracts':frozen_contracts}
         controls.atomic(temp/'experiment.json',metadata,0o444)
         controls.atomic(temp/'matrix.json',{'schema':1,'document_type':'trial_matrix','experiment_id':experiment_id,'cells':cells},0o444)
         hashes=lab.tree_hashes(inputs,include_ignored=True)
@@ -479,6 +482,8 @@ def execute(root,lab,session=None,runner=None,resume=False,retry_trial=None,clea
         existing=any(attempt_intents(root,cell) for cell in matrix['cells'])
         if existing and not resume:raise ExperimentError('Existing experiment attempts: execution will not silently repeat them; use experiment-resume')
         if metadata.get('runner_content_sha256')!=provenance.execution({}, {},lab.ROOT)['runner_content_sha256']:raise ExperimentError('Runner content changed; prepare a new experiment')
+        if metadata.get('release_contracts') != release_contracts.snapshot():
+            raise ExperimentError('Frozen Pi release contracts are missing or changed; prepare a new experiment')
         if metadata.get('prepared_root')!=str(root):raise ExperimentError('Experiment execution directory moved; prepare a new experiment')
         previous_state=controller_state(root)
         if resume:reconcile(root,metadata,matrix,lab,cleanup)
@@ -498,6 +503,22 @@ def execute(root,lab,session=None,runner=None,resume=False,retry_trial=None,clea
                     approved=lab.load_endpoint(lab_env.require_ready(session))
                     frozen=lab.load_endpoint(root/cell['endpoint'])
                     if lab_env.fingerprint_of(approved)!=lab_env.fingerprint_of(frozen):raise ExperimentError('Confirmed saved environment differs from frozen configuration; prepare a new experiment')
+            if work:
+                admission_args = trial_args(root, metadata, work[0], lab, session)
+                with resources.admission_lock(admission_args.lock_file, admission_args.lock_wait_seconds):
+                    lab.require_host(admission_args)
+                    image = lab.probe_image(admission_args, metadata['execution']['image'])
+                    selected = lab.admit_image(image)
+                    if selected != metadata['release_contracts'].get(selected['release']):
+                        raise ExperimentError('Observed Pi contract differs from the frozen release registry')
+                    for cell in work:
+                        profile = agent_profiles.load(root / cell['agent_profile'])
+                        agent_profiles.admit(profile, selected['release'])
+                        lab.pi_contract.model_configuration(lab.load_endpoint(root / cell['endpoint']), selected['release'])
+                # Admission is complete before any trial attempt can be reserved.
+                controls.atomic(root/'admission.json', {
+                    'schema': 1, 'image': image['id'], 'release_contract': selected,
+                    'scope': 'Observed image/release admission; not a participant or model qualification'})
             runner=lab.run_suite
         directory(root,'runs');directory(root,'logs')
         state={'schema':1,'status':'running','active_attempt_id':None,'started_at':controls.now()}

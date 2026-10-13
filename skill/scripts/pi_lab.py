@@ -29,7 +29,7 @@ from urllib.parse import urlsplit
 import uuid
 
 from evidence import analyze
-from resources import configure, requested_policy, thread_environment, admission_lock
+from resources import configure, requested_policy, thread_environment, admission_lock, admission_diagnostic, AdmissionError
 from builder import limited_build
 import secret_store
 import application_credentials
@@ -47,6 +47,7 @@ import provenance
 from usage_contract import combine as combine_usage, summarize as summarize_usage
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'runtime'))
 import pi_contract
+import release_contracts
 from diagnostics import classify_docker_error, first_line, remedy
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -465,7 +466,22 @@ def probe_image(args, image: str) -> dict:
     return info
 
 
+def admit_image(image, expected=None):
+    try:
+        selected = release_contracts.image_identity(image, expected)
+        reported = image.get('capabilities', {}).get('release_contract')
+        if reported is not None:
+            release_contracts.validate_binding(reported, selected['release'])
+    except ValueError as exc:
+        raise LabError(str(exc), 'unsupported-pi-release',
+                       'Select and qualify an exact reviewed Pi 0.87.1 or 1.2.0 image; no fallback.') from exc
+    return selected
+
+
 def ensure_image(args) -> dict:
+    if args.pi_version:
+        try: release_contracts.contract(args.pi_version)
+        except ValueError as exc: raise LabError(str(exc), 'unsupported-pi-release') from exc
     host = require_host(args)
     attempted = []
     candidates = list(dict.fromkeys([args.image] + args.reuse))
@@ -473,6 +489,7 @@ def ensure_image(args) -> dict:
         for candidate in candidates:
             try:
                 receipt = probe_image(args, candidate)
+                receipt['release_contract'] = admit_image(receipt, args.pi_version or None)
                 if candidate != args.image:
                     command(['docker', 'image', 'tag', receipt['id'], args.image])
                 receipt.update(action='reused', alias=args.image, host=host)
@@ -494,6 +511,7 @@ def ensure_image(args) -> dict:
         raise LabError('Use an existing reviewed Dockerfile and a dedicated environment-only build context, not / or home')
     build_receipt = limited_build(args, dockerfile, context, command)
     receipt = probe_image(args, args.image)
+    receipt['release_contract'] = admit_image(receipt, args.pi_version)
     receipt.update(action='built', host=host, prior_candidates=attempted,
                    requested_pi_version=args.pi_version,
                    base_image=args.base_image, build=build_receipt)
@@ -1080,12 +1098,17 @@ def _execute_suite(args,attempt,smoke=False):
     summary['browser_security'] = args.frozen_browser_security
     summary['infrastructure']['phase']='image'
     image = probe_image(args, args.image);summary['image']=image
-    observed=re.search(r'\b(\d+\.\d+\.\d+)\b',image.get('capabilities',{}).get('pi',''))
-    args.observed_pi_version=observed.group(1) if observed else None
+    args.release_contract = admit_image(image)
+    args.observed_pi_version = args.release_contract['release']
+    summary['release_contract'] = args.release_contract
+    if args.event_contract != release_contracts.contract(args.observed_pi_version)['completion']:
+        raise LabError('Reviewed Pi releases require agent_settled; process-exit is historical inspection only',
+                       'unsupported-event-contract')
     try:_,_,_,reasoning_receipt=pi_contract.model_configuration(endpoint,args.observed_pi_version)
     except ValueError as exc:
         raise LabError(str(exc),'unsupported-pi-settings','Review PI-COMPATIBILITY.md; omit numeric reasoning budgets for this profile or qualify the explicitly selected release.') from exc
-    if profile['kind']!='builtin' and args.observed_pi_version!='0.87.1':raise LabError('Custom profile requires reviewed Pi 0.87.1; no release substitution','unsupported-agent-profile')
+    try: agent_profiles.admit(profile, args.observed_pi_version)
+    except ValueError as exc: raise LabError(str(exc), 'unsupported-agent-profile') from exc
     summary['reasoning']=reasoning_receipt
     summary['provenance']=provenance.execution(endpoint,image,ROOT)
     attempt.persist()
@@ -1305,6 +1328,10 @@ def preflight_only(args):
     key = endpoint_secret(c, args)
     host = require_host(args)
     image = probe_image(args, args.image)
+    args.release_contract = admit_image(image)
+    args.observed_pi_version = args.release_contract['release']
+    try: pi_contract.model_configuration(c, args.observed_pi_version)
+    except ValueError as exc: raise LabError(str(exc), 'unsupported-pi-settings') from exc
     parent = checked_path(Path(args.results_dir))
     parent.mkdir(parents=True, exist_ok=True)
     runroot = parent / ('preflight-' + uuid.uuid4().hex[:12])
@@ -1586,6 +1613,8 @@ def _cmd_patch_session(args):
                 controls.atomic(folder/(record['id']+'.json'),record,0o644)
         print(json.dumps({'status':'applied','command_id':record['id'],'stage_id':desc['stage_id'],'target':target}))
         return 0
+    except AdmissionError:
+        raise
     except (OSError,ValueError,controls.ControlError,workspace_patch.PatchError) as exc:
         raise LabError(str(exc),'unsafe-workspace-patch') from exc
 
@@ -1701,13 +1730,17 @@ def cmd_doctor(args) -> int:
         with admission_lock(args.lock_file, args.lock_wait_seconds):
             try:
                 require_host(args)
-                caps = probe_image(args, args.image)['capabilities']
+                probed_image = probe_image(args, args.image)
+                selected = admit_image(probed_image)
+                caps = probed_image['capabilities']
                 add('image-probe', 'ok', f'pi {caps.get("pi")}, node {caps.get("node")}, {caps.get("architecture")}')
+                add('pi-release-contract', 'ok', selected['id'])
             except LabError as exc:
                 add('image-probe', 'fail', str(exc)[:1000], exc.reason or 'image-missing', image=args.image)
 
     blockers = [c for c in checks if c['status'] == 'fail']
     report = {'status': 'BLOCKED' if blockers else 'READY', 'checks': checks,
+              'scope': 'Prerequisite diagnostics; Pi release admission is observed only with --probe-image',
               'next_steps': [f'[{c["check"]}] {c["remedy"]}' for c in blockers if c.get('remedy')]}
     print(json.dumps(report, indent=2))
     if any(c.get('reason') == 'missing-secret' for c in blockers) and len(blockers) == 1:
@@ -2011,6 +2044,22 @@ def _interrupt(signum, frame):
     raise KeyboardInterrupt
 
 
+def cli_failure(exc):
+    diagnostic = admission_diagnostic(exc)
+    if diagnostic is not None:
+        print(json.dumps({'schema':1,'document_type':'admission_failure','status':'BLOCKED','exit_code':2,
+                          'infrastructure':{**diagnostic,'error_digest':hashlib.sha256(str(exc).encode()).hexdigest()}}),
+              file=sys.stderr)
+        return 2
+    reason = getattr(exc, 'reason', '')
+    tag = f' [{reason}]' if reason else ''
+    print(f'BLOCKED{tag}: {exc}', file=sys.stderr)
+    remedy_text = getattr(exc, 'remedy', '')
+    if remedy_text:
+        print(f'Remedy: {remedy_text}', file=sys.stderr)
+    return EXIT_NEEDS_SECRET if reason == 'missing-secret' else 2
+
+
 if __name__ == '__main__':
     signal.signal(signal.SIGTERM, _interrupt)
     try:
@@ -2019,11 +2068,4 @@ if __name__ == '__main__':
         print('INTERRUPTED', file=sys.stderr)
         sys.exit(130)
     except (LabError, controls.ControlError, ValueError, OSError) as exc:
-        reason = getattr(exc, 'reason', '')
-        tag = f' [{reason}]' if reason else ''
-        print(f'BLOCKED{tag}: {exc}', file=sys.stderr)
-        remedy_text = getattr(exc, 'remedy', '')
-        if remedy_text:
-            print(f'Remedy: {remedy_text}', file=sys.stderr)
-        code = EXIT_NEEDS_SECRET if reason == 'missing-secret' else 2
-        sys.exit(code)
+        sys.exit(cli_failure(exc))

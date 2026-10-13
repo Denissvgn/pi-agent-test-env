@@ -236,7 +236,8 @@ class PatchProtocolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             top=Path(td);run,desc=prepare(top,running=False);source=top/'fix';source.write_text('bad')
             with lab.admission_lock(desc['admission_lock_file'],0):
-                with self.assertRaises(lab.LabError):lab.cmd_patch_session(self.patch_args(run,desc,source,'file'))
+                with self.assertRaises(lab.AdmissionError) as caught:lab.cmd_patch_session(self.patch_args(run,desc,source,'file'))
+                self.assertEqual(caught.exception.reason,'host-admission-busy')
             self.assertFalse((Path(desc['workspace'])/'file').exists())
 
 
@@ -457,7 +458,7 @@ class InterventionTests(unittest.TestCase):
                     # Suppress continuation in this attribution-only fixture.
                     lab.controls.atomic(lab.controls.budget_path(run,desc),{'schema':2,'phase':'active','revision':0,'effective_limits':{'max_turns':1,'max_total_tokens':1},'deadline_host_monotonic':0})
                 return {'exit_code':0,'cleanup_confirmed':True}
-            with mock.patch.object(lab,'load_endpoint',return_value=endpoint),mock.patch.object(lab,'endpoint_secret',return_value='synthetic-key'),mock.patch.object(lab,'require_host',return_value={}),mock.patch.object(lab,'probe_image',return_value={'id':'fixture','reference':'fixture'}),mock.patch.object(lab,'stream_run',side_effect=fake_stream),mock.patch.object(lab,'analyze',return_value={'agent_invocation_verified':True,'errors':[],'final_text':'Synthetic fixture'}),mock.patch.object(lab.segments,'aggregate',return_value={'agent_invocation_verified':True,'completion_verified':True,'invocation_status':'verified','errors':[],'final_text':'Synthetic fixture'}),contextlib.redirect_stdout(io.StringIO()):
+            with mock.patch.object(lab,'load_endpoint',return_value=endpoint),mock.patch.object(lab,'endpoint_secret',return_value='synthetic-key'),mock.patch.object(lab,'require_host',return_value={}),mock.patch.object(lab,'probe_image',return_value={'id':'fixture','reference':'fixture','capabilities':{'pi':'0.87.1'}}),mock.patch.object(lab,'stream_run',side_effect=fake_stream),mock.patch.object(lab,'analyze',return_value={'agent_invocation_verified':True,'errors':[],'final_text':'Synthetic fixture'}),mock.patch.object(lab.segments,'aggregate',return_value={'agent_invocation_verified':True,'completion_verified':True,'invocation_status':'verified','errors':[],'final_text':'Synthetic fixture'}),contextlib.redirect_stdout(io.StringIO()):
                 code=lab.run_suite(a)
             summary=lab.controls.read((top/'results/latest').resolve()/'summary.json')
             self.assertEqual(code,1)
