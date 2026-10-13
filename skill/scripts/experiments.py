@@ -19,6 +19,7 @@ import resources
 import scoring
 import stage_control as controls
 import release_contracts
+import parallel_contract
 
 class ExperimentError(ValueError):pass
 
@@ -76,8 +77,10 @@ def scorer_identity(plan):
 def validate(path,lab,endpoint_path=None):
     path=Path(path).absolute();value=read_json(path);base=path.parent
     required=('schema','name','baseline','repetitions','cases','variants','budgets','execution','policies')
-    object_fields(value,required,required)
-    if type(value['schema']) is not int or value['schema']!=1:raise ExperimentError('Experiment schema 1 required')
+    if type(value.get('schema')) is not int or value['schema'] not in (1,2):raise ExperimentError('Experiment schema 1 or 2 required')
+    fields=required+('concurrency',) if value['schema']==2 else required
+    object_fields(value,fields,fields)
+    concurrency=parallel_contract.validate(value['concurrency']) if value['schema']==2 else None
     label(value['name']);label(value['baseline'])
     if type(value['repetitions']) is not int or not 1<=value['repetitions']<=10:raise ExperimentError('repetitions must be 1..10')
     default_budget=budget(value['budgets'])
@@ -99,6 +102,8 @@ def validate(path,lab,endpoint_path=None):
         raise ExperimentError('Supported policies: first primary, exclude assistance, continue/stop failures, 1..3 attempts')
     if not isinstance(value['cases'],list) or not 1<=len(value['cases'])<=8 or not isinstance(value['variants'],list) or not 2<=len(value['variants'])<=8:raise ExperimentError('Require 1..8 cases and 2..8 variants')
     if len(value['cases'])*len(value['variants'])*value['repetitions']>64:raise ExperimentError('At most 64 planned cells')
+    if concurrency is not None and len(value['cases'])*len(value['variants'])*value['repetitions']>concurrency['max_pending']:
+        raise ExperimentError('Frozen pending queue must cover the planned matrix')
     cases=[];seen=set()
     for case in value['cases']:
         object_fields(case,('name','project','plan','budgets'),('name','project','plan'))
@@ -129,8 +134,15 @@ def validate(path,lab,endpoint_path=None):
         variants.append({'name':name,'endpoint':endpoint,'prompt_suffix':suffix,'agent_profile':profile,'profile_explicit':bool(variant.get('agent_profile')),
                          'endpoint_origin':'explicit' if variant.get('endpoint') or endpoint_path else 'saved_environment'})
     if value['baseline'] not in seen:raise ExperimentError('Declared baseline is absent')
-    result={'schema':1,'name':value['name'],'baseline':value['baseline'],'repetitions':value['repetitions'],
+    result={'schema':value['schema'],'name':value['name'],'baseline':value['baseline'],'repetitions':value['repetitions'],
             'cases':cases,'variants':variants,'execution':execution,'policies':policies}
+    if concurrency is not None:
+        if concurrency['gateway']['queue_wait_seconds']+concurrency['gateway']['request_timeout_seconds']>=min(case['budgets']['timeout_seconds'] for case in cases):
+            raise ExperimentError('Inference queue and request deadline must fit every Pi stage budget')
+        if any(v['endpoint']!=variants[0]['endpoint'] for v in variants):
+            raise ExperimentError('Parallel trials require one exact unchanged upstream endpoint')
+        if execution['network']!='bridge':raise ExperimentError('Parallel mode requires dedicated trial bridge networks')
+        result['concurrency']=concurrency
     # Variants change only endpoint and prompt; scorer/case/budgets are shared by construction.
     return result
 
@@ -189,6 +201,7 @@ def prepare(path,destination,lab,endpoint_path=None):
             controls.atomic(endpoints/(variant['name']+'.json'),variant['endpoint'],0o444)
             directory=inputs/'profiles'/variant['name'];directory.parent.mkdir(exist_ok=True)
             agent_profiles.freeze(variant['agent_profile'],directory)
+        if definition['schema']==2:controls.atomic(inputs/'concurrency.json',definition['concurrency'],0o444)
         controls.atomic(inputs/'resources.json',definition['execution']['resources'],0o444)
         if definition['execution'].get('environment'):controls.atomic(inputs/'environment.json',definition['execution']['environment'],0o444)
         for case in definition['cases']:
@@ -201,6 +214,7 @@ def prepare(path,destination,lab,endpoint_path=None):
                                    'endpoint':{k:v for k,v in variant['endpoint'].items() if k!='api_key_env'},
                                    'plan':read_json(temp/plan_paths[(case['name'],variant['name'])]),
                                    'execution':definition['execution'],'budgets':case['budgets'],'profile_sha256':agent_profiles.identity(variant['agent_profile']),'runner_content_sha256':runner_sha}
+                    if definition['schema']==2:configuration['concurrency']=definition['concurrency']
                     cells.append({'trial_id':trial_id,'case_id':case_id,'variant_id':variant_id,'case':case['name'],'variant':variant['name'],
                                   'repetition':repetition,'configuration_digest':provenance.digest(configuration),
                                   'source':'inputs/sources/'+case['name'],'plan':plan_paths[(case['name'],variant['name'])],
@@ -209,18 +223,24 @@ def prepare(path,destination,lab,endpoint_path=None):
                                   'agent_profile_id':variant['agent_profile']['id'],'agent_profile_sha256':agent_profiles.identity(variant['agent_profile']),
                                   'profile_explicit':variant['profile_explicit'],'budgets':case['budgets'],'initial_status':'planned',
                                   'plan_sha256':provenance.digest(lab.validate_plan(read_json(temp/plan_paths[(case['name'],variant['name'])]),(root/plan_paths[(case['name'],variant['name'])]).parent,variant['agent_profile']))})
-        metadata={'schema':1,'document_type':'experiment','experiment_id':experiment_id,'name':definition['name'],
+        if definition['schema']==2:
+            case_order={c['name']:i for i,c in enumerate(definition['cases'])};variant_order={v['name']:i for i,v in enumerate(definition['variants'])}
+            cells.sort(key=lambda c:(c['repetition'],variant_order[c['variant']],case_order[c['case']]))
+        metadata={'schema':definition['schema'],'document_type':'experiment','experiment_id':experiment_id,'name':definition['name'],
                   'baseline':definition['baseline'],'repetitions':definition['repetitions'],'policies':definition['policies'],
                   'execution':{k:v for k,v in definition['execution'].items() if k not in ('resources','environment')},
                   'profile':'explicit-agent-profiles' if any(v['profile_explicit'] for v in definition['variants']) else 'builtin-only','created_at':controls.now(),'source_receipts':source_receipts,'runner_content_sha256':runner_sha,'prepared_root':str(root),
                   'release_contracts':frozen_contracts}
+        if definition['schema']==2:metadata['concurrency']=definition['concurrency']
         controls.atomic(temp/'experiment.json',metadata,0o444)
-        controls.atomic(temp/'matrix.json',{'schema':1,'document_type':'trial_matrix','experiment_id':experiment_id,'cells':cells},0o444)
+        controls.atomic(temp/'matrix.json',{'schema':definition['schema'],'document_type':'trial_matrix','experiment_id':experiment_id,'cells':cells},0o444)
         hashes=lab.tree_hashes(inputs,include_ignored=True)
         hashes={str(Path('inputs')/k):v for k,v in hashes.items()}
         for name in ('experiment.json','matrix.json'):hashes[name]=lab.tree_hashes(temp/name,include_ignored=True)['.']
         controls.atomic(temp/'integrity.json',{'schema':1,'files':hashes,'fingerprint':provenance.digest(hashes)},0o444)
-        controls.atomic(temp/'state.json',{'schema':1,'status':'prepared','active_attempt_id':None})
+        state={'schema':definition['schema'],'status':'prepared'}
+        state.update(active_attempts={}) if definition['schema']==2 else state.update(active_attempt_id=None)
+        controls.atomic(temp/'state.json',state)
         # All planned cells and frozen inputs exist before the directory becomes executable.
         temp.rename(root)
     finally:
@@ -282,13 +302,21 @@ def verify(root,lab):
     actual={'inputs/'+name for name in lab.tree_hashes(root/'inputs',include_ignored=True)}
     if expected!=actual:raise ExperimentError('Frozen input set changed')
     metadata=read_json(root/'experiment.json');matrix=read_json(root/'matrix.json')
+    if type(metadata.get('schema')) is not int or metadata['schema'] not in (1,2) or matrix.get('schema')!=metadata['schema']:
+        raise ExperimentError('Unsupported experiment/matrix schema')
+    if metadata['schema']==2:
+        contract=parallel_contract.validate(metadata.get('concurrency'))
+        if 'inputs/concurrency.json' not in manifest['files'] or read_json(root/'inputs/concurrency.json')!=contract:
+            raise ExperimentError('Frozen concurrency contract mismatch')
+    elif 'concurrency' in metadata:
+        raise ExperimentError('Serial experiment cannot acquire parallel mode')
     if metadata['experiment_id']!=matrix['experiment_id']:raise ExperimentError('Matrix identity mismatch')
     verify_plan_ownership(root,metadata,matrix,manifest,lab)
     return metadata,matrix
 
 
 def add_parser(sub):
-    run=sub.add_parser('experiment-run',help='Execute the frozen matrix serially through the existing runner')
+    run=sub.add_parser('experiment-run',help='Execute the frozen serial or explicitly selected two-trial matrix')
     run.add_argument('--experiment',required=True);run.add_argument('--session')
     resume=sub.add_parser('experiment-resume',help='Reconcile abandoned attempts; run pending cells and only explicitly selected fresh retries')
     resume.add_argument('--experiment',required=True);resume.add_argument('--session');resume.add_argument('--retry-trial',help='Explicit trial UUID; first attempt remains primary')
@@ -297,7 +325,7 @@ def add_parser(sub):
     report=sub.add_parser('experiment-report',help='Write complete JSONL and primary/cohort JSON/Markdown comparisons')
     report.add_argument('--experiment',required=True)
     for name in ('validate-experiment','experiment-prepare'):
-        p=sub.add_parser(name,help='Validate schema-1 application inputs' if name=='validate-experiment' else 'Freeze all inputs and persist the complete trial matrix')
+        p=sub.add_parser(name,help='Validate schema-1 serial or schema-2 parallel application inputs' if name=='validate-experiment' else 'Freeze all inputs and persist the complete trial matrix')
         p.add_argument('--definition',required=True);p.add_argument('--endpoint',help='Explicit common endpoint; otherwise saved environment, offline validation only')
         if name=='experiment-prepare':p.add_argument('--experiment-dir',required=True)
 
@@ -449,10 +477,10 @@ def cleanup_known(root,intent,result):
 def controller_state(root):
     try:value=read_json(Path(root)/'state.json')
     except (ValueError,OSError) as exc:raise ExperimentError('Missing/malformed experiment controller state') from exc
-    if (not isinstance(value,dict) or type(value.get('schema')) is not int or value['schema']!=1
+    if (not isinstance(value,dict) or type(value.get('schema')) is not int or value['schema'] not in (1,2)
         or not isinstance(value.get('status'),str) or value['status'] not in {'prepared','running','blocked','interrupted','completed','halted'}
-        or 'active_attempt_id' not in value
-        or (value['active_attempt_id'] is not None and not controls.valid_id(value['active_attempt_id']))
+        or (value['schema']==1 and ('active_attempt_id' not in value or value['active_attempt_id'] is not None and not controls.valid_id(value['active_attempt_id'])))
+        or (value['schema']==2 and (not isinstance(value.get('active_attempts'),dict) or any(not controls.valid_id(k) or not isinstance(v,dict) or not controls.valid_id(v.get('trial_id')) or not controls.valid_id(v.get('run_id')) for k,v in value['active_attempts'].items())))
         or value.get('interruption_kind') not in (None,'explicit_controller_cancel')):
         raise ExperimentError('Malformed experiment controller state')
     return value
@@ -477,6 +505,10 @@ def execute(root,lab,session=None,runner=None,resume=False,retry_trial=None,clea
     root=Path(root).absolute()
     verify(root,lab) # Reject linked/invalid destinations before writing a controller lease.
     root=root.resolve()
+    if read_json(root/'experiment.json')['schema']==2:
+        if runner is not None or cleanup is not None:raise ExperimentError('Parallel executor does not accept a serial runner or cleanup bypass')
+        import parallel_execution
+        return parallel_execution.execute(root,lab,session,resume,retry_trial)
     with controller_lock(root):
         metadata,matrix=verify(root,lab)
         existing=any(attempt_intents(root,cell) for cell in matrix['cells'])
@@ -625,7 +657,7 @@ def reconcile(root,metadata,matrix,lab,cleanup=None):
                         record=copy.deepcopy(intent['initial_record']);attempt=outcomes.Attempt.attach_unsealed(run,record)
                     else:attempt=outcomes.Attempt(args,copy.deepcopy(intent['initial_record']))
                 record=attempt.record
-                explicit_cancel=controller_state.get('interruption_kind')=='explicit_controller_cancel' and controller_state.get('active_attempt_id')==intent['attempt_id']
+                explicit_cancel=controller_state.get('interruption_kind')=='explicit_controller_cancel' and (controller_state.get('active_attempt_id')==intent['attempt_id'] or intent['attempt_id'] in controller_state.get('active_attempts',{}))
                 record['controller_interruption']={'kind':'explicit_controller_cancel' if explicit_cancel else 'controller_lost',
                     'cleanup_confirmed':True,'observations':observations,'reconciled_at':controls.now(),'incomplete_result':incomplete}
                 if explicit_cancel:

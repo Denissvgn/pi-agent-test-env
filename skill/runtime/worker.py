@@ -573,13 +573,16 @@ def agent(config, task):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('operation', choices=['probe', 'boundary', 'preflight', 'browser', 'agent', 'check'])
+    p.add_argument('operation', choices=['probe', 'boundary', 'preflight', 'browser', 'agent', 'check', 'gateway'])
     p.add_argument('--profile', choices=['core', 'browser'], default='core')
     p.add_argument('--chat', action='store_true')
     p.add_argument('--webgl', action='store_true')
     p.add_argument('--task', default='/opt/pi-control/task.json')
     p.add_argument('--config', default='/opt/pi-control/endpoint.json')
     a = p.parse_args()
+    if a.operation == 'gateway':
+        import inference_gateway
+        return inference_gateway.main(a.config)
     if a.operation == 'probe':
         probe(a.profile)
     elif a.operation == 'boundary':

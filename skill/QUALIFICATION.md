@@ -1,5 +1,14 @@
 # Qualification and support
 
+## Experimental 4.4.0 parallel scope
+
+The new schema-2 mode requires fresh native ARM64 overlap and both-release model
+qualification. Historical serial receipts below do not establish that scope.
+Current development status: offline fixtures and independent forward testing;
+native parallel qualification remains pending. No WorkChord workflow or real
+application-actor acceptance is claimed by this development status.
+
+
 The package implements bounded coding delegation, frozen application experiments
 and one explicit fixture lookup integration. Compatibility depends on the exact
 runtime image, Pi release, model endpoint and resource configuration selected for

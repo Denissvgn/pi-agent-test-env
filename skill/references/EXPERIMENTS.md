@@ -1,4 +1,4 @@
-# Application experiment schema 1
+# Application experiments
 
 `validate-experiment --definition FILE [--endpoint FILE]` validates offline.
 `experiment-prepare --definition FILE --experiment-dir OUT [--endpoint FILE]`
@@ -7,7 +7,11 @@ Without an explicit endpoint, it reads the saved endpoint offline; this is not
 session confirmation or endpoint health qualification. Execution must still pass
 the environment gate. These commands do not launch Docker or invoke a model.
 
-Required fields: `schema: 1`, slug `name`, `baseline` (a declared variant name),
+Schema 1 remains the serial default. For explicit schema 2, use
+[PARALLEL-AGENTS.md](PARALLEL-AGENTS.md); its contract and state format are frozen
+separately. Existing experiments are never upgraded in place.
+
+Required serial fields: `schema: 1`, slug `name`, `baseline` (a declared variant name),
 `repetitions` (1..10), `cases` (1..8), `variants` (2..8), `budgets`, `execution`,
 and `policies`. The total matrix is capped at 64 cells. Unknown fields reject.
 Case and variant names are display labels; stored case/variant/trial IDs are

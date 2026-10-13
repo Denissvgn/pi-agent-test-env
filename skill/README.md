@@ -1,4 +1,4 @@
-# Pi Agent Test Environment 4.3.0
+# Pi Agent Test Environment 4.4.0
 
 **English, project-adaptable, resource-bounded workflows for real local-LLM agents.**
 
@@ -340,3 +340,10 @@ release-bound declarations. Explicit hashes and
 read-only assets preserve isolated defaults; real registration/tool-use evidence
 is required separately from independent task scores. Historical observations
 remain limited to their exact selected configuration. Broader integrations are unsupported.
+
+## Opt-in independent trials
+
+Schema-2 experiments explicitly select two isolated trials with a weighted aggregate
+budget, secure host ownership registry and one-slot inference gateway. Ordinary
+runs/schema-1 experiments remain serial. See [PARALLEL-AGENTS.md](references/PARALLEL-AGENTS.md)
+for exact fields, cohort rollout, queueing, credentials and recovery limitations.

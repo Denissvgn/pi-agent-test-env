@@ -1,5 +1,16 @@
 # Changelog
 
+## 4.4.0
+
+- Add explicit schema-2 two-trial scheduling with weighted reservations, private
+  host controllers, durable ownership recovery, isolated snapshots/networks and
+  a bounded one-slot inference gateway. Schema 1 remains serial.
+- Preserve scoped application credentials, cleanup/redaction and exact Pi
+  0.87.1/1.2.0 contracts. Keep uncertain cleanup or inference termination blocked.
+- Expand developer onboarding with runnable Python/Node examples and endpoint,
+  image, qualification and result-inspection guidance.
+- Qualification and exact-head review evidence must be completed before promotion.
+
 ## 4.3.0
 
 - Retain typed, whitelisted host-busy, invalid-policy and insecure/unavailable-lock

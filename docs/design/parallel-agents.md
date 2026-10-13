@@ -1,7 +1,7 @@
 # Opt-in parallel Pi agents
 
-Status: design only. No parallel-agent mode or new CLI option is implemented by
-this document. Implement the phases in order; each phase has a verification gate.
+Status: implementation contract. Experimental schema-2 code must pass the gates
+below before promotion; this document alone establishes no qualification. Implement the phases in order; each phase has a verification gate.
 The shipped serial path and exact Pi 0.87.1/1.2.0 contracts remain the baseline.
 
 ## Objective and first scope

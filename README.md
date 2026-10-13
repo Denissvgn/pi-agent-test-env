@@ -1,6 +1,6 @@
 # pi-agent-test-env
 
-[![Version](https://img.shields.io/badge/version-4.3.0-blue)](skill/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.4.0-blue)](skill/CHANGELOG.md)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](skill/README.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-compatible-7B61FF)](skill/SKILL.md)
@@ -231,6 +231,9 @@ In the fixture walkthrough's `ensure-image` command, substitute your trusted
   eight primary cells and deliberate cutoff failures to show failure accounting.
   Experiment collection exit 0 means terminal collection, including failed trials;
   inspect the report for task success.
+- **Two independent trials:** review the explicit [parallel-agent contract](skill/references/PARALLEL-AGENTS.md).
+  It keeps workspaces separate and admits one cooperating model request; server
+  capacity and native overlap need their own qualification. Serial remains default.
 - **Your repository:** start with [project adaptation](skill/references/PROJECTS.md)
   and the [task brief](skill/assets/task-brief.example.md). Replace paths, setup,
   prompts and checks in a copied plan, validate it, then run on a snapshot.

@@ -67,6 +67,7 @@ class Attempt:
         self.persist()
         latest=canonical/'latest'
         try:
+            if getattr(args,'_parallel_session',None):return
             if latest.is_symlink():latest.unlink()
             if not latest.exists():latest.symlink_to(self.root)
         except OSError:pass
