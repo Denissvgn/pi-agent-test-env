@@ -142,7 +142,7 @@ These numbers are examples, not detected capacity. Save validates exact model
 listing and a tiny chat request. Keyless servers use `--no-auth`. Optional
 `--host-base-url` provides a distinct host route; the child route remains base-url.
 Reasoning level is off/minimal/low/medium/high only when supported. Numeric
-reasoning token budgets are unsupported on reviewed Pi 0.87.1; omit them.
+reasoning token budgets are unsupported on both reviewed Pi releases; omit them.
 Sampling is supplied as reviewed JSON via `--sampling`, not invented Pi flags.
 See [PI-COMPATIBILITY.md](references/PI-COMPATIBILITY.md) for exact allowed fields.
 Requested/ingested values do not prove server enforcement, deterministic seeds,

@@ -11,8 +11,19 @@ image authorization.
 Version 4.3.0 adds reviewed contracts for Pi 0.87.1 and 1.2.0, with offline
 admission, cancellation, profile, continuation and historical-reading tests.
 The native migration matrix is separate from these fixtures. Pending or failed
-native cells do not qualify a release; actual native observations are summarized
-only after complete collection, with private configuration/evidence retained locally.
+native cells do not qualify a release; partial observations cannot replace complete
+collection. Private configuration and evidence remain retained locally.
+
+The 13 October 2026 migration collection remains incomplete: four native ARM64
+image admissions, two sandboxed DOM admissions and 50 of 60 cell oracles passed.
+All 54 real-model participant segments completed across smoke, coding/review,
+fixture lookup, disposable application credentials and local browser tasks.
+The collector then stopped because its contamination oracle expected `BLOCKED`
+instead of the executor's deliberate post-start `FAIL` policy outcome. The
+snapshot was discarded, successor/scoring suppressed and physical cleanup confirmed.
+That harness oracle is corrected with offline regressions; the original blocked
+collection remains retained and nine later fault cells were not run. This is
+partial execution evidence, not completed migration qualification or WorkChord acceptance.
 
 | Capability | Observed evidence | Limit |
 |---|---|---|

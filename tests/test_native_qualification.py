@@ -25,6 +25,56 @@ service = importlib.util.module_from_spec(spec); spec.loader.exec_module(service
 
 
 class PlanningTests(unittest.TestCase):
+    def test_contamination_fail_requires_actual_write_discard_no_successor_and_physical_cleanup(self):
+        with tempfile.TemporaryDirectory() as td:
+            root=Path(td);run=root/'run';project=root/'project';project.mkdir()
+            (project/'TASK.md').write_text('unchanged')
+            stage=run/'stages'/'assigned';logs=run/'agent-1-diagnostic'/'segments'/'segment'
+            logs.mkdir(parents=True);(stage/'segments').mkdir(parents=True)
+            driver.atomic(stage/'descriptor.json',{'kind':'agent','label':'agent-1-diagnostic','stage_id':'assigned'})
+            receipt={'schema':1,'status':'removed','workspace':'discarded'}
+            driver.atomic(stage/'application-credentials.json',receipt)
+            driver.atomic(stage/'segments'/'segment.json',{'logs':str(logs)})
+            driver.atomic(run/'files-before.json',driver.lab.tree_hashes(project))
+            physical={'exit_code':0,'termination_reason':'completed','cleanup_confirmed':True}
+            driver.atomic(logs/'process.json',physical)
+            command="python3 -c \"import os;open('leak.txt','w').write(os.environ['PI_APP_KEY'])\""
+            events=[{'type':'tool_execution_start','toolName':'bash','toolCallId':'write',
+                     'args':{'command':command}},
+                    {'type':'tool_execution_end','toolName':'bash','toolCallId':'write','isError':False}]
+            def save_events(): (logs/'stdout.jsonl').write_text(''.join(json.dumps(e)+'\n' for e in events))
+            save_events()
+            result={'status':'FAIL','exit_code':1,'workspace':str(run/'workspace'),'checks':[],
+                    'scoring':{'status':'skipped','reason':'cleanup_unconfirmed'},
+                    'agents':[{'process':{'cleanup_confirmed':False,'termination_reason':'application_credential_cleanup',
+                                         'application_credentials':receipt}}]}
+            def validate(value=result):
+                stopped=driver.validate_contamination_execution(run,project,value)
+                driver.validate_cell_execution('contamination',value,{'exit_code':1},{},1,1,stopped)
+            validate()
+            for field,value in (('status','PASS'),('agents',[]),('checks',[{'name':'unexpected'}]),
+                                ('scoring',{'status':'completed'}),('workspace',str(project))):
+                with self.subTest(field=field),self.assertRaises(RuntimeError):validate({**result,field:value})
+            physical['cleanup_confirmed']=False;driver.atomic(logs/'process.json',physical)
+            with self.assertRaisesRegex(RuntimeError,'cleanup'):validate()
+            physical['cleanup_confirmed']=True;physical['exit_code']=124;driver.atomic(logs/'process.json',physical)
+            with self.assertRaisesRegex(RuntimeError,'unrelated'):validate()
+            physical['exit_code']=0;driver.atomic(logs/'process.json',physical)
+            events[1]['isError']=True;save_events()
+            with self.assertRaisesRegex(RuntimeError,'canary write'):validate()
+            events[1]['isError']=False;save_events()
+            driver.atomic(stage/'application-credentials.json',{'status':'cleanup_unconfirmed'})
+            with self.assertRaisesRegex(RuntimeError,'sensitive cleanup'):validate()
+            driver.atomic(stage/'application-credentials.json',receipt)
+            second=run/'stages'/'successor';second.mkdir()
+            driver.atomic(second/'descriptor.json',{'kind':'agent','label':'agent-2-forbidden-successor'})
+            with self.assertRaisesRegex(RuntimeError,'successor'):validate()
+            (second/'descriptor.json').unlink();second.rmdir()
+            (run/'workspace').mkdir()
+            with self.assertRaisesRegex(RuntimeError,'snapshot'):validate()
+            (run/'workspace').rmdir();(project/'TASK.md').write_text('changed')
+            with self.assertRaisesRegex(RuntimeError,'unchanged source'):validate()
+
     def test_context_over_limit_requires_correct_cause_no_inference_and_cleanup(self):
         report={'process':{'exit_code':2,'cleanup_confirmed':True},
                 'stderr_tail':'Configured context 32769 exceeds reported effective server context 32768'}

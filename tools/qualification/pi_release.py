@@ -426,6 +426,43 @@ def validate_crash_execution(first, successor, abandoned):
         raise RuntimeError('Crash oracle requires actual owner kill and independently reconciled controller loss')
 
 
+def validate_contamination_execution(run, project, result):
+    """Post-start policy failure is FAIL; physical cleanup has a separate receipt."""
+    agents = result.get('agents', [])
+    descriptors = [read(path) for path in (run/'stages').glob('*/descriptor.json')]
+    assigned = [desc for desc in descriptors if desc['kind'] == 'agent']
+    if (result.get('status') != 'FAIL' or len(agents) != 1 or len(assigned) != 1
+            or assigned[0].get('label') != 'agent-1-diagnostic'
+            or result.get('scoring', {}).get('status') != 'skipped'
+            or result.get('scoring', {}).get('reason') != 'cleanup_unconfirmed'
+            or result.get('checks') or any(desc.get('label', '').startswith('check-') for desc in descriptors)):
+        raise RuntimeError('Contamination oracle requires the policy failure and no successor/scorer')
+    process = agents[0]['process']
+    if (process.get('cleanup_confirmed') is not False
+            or process.get('termination_reason') != 'application_credential_cleanup'
+            or process.get('application_credentials') != {'schema':1,'status':'removed','workspace':'discarded'}
+            or Path(result['workspace']) != run/'workspace' or Path(result['workspace']).exists()
+            or lab.tree_hashes(project) != read(run/'files-before.json')):
+        raise RuntimeError('Contamination oracle requires discarded owned snapshot and unchanged source')
+    receipt = read(run/'stages'/assigned[0]['stage_id']/'application-credentials.json')
+    if receipt.get('status') != 'removed' or receipt.get('workspace') != 'discarded':
+        raise RuntimeError('Contamination oracle lacks independent sensitive cleanup receipt')
+    metas = list((run/'stages').glob('*/segments/*.json'))
+    if len(metas) != 1: raise RuntimeError('Contamination oracle requires one registered segment')
+    logs = Path(read(metas[0])['logs'])
+    records = [json.loads(line) for line in (logs/'stdout.jsonl').read_text().splitlines()]
+    command = "python3 -c \"import os;open('leak.txt','w').write(os.environ['PI_APP_KEY'])\""
+    calls = {event.get('toolCallId') for event in records if event.get('type') == 'tool_execution_start'
+             and event.get('toolName') == 'bash' and event.get('args', {}).get('command') == command}
+    if not any(event.get('type') == 'tool_execution_end' and event.get('toolName') == 'bash'
+               and event.get('toolCallId') in calls and event.get('isError') is False for event in records):
+        raise RuntimeError('Contamination oracle lacks the actual successful canary write')
+    physical = read(logs/'process.json')
+    if physical.get('exit_code') != 0 or physical.get('termination_reason') != 'completed':
+        raise RuntimeError('Contamination oracle observed an unrelated participant failure')
+    return [physical]
+
+
 def validate_context_guard(invocation, report, requests_before, requests_after):
     process = report.get('process', {})
     if (invocation.get('exit_code') != 2 or process.get('exit_code') != 2
@@ -552,14 +589,14 @@ def cell_run(root, cell, services, real_endpoint, session, state, suffix=''):
     state['participant_segments'] += segments_count
     if state['participant_segments'] > 96: raise RuntimeError('Participant segment ceiling exceeded')
     expected = 'PASS'
-    if mode in ('length', 'error', 'timeout', 'provider-fatal'): expected = 'FAIL'
+    if mode in ('length', 'error', 'timeout', 'provider-fatal', 'contamination'): expected = 'FAIL'
     if mode == 'abort': expected = 'INTERRUPTED'
     if mode == 'recovery': expected = 'RECOVERED'
-    if mode == 'contamination': expected = 'BLOCKED'
     if result['status'] != expected: raise RuntimeError('Unexpected outcome '+result['status']+' expected '+expected+' at '+label)
     # Cancellation interrupts aggregation; its separately saved supervisor
     # receipts still establish cleanup for every registered segment.
     stopped = [read(Path(read(meta)['logs'])/'process.json') for meta in (run/'stages').glob('*/segments/*.json')] if mode == 'abort' else None
+    if mode == 'contamination': stopped = validate_contamination_execution(run, project, result)
     validate_cell_execution(mode, result, invocation, observed, segments_count,
                             1 if suffix else cell['segments_max'], stopped)
     if mode == 'recovery' and (result['invocation']['status'] != 'recovered' or result['exit_code'] != 1):
