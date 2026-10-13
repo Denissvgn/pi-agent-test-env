@@ -13,6 +13,52 @@ import os
 from pathlib import Path
 import re
 import time
+from types import MappingProxyType
+
+ADMISSION_FAILURES = MappingProxyType({
+    'host-admission-busy': (
+        'Another pi-agent-test-env operation holds the host lock; wait or use --lock-wait-seconds',
+        'Wait for the owning operation to finish, or use --lock-wait-seconds with a bounded value up to 3600. Do not delete the lock or use another lock file to bypass admission.'),
+    'resource-policy-invalid': (
+        'The resource policy or admission wait is invalid',
+        'Review the resource policy and CLI overrides against RESOURCES.md. Use finite supported limits and a lock wait in 0..3600 seconds; correct the input before dispatch.'),
+    'admission-lock-insecure': (
+        'Refusing a symlinked admission-lock file',
+        'Use the reviewed same-user admission lock outside the project. Resolve the unsafe lock path with its owner before retrying; do not delete an active lock or substitute a bypass lock.'),
+    'admission-lock-unavailable': (
+        'The admission lock could not be accessed',
+        'Check access to the reviewed admission-lock directory and file on the parent host. Preserve existing lock ownership and do not bypass the lease.'),
+})
+
+
+class AdmissionError(ValueError):
+    """Known parent failure; only the closed catalog is public diagnostic authority."""
+    def __init__(self, reason, detail=''):
+        if not isinstance(reason, str) or reason not in ADMISSION_FAILURES:
+            raise ValueError('Unknown admission failure code')
+        self._admission_reason = reason
+        super().__init__(detail or ADMISSION_FAILURES[reason][0])
+
+    @property
+    def reason(self):
+        return admission_diagnostic(self)['reason']
+
+    @property
+    def remedy(self):
+        return admission_diagnostic(self).get('remedy', '')
+
+
+def admission_diagnostic(exc):
+    """Do not classify arbitrary exception text, hashes or reason/remedy attributes."""
+    if not isinstance(exc, AdmissionError):
+        return None
+    if type(exc) is not AdmissionError:
+        return {'reason': 'admission-error'}
+    code = exc._admission_reason
+    if not isinstance(code, str) or code not in ADMISSION_FAILURES:
+        return {'reason': 'admission-error'}
+    message, guidance = ADMISSION_FAILURES[code]
+    return {'reason': code, 'message': message, 'remedy': guidance}
 
 DEFAULTS = {
     'schema': 1,
@@ -24,42 +70,48 @@ DEFAULTS = {
 
 def memory_bytes(value):
     if not isinstance(value, str) or not re.fullmatch(r'[1-9][0-9]*[mg]', value.lower()):
-        raise ValueError('Memory must be a finite positive MiB/GiB string, e.g. 1024m or 4g')
-    n = int(value[:-1]) * (1024 ** (2 if value[-1].lower() == 'm' else 3))
+        raise AdmissionError('resource-policy-invalid', 'Memory must be a finite positive MiB/GiB string, e.g. 1024m or 4g')
+    try:
+        n = int(value[:-1]) * (1024 ** (2 if value[-1].lower() == 'm' else 3))
+    except ValueError as exc:
+        raise AdmissionError('resource-policy-invalid', str(exc)) from None
     if n < 64 * 1024 ** 2:
-        raise ValueError('Memory must be at least 64 MiB')
+        raise AdmissionError('resource-policy-invalid', 'Memory must be at least 64 MiB')
     return n
 
 
 def validate_policy(value):
     if not isinstance(value, dict) or set(value) - set(DEFAULTS) or value.get('schema', 1) != 1:
-        raise ValueError('Resource policy schema 1 accepts runtime, build, host_budget')
+        raise AdmissionError('resource-policy-invalid', 'Resource policy schema 1 accepts runtime, build, host_budget')
     result = copy.deepcopy(DEFAULTS)
     for section in ('runtime', 'build', 'host_budget'):
         supplied = value.get(section, {})
         if not isinstance(supplied, dict) or set(supplied) - set(DEFAULTS[section]):
-            raise ValueError(f'Unknown resource field in {section}')
+            raise AdmissionError('resource-policy-invalid', f'Unknown resource field in {section}')
         result[section].update(supplied)
     for section in ('runtime', 'build'):
         cpus = result[section]['cpus']
-        if type(cpus) not in (int, float) or not math.isfinite(cpus) or not 0.1 <= cpus <= 256:
-            raise ValueError(f'{section}.cpus must be finite and in 0.1..256; 0/unlimited is not allowed')
+        if type(cpus) not in (int, float) or not 0.1 <= cpus <= 256 or not math.isfinite(cpus):
+            raise AdmissionError('resource-policy-invalid', f'{section}.cpus must be finite and in 0.1..256; 0/unlimited is not allowed')
         memory_bytes(result[section]['memory'])
     bounds = [('runtime', 'pids_limit', 64, 4096), ('runtime', 'jobs', 1, 64),
               ('build', 'max_parallelism', 1, 16), ('build', 'timeout_seconds', 60, 14400)]
     for section, field, low, high in bounds:
         value = result[section][field]
         if type(value) is not int or not low <= value <= high:
-            raise ValueError(f'{section}.{field} must be in {low}..{high}')
+            raise AdmissionError('resource-policy-invalid', f'{section}.{field} must be in {low}..{high}')
     for field in ('cpu_fraction', 'memory_fraction'):
         value = result['host_budget'][field]
-        if type(value) not in (int, float) or not math.isfinite(value) or not 0.05 <= value <= 0.9:
-            raise ValueError(f'host_budget.{field} must be in 0.05..0.9')
+        if type(value) not in (int, float) or not 0.05 <= value <= 0.9 or not math.isfinite(value):
+            raise AdmissionError('resource-policy-invalid', f'host_budget.{field} must be in 0.05..0.9')
     return result
 
 
 def requested_policy(args):
-    value = json.loads(Path(args.resources).expanduser().read_text()) if getattr(args, 'resources', None) else {}
+    try:
+        value = json.loads(Path(args.resources).expanduser().read_text()) if getattr(args, 'resources', None) else {}
+    except (OSError, ValueError) as exc:
+        raise AdmissionError('resource-policy-invalid', str(exc)) from None
     result = validate_policy(value)
     overrides = {'cpus': ('runtime', 'cpus'), 'memory': ('runtime', 'memory'),
                  'pids_limit': ('runtime', 'pids_limit'), 'jobs': ('runtime', 'jobs'),
@@ -121,14 +173,21 @@ def admission_lock(path, wait_seconds=0):
     flock releases automatically on crash. File stays in place to avoid unlink races.
     This is not a host-wide scheduler; separate users/lock files do not cooperate.
     """
-    if not 0 <= wait_seconds <= 3600:
-        raise ValueError('lock wait must be between 0 and 3600 seconds')
+    if type(wait_seconds) not in (int, float) or not 0 <= wait_seconds <= 3600:
+        raise AdmissionError('resource-policy-invalid', 'lock wait must be between 0 and 3600 seconds')
     path = Path(path).expanduser()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if path.is_symlink():
-        raise ValueError('Refusing a symlinked admission-lock file')
-    with path.open('a+') as handle:
-        os.chmod(path, 0o600)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.is_symlink():
+            raise AdmissionError('admission-lock-insecure')
+        handle = path.open('a+')
+    except OSError as exc:
+        raise AdmissionError('admission-lock-unavailable', str(exc)) from None
+    with handle:
+        try:
+            os.chmod(path, 0o600)
+        except OSError as exc:
+            raise AdmissionError('admission-lock-unavailable', str(exc)) from None
         deadline = time.monotonic() + wait_seconds
         while True:
             try:
@@ -136,13 +195,18 @@ def admission_lock(path, wait_seconds=0):
                 break
             except BlockingIOError:
                 if time.monotonic() >= deadline:
-                    raise ValueError('Another pi-agent-test-env operation holds the host lock; wait or use --lock-wait-seconds')
+                    raise AdmissionError('host-admission-busy')
                 time.sleep(0.1)
+            except OSError as exc:
+                raise AdmissionError('admission-lock-unavailable', str(exc)) from None
         try:
-            handle.seek(0)
-            handle.truncate()
-            handle.write(json.dumps({'pid': os.getpid(), 'started_unix': time.time()}) + '\n')
-            handle.flush()
+            try:
+                handle.seek(0)
+                handle.truncate()
+                handle.write(json.dumps({'pid': os.getpid(), 'started_unix': time.time()}) + '\n')
+                handle.flush()
+            except OSError as exc:
+                raise AdmissionError('admission-lock-unavailable', str(exc)) from None
             yield
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)

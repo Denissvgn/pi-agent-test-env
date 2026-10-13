@@ -306,8 +306,11 @@ pending cells stay halted. See EXPERIMENTS.md for exact lease/retry semantics.
 
 Timeout/OOM/auth/network failures retain their evidence. Request a bounded
 adjustment only when authorized, never remove limits or switch model. Wait for
-host admission with --lock-wait-seconds rather than bypassing its lock. Repair
-Docker/sandbox access on the parent; do not mount Docker into children or install
+host admission with --lock-wait-seconds rather than bypassing its lock.
+Known admission reasons and bounded nonsecret next actions are documented in
+[RESOURCES.md](references/RESOURCES.md); preserve sealed blocked outcomes instead
+of treating a busy lease as permission to dispatch through another lock.
+Repair Docker/sandbox access on the parent; do not mount Docker into children or install
 packages into the model server. Browser sandbox/software rendering exceptions
 require explicit approval for trusted local tests.
 

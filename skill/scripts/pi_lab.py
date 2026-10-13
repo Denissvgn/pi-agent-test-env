@@ -29,7 +29,7 @@ from urllib.parse import urlsplit
 import uuid
 
 from evidence import analyze
-from resources import configure, requested_policy, thread_environment, admission_lock
+from resources import configure, requested_policy, thread_environment, admission_lock, admission_diagnostic, AdmissionError
 from builder import limited_build
 import secret_store
 import application_credentials
@@ -1613,6 +1613,8 @@ def _cmd_patch_session(args):
                 controls.atomic(folder/(record['id']+'.json'),record,0o644)
         print(json.dumps({'status':'applied','command_id':record['id'],'stage_id':desc['stage_id'],'target':target}))
         return 0
+    except AdmissionError:
+        raise
     except (OSError,ValueError,controls.ControlError,workspace_patch.PatchError) as exc:
         raise LabError(str(exc),'unsafe-workspace-patch') from exc
 
@@ -2042,6 +2044,22 @@ def _interrupt(signum, frame):
     raise KeyboardInterrupt
 
 
+def cli_failure(exc):
+    diagnostic = admission_diagnostic(exc)
+    if diagnostic is not None:
+        print(json.dumps({'schema':1,'document_type':'admission_failure','status':'BLOCKED','exit_code':2,
+                          'infrastructure':{**diagnostic,'error_digest':hashlib.sha256(str(exc).encode()).hexdigest()}}),
+              file=sys.stderr)
+        return 2
+    reason = getattr(exc, 'reason', '')
+    tag = f' [{reason}]' if reason else ''
+    print(f'BLOCKED{tag}: {exc}', file=sys.stderr)
+    remedy_text = getattr(exc, 'remedy', '')
+    if remedy_text:
+        print(f'Remedy: {remedy_text}', file=sys.stderr)
+    return EXIT_NEEDS_SECRET if reason == 'missing-secret' else 2
+
+
 if __name__ == '__main__':
     signal.signal(signal.SIGTERM, _interrupt)
     try:
@@ -2050,11 +2068,4 @@ if __name__ == '__main__':
         print('INTERRUPTED', file=sys.stderr)
         sys.exit(130)
     except (LabError, controls.ControlError, ValueError, OSError) as exc:
-        reason = getattr(exc, 'reason', '')
-        tag = f' [{reason}]' if reason else ''
-        print(f'BLOCKED{tag}: {exc}', file=sys.stderr)
-        remedy_text = getattr(exc, 'remedy', '')
-        if remedy_text:
-            print(f'Remedy: {remedy_text}', file=sys.stderr)
-        code = EXIT_NEEDS_SECRET if reason == 'missing-secret' else 2
-        sys.exit(code)
+        sys.exit(cli_failure(exc))

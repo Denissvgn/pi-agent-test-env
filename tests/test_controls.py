@@ -236,7 +236,8 @@ class PatchProtocolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             top=Path(td);run,desc=prepare(top,running=False);source=top/'fix';source.write_text('bad')
             with lab.admission_lock(desc['admission_lock_file'],0):
-                with self.assertRaises(lab.LabError):lab.cmd_patch_session(self.patch_args(run,desc,source,'file'))
+                with self.assertRaises(lab.AdmissionError) as caught:lab.cmd_patch_session(self.patch_args(run,desc,source,'file'))
+                self.assertEqual(caught.exception.reason,'host-admission-busy')
             self.assertFalse((Path(desc['workspace'])/'file').exists())
 
 

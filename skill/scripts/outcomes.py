@@ -8,6 +8,8 @@ import stat
 import uuid
 
 import stage_control as controls
+from resources import admission_diagnostic
+from application_credentials import CredentialError
 
 
 def initial():
@@ -98,9 +100,16 @@ class Attempt:
 
     def fail(self,exc):
         self.record['infrastructure']['status']='failed'
-        self.record['infrastructure']['reason']=getattr(exc,'reason','') or type(exc).__name__
+        diagnostic = admission_diagnostic(exc)
+        self.record['infrastructure']['reason']=(diagnostic['reason'] if diagnostic is not None
+                                               else CredentialError.reason if type(exc) is CredentialError
+                                               else type(exc).__name__ if isinstance(exc,ValueError)
+                                               else getattr(exc,'reason','') or type(exc).__name__)
         # Keep diagnostic identifiers, never raw exception text/keys/URLs.
-        if getattr(exc,'remedy',''):self.record['infrastructure']['remedy']=exc.remedy
+        guidance = (diagnostic.get('remedy', '') if diagnostic is not None else '' if isinstance(exc,ValueError)
+                    else getattr(exc,'remedy',''))
+        if guidance:self.record['infrastructure']['remedy']=guidance
+        else:self.record['infrastructure'].pop('remedy',None)
         self.record['infrastructure']['error_digest']=hashlib.sha256(str(exc).encode()).hexdigest()
         if self.record['scoring']['status']=='not_started':
             self.record['scoring'].update(status='skipped',reason='infrastructure_failure')

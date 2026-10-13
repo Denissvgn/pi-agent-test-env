@@ -25,12 +25,14 @@ All primary repetitions passed, all six coding reviewer reports were inspected,
 and owned-container/network/private-store cleanup was confirmed. No automatic
 retry occurred within the completed collection; earlier blocked attempts remain retained.
 
-These native measurements retain their original runner identity. A later isolated
-parent PR-review gate correction has separate offline quota-refusal regressions;
-Pi dispatch/worker/contracts/profiles, qualification harness and task inputs remain
-byte-identical. That correction changes aggregate package/runner provenance and
-does not create a new native measurement or authorize execution of old frozen
-experiments under the new identity.
+These native measurements retain their original runner identity. Later parent
+review-gate and admission-diagnostic corrections have separate offline regressions,
+including actual same-user lease exclusion/release and rejected CLI dispatch.
+Worker/release/profile contracts, qualification harness and task inputs remain
+unchanged; the parent sources and aggregate package/runner provenance differ.
+Those corrections do not create a new native measurement or authorize execution
+of old frozen experiments under the new identity. Parallel agents remain a future
+design without overlapping-worker qualification.
 
 The exact images used Node 24.21.0 and, in the browser lane, Chromium 155.0.8059.39
 with the pinned chromium-userns policy and sandbox enabled. Core workers used

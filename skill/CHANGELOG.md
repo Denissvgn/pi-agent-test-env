@@ -2,6 +2,8 @@
 
 ## 4.3.0
 
+- Retain typed, whitelisted host-busy, invalid-policy and insecure/unavailable-lock
+  diagnostics with bounded nonsecret guidance, sealed accounting and real lease tests.
 - Reject Copilot quota/error/empty submissions as completed review; require the
   recognized completion overview before exact-head review readiness.
 - Add exact reviewed Pi 1.2.0 support alongside preserved 0.87.1 behavior and
