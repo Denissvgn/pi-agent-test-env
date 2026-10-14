@@ -115,3 +115,56 @@ class NetworkAbsenceTests(unittest.TestCase):
             owned=registry.Registry(Path(temp).resolve()/'registry',command)
             record=owned.network_intent('pi-trial-fixture');owned.remove_network(record);owned.release(record,True)
             self.assertEqual(owned.load()[0]['status'],'released');self.assertEqual(command.call_count,1)
+
+class ConcurrentObservationTests(unittest.TestCase):
+    def test_open_inode_replaced_before_fstat_reads_the_committed_replacement(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'record.json';replacement=Path(temp)/'replacement'
+            path.write_text('{"generation":"old"}');path.chmod(0o600)
+            replacement.write_text('{"generation":"new"}');replacement.chmod(0o600)
+            original=os.fstat;changed=False
+            def during_open(fd):
+                nonlocal changed
+                if not changed:changed=True;os.replace(replacement,path)
+                return original(fd)
+            with mock.patch.object(registry.os,'fstat',side_effect=during_open):
+                self.assertEqual(registry.read_private(path),{'generation':'new'})
+    def test_live_secure_atomic_temporary_is_not_a_committed_launch_or_admission_bypass(self):
+        import uuid
+        with tempfile.TemporaryDirectory() as temp:
+            owned=registry.Registry(Path(temp).resolve()/'registry')
+            record=owned.network_intent('pi-trial-fixture')
+            temporary=owned.root/('.'+record['launch_id']+'.json-'+uuid.uuid4().hex)
+            temporary.write_text('{"incomplete":');temporary.chmod(0o600)
+            self.assertEqual(owned.load(observe=True),[record])
+            with self.assertRaises(registry.RegistryError):owned.load()
+            temporary.chmod(0o644)
+            with self.assertRaises(registry.RegistryError):owned.load(observe=True)
+    def test_insecure_current_replacement_is_never_accepted_on_retry(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'record.json';replacement=Path(temp)/'replacement'
+            path.write_text('{}');path.chmod(0o600);replacement.write_text('{}');replacement.chmod(0o644)
+            original=os.fstat;changed=False
+            def during_open(fd):
+                nonlocal changed
+                if not changed:changed=True;os.replace(replacement,path)
+                return original(fd)
+            with mock.patch.object(registry.os,'fstat',side_effect=during_open),self.assertRaises(registry.RegistryError):registry.read_private(path)
+
+    def test_continuous_commits_can_be_observed_without_accepting_partial_intents(self):
+        import threading
+        with tempfile.TemporaryDirectory() as temp:
+            owned=registry.Registry(Path(temp).resolve()/'registry');record=owned.network_intent('pi-trial-fixture')
+            complete=threading.Event();errors=[]
+            def writer():
+                try:
+                    for index in range(100):record['observation']=index;owned.write(record)
+                except BaseException as exc:errors.append(type(exc).__name__)
+                finally:complete.set()
+            thread=threading.Thread(target=writer);thread.start()
+            try:
+                while not complete.is_set():
+                    values=owned.load(observe=True)
+                    self.assertEqual(len(values),1);self.assertEqual(values[0]['launch_id'],record['launch_id'])
+            finally:thread.join(5)
+            self.assertFalse(errors);self.assertEqual(owned.load()[0]['observation'],99)

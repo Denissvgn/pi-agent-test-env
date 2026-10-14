@@ -141,7 +141,7 @@ def absence(name,network=False):
 
 def registry_records():
     path=Path(lab.default_lock_file()+'.registry')
-    return ownership_registry.Registry(path).load() if path.exists() else []
+    return ownership_registry.Registry(path).load(observe=True) if path.exists() else []
 
 
 def enforce_launch_ceiling(root,manifest):

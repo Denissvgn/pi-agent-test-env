@@ -4,12 +4,15 @@
 
 The new schema-2 mode requires fresh native ARM64 overlap and both-release model
 qualification. Historical serial receipts below do not establish that scope.
-Current development status: the first fresh native infrastructure run passed
-four exact-release ARM64 image admissions and scripted gateway/token preflight.
-It stopped on missing-network cleanup classification before container-overlap,
-DOM or Pi/model workflow qualification. Owned absence and private-store cleanup
-were independently confirmed; the classifier correction has deterministic negative
-fixtures. A fresh approved run remains required for parallel qualification. No WorkChord workflow or real
+Current development status: a fresh native ARM64 infrastructure gate passed
+four exact-release image admissions, gateway/token routing, actual two-container
+overlap, FIFO third-worker admission, cancellation, owner-loss recovery and both
+sandbox-enabled DOM gates. The following Pi/model matrix stopped during live
+registry observation before any Pi participant segment started. Owned resources
+and private stores were independently confirmed cleaned. A concurrent atomic
+record-replacement defect is covered by deterministic and live host-reader fixtures;
+a fresh approved run remains required for Pi/model qualification.
+ No WorkChord workflow or real
 application-actor acceptance is claimed by this development status.
 
 

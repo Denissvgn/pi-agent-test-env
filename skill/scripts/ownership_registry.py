@@ -37,13 +37,20 @@ def private_directory(path):
     return path
 
 
-def read_private(path):
-    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
-    with os.fdopen(fd,'rb') as f:
-        st=os.fstat(f.fileno())
-        if not stat.S_ISREG(st.st_mode) or st.st_uid!=os.getuid() or st.st_nlink!=1 or stat.S_IMODE(st.st_mode)&0o077 or st.st_size>1024*1024:
-            raise RegistryError('Registry record is insecure or unbounded')
-        return json.load(f)
+def read_private(path,decode=True):
+    # A concurrent atomic replace can unlink the inode after open but before
+    # fstat. Retry only that verified replacement, never an insecure named file.
+    for unused in range(3):
+        fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+        with os.fdopen(fd,'rb') as f:
+            st=os.fstat(f.fileno())
+            if st.st_nlink==0:
+                current=os.stat(path,follow_symlinks=False)
+                if (st.st_dev,st.st_ino)!=(current.st_dev,current.st_ino):continue
+            if not stat.S_ISREG(st.st_mode) or st.st_uid!=os.getuid() or st.st_nlink!=1 or stat.S_IMODE(st.st_mode)&0o077 or st.st_size>1024*1024:
+                raise RegistryError('Registry record is insecure or unbounded')
+            return json.load(f) if decode else None
+    raise RegistryError('Registry record changed during bounded observation')
 
 
 def docker(argv):
@@ -69,11 +76,17 @@ class Registry:
         self.generation=str(uuid.uuid4());self.registry_id=hashlib.sha256(str(self.root).encode()).hexdigest()
         self.recover_sensitive=recover_sensitive;self.runroot=None;self.binding={};self.daemon=None
 
-    def load(self):
+    def load(self,observe=False):
         records=[]
         paths=list(self.root.iterdir())
         if len(paths)>4096:raise RegistryError('Registry inventory exceeds its bounded limit')
         for path in paths:
+            if observe and re.fullmatch(r'\.[a-f0-9-]{36}\.json-[a-f0-9]{32}',path.name):
+                # An observation sees only committed records. Admission remains
+                # strict: an abandoned temporary entry still blocks dispatch.
+                try:read_private(path,decode=False)
+                except FileNotFoundError:pass # atomic replace consumed this temporary name
+                continue
             if not re.fullmatch(r'[a-f0-9-]{36}\.json',path.name):raise RegistryError('Unknown registry entry')
             record=read_private(path)
             if (not isinstance(record,dict) or type(record.get('schema')) is not int or record.get('schema')!=SCHEMA
