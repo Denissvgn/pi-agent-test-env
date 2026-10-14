@@ -60,6 +60,22 @@ class GatewayTests(unittest.TestCase):
         for value in (self.upstream_key,json.dumps(self.upstream_key)[1:-1]):
             scrub=gateway.Scrubber([self.upstream_key]);a=scrub.feed(value[:8].encode());b=scrub.feed(value[8:].encode());c=scrub.feed(b'',True)
             self.assertNotIn(self.upstream_key.encode(),a+b+c);self.assertIn(b'[REDACTED]',a+b+c)
+    def test_reviewed_pi_sdk_storage_opt_out_is_forwarded_without_enabling_storage(self):
+        # Captured offline from the exact 0.87.1 and 1.2.0 SDK artifacts:
+        # both local-lab adapters emit these fields, including store:false.
+        payload={'model':'fixture-model','messages':[{'role':'user','content':'synthetic fixture'}],
+                 'stream':True,'stream_options':{'include_usage':True},'store':False,
+                 'max_tokens':128,'reasoning_effort':'low'}
+        self.assertEqual(self.request(body=payload)[0],200)
+        self.assertEqual(self.requests[0]['body'],payload)
+        self.assertEqual(self.requests[0]['auth'],'Bearer '+self.upstream_key)
+        for invalid in (True,None,0,1,'false',{},[]):
+            with self.subTest(store=invalid):
+                self.assertEqual(self.request(body={**payload,'store':invalid})[0],400)
+        self.assertEqual(len(self.requests),1)
+        self.assertEqual(self.request(body={**payload,'max_tokens':2048})[0],400)
+        self.assertEqual(self.request(body={**payload,'unreviewed_field':False})[0],400)
+        self.assertEqual(len(self.requests),1)
     def test_503_is_forwarded_once_without_retry(self):
         self.mode='error';self.assertEqual(self.request()[0],503);self.assertEqual(len(self.requests),1)
     def test_forwarded_disconnect_holds_slot_until_upstream_stops(self):

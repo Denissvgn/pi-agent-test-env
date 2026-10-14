@@ -18,7 +18,7 @@ MAX_BODY=2*1024*1024
 MAX_REPLY=64*1024*1024
 ALLOWED={'model','messages','stream','stream_options','max_tokens','max_completion_tokens','temperature','top_p','min_p','top_k',
          'repetition_penalty','seed','tools','tool_choice','parallel_tool_calls','frequency_penalty','presence_penalty','stop',
-         'reasoning_effort','enable_thinking','chat_template_kwargs'}
+         'reasoning_effort','enable_thinking','chat_template_kwargs','store'}
 
 
 class Gate:
@@ -73,6 +73,9 @@ def validate_request(body,endpoint):
     for name in ('max_tokens','max_completion_tokens'):
         if name in body and (type(body[name]) is not int or not 1<=body[name]<=endpoint['max_tokens']):raise ValueError('Reply cap exceeds frozen contract')
     if 'stream' in body and type(body['stream']) is not bool:raise ValueError('Invalid stream selection')
+    # Both reviewed Pi SDKs explicitly disable provider storage by default.
+    # Admit that wire field without permitting storage or coercible substitutes.
+    if 'store' in body and body['store'] is not False:raise ValueError('Provider storage must stay disabled')
     if 'stream_options' in body and body['stream_options']!={'include_usage':True}:raise ValueError('Unsupported stream options')
     from pi_contract import SAMPLING_RANGES
     for name,(low,high) in {**SAMPLING_RANGES,'frequency_penalty':(-2,2),'presence_penalty':(-2,2)}.items():

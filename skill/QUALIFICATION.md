@@ -7,13 +7,15 @@ qualification. Historical serial receipts below do not establish that scope.
 Current development status: a fresh native ARM64 infrastructure gate passed
 four exact-release image admissions, gateway/token routing, actual two-container
 overlap, FIFO third-worker admission, cancellation, owner-loss recovery and both
-sandbox-enabled DOM gates. The following Pi/model matrix stopped during live
-registry observation before any Pi participant segment started. Owned resources
-and private stores were independently confirmed cleaned. A concurrent atomic
-record-replacement defect is covered by deterministic and live host-reader fixtures;
-a fresh approved run remains required for Pi/model qualification.
- No WorkChord workflow or real
-application-actor acceptance is claimed by this development status.
+sandbox-enabled DOM gates. The following Pi/model matrix stopped after six coding
+participant segments: the gateway rejected the SDK's default `store: false`
+request field before model inference. No positive cell passed. Owned resources
+and private stores were independently confirmed cleaned. Offline tests cover
+both reviewed SDK payloads, storage opt-out admission and rejection of storage
+enablement; concurrent atomic registry replacement also has deterministic and
+live host-reader fixtures. A fresh approved run remains required for Pi/model
+qualification. No WorkChord workflow or real application-actor acceptance is
+claimed by this development status.
 
 
 The package implements bounded coding delegation, frozen application experiments
