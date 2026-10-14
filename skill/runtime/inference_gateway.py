@@ -21,6 +21,86 @@ ALLOWED={'model','messages','stream','stream_options','max_tokens','max_completi
          'reasoning_effort','enable_thinking','chat_template_kwargs','store'}
 
 
+class StrictResponse(http.client.HTTPResponse):
+    """Require complete chunk framing before an upstream slot can be released."""
+    def _read_next_chunk_size(self):
+        line=self.fp.readline(http.client._MAXLINE+1)
+        if len(line)>http.client._MAXLINE:raise http.client.LineTooLong('chunk size')
+        if not line.endswith(b'\r\n'):raise http.client.IncompleteRead(b'')
+        size=line[:-2].split(b';',1)[0]
+        if not size or any(c not in b'0123456789abcdefABCDEF' for c in size):
+            raise http.client.IncompleteRead(b'')
+        return int(size,16)
+    def _read_and_discard_trailer(self):
+        for unused in range(http.client._MAXHEADERS+1):
+            line=self.fp.readline(http.client._MAXLINE+1)
+            if len(line)>http.client._MAXLINE:raise http.client.LineTooLong('trailer line')
+            if not line.endswith(b'\r\n'):raise http.client.IncompleteRead(b'')
+            if line==b'\r\n':return
+        raise http.client.HTTPException('Bounded trailer count exceeded')
+    def _get_chunk_left(self):
+        left=self.chunk_left
+        if not left:
+            if left is not None and self._safe_read(2)!=b'\r\n':
+                raise http.client.IncompleteRead(b'')
+            left=self._read_next_chunk_size()
+            if left==0:
+                self._read_and_discard_trailer();self._close_conn();left=None
+            self.chunk_left=left
+        return left
+
+
+def deadline_connection(address,deadline,source_address=None):
+    """Bound resolution/address attempts; late DNS results never launch a socket."""
+    done=threading.Event();answers=[];errors=[]
+    def resolve():
+        try:answers.extend(socket.getaddrinfo(*address,0,socket.SOCK_STREAM))
+        except OSError as exc:errors.append(exc)
+        finally:done.set()
+    resolver=threading.Thread(target=resolve,daemon=True);resolver.start()
+    remaining=deadline-time.monotonic()
+    if remaining<=0 or not done.wait(remaining) or time.monotonic()>=deadline:
+        raise TimeoutError('Forward deadline')
+    if errors:raise errors[0]
+    failure=None
+    for family,kind,protocol,unused,target in answers:
+        remaining=deadline-time.monotonic()
+        if remaining<=0:raise TimeoutError('Forward deadline')
+        candidate=socket.socket(family,kind,protocol)
+        try:
+            candidate.settimeout(remaining)
+            if source_address:candidate.bind(source_address)
+            candidate.connect(target)
+            remaining=deadline-time.monotonic()
+            if remaining<=0:raise TimeoutError('Forward deadline')
+            # HTTPS wraps this socket next: its handshake gets only the remaining
+            # cumulative budget, rather than a fresh timeout after TCP admission.
+            candidate.settimeout(remaining)
+            return candidate
+        except OSError as exc:failure=exc;candidate.close()
+    raise failure or OSError('No upstream addresses')
+
+
+def response_chunks(response,upstream_socket,deadline,maximum):
+    """Bound both routes and prove EOF within the cumulative request deadline."""
+    total=0
+    while True:
+        remaining=deadline-time.monotonic()
+        if remaining<=0:raise TimeoutError('Forward deadline')
+        if response.isclosed():
+            if response.length not in (None,0):raise http.client.IncompleteRead(b'')
+            return
+        if upstream_socket:upstream_socket.settimeout(remaining)
+        data=response.read1(65536)
+        if time.monotonic()>=deadline:raise TimeoutError('Forward deadline')
+        if not data:
+            if response.length not in (None,0):raise http.client.IncompleteRead(b'')
+            return
+        total+=len(data)
+        if total>maximum:raise ValueError('Bounded response exceeded')
+        yield data
+
+
 class Gate:
     def __init__(self,limits,clock=time.monotonic,observer=None):
         self.limits=limits;self.clock=clock;self.condition=threading.Condition();self.queue=deque();self.active=None;self.events=[];self.uncertain=False;self.observer=observer
@@ -148,52 +228,54 @@ def handler(config,gate):
         def forward(self,method,body):
             grant=gate.acquire(self.connection)
             if grant is None:return self.reply(429,{'error':'inference admission unavailable'})
-            ticket,wait=grant;connection=None;sent=False;known=False;forwarded=False
+            ticket,wait=grant;connection=None;upstream_socket=None;watchdog=None;sent=False;known=False;forwarded=False
             deadline=time.monotonic()+config['limits']['request_timeout_seconds']
             try:
                 endpoint=config['endpoint'];route=urlsplit(endpoint['base_url'])
                 if route.scheme not in ('http','https') or route.username or route.password:raise ValueError('Invalid upstream')
                 cls=http.client.HTTPSConnection if route.scheme=='https' else http.client.HTTPConnection
                 connection=cls(route.hostname,route.port,timeout=config['limits']['request_timeout_seconds'])
+                connection.response_class=StrictResponse
+                connection._create_connection=lambda address,timeout,source_address: deadline_connection(address,deadline,source_address)
                 headers={'Content-Type':'application/json','Accept-Encoding':'identity'}
                 if config['upstream_key']:headers['Authorization']='Bearer '+config['upstream_key']
                 suffix='/models' if method=='GET' else '/chat/completions'
                 forwarded=True
+                remaining=deadline-time.monotonic()
+                if remaining<=0:raise TimeoutError('Forward deadline')
+                # HTTPResponse internally loops over header/chunk/trailer lines.
+                # An idle socket timeout cannot bound a continuously slow reply.
+                # Shutdown interrupts those reads; completion still requires EOF
+                # before the absolute deadline, never merely a local socket close.
+                def expire():
+                    current=upstream_socket if upstream_socket is not None else connection.sock
+                    try:
+                        if current is not None:current.shutdown(socket.SHUT_RDWR)
+                    except OSError:pass
+                watchdog=threading.Timer(remaining,expire);watchdog.daemon=True;watchdog.start()
+                connection.connect();upstream_socket=connection.sock
+                remaining=deadline-time.monotonic()
+                if remaining<=0:raise TimeoutError('Forward deadline')
+                upstream_socket.settimeout(remaining)
                 connection.request(method,route.path.rstrip('/')+suffix,body=body,headers=headers)
-                upstream_socket=connection.sock
                 response=connection.getresponse()
+                if time.monotonic()>=deadline:raise TimeoutError('Forward deadline')
                 if method=='GET':
-                    raw=response.read(MAX_BODY+1)
-                    if len(raw)>MAX_BODY:raise ValueError('Unbounded model list')
+                    raw=b''.join(response_chunks(response,upstream_socket,deadline,MAX_BODY))
                     models=json.loads(raw);selected=[m for m in models.get('data',[]) if m.get('id')==endpoint['model']]
                     if response.status!=200 or len(selected)!=1:raise ValueError('Exact upstream model unavailable')
                     known=True
                     safe=Scrubber([config['upstream_key'],*config['tokens']]).feed(json.dumps({'object':'list','data':selected}).encode(),True)
                     return self.reply(200,json.loads(safe))
                 self.send_response(response.status);self.send_header('Content-Type',response.getheader('Content-Type','application/json'))
-                self.end_headers();sent=True;connected=True;total=0
+                self.end_headers();sent=True;connected=True
                 scrubber=Scrubber([config['upstream_key'],*config['tokens']])
-                while True:
-                    # read1 closes the response socket when Content-Length is
-                    # exhausted. Do not touch that closed socket before flushing
-                    # the scrubber tail; a premature declared-length EOF stays
-                    # uncertain rather than releasing the inference slot.
-                    if response.isclosed():
-                        if response.length not in (None,0):raise http.client.IncompleteRead(b'')
-                        known=True;break
-                    remaining=deadline-time.monotonic()
-                    if remaining<=0:raise TimeoutError('Forward deadline')
-                    if upstream_socket:upstream_socket.settimeout(remaining)
-                    data=response.read1(65536)
-                    if not data:
-                        if response.length not in (None,0):raise http.client.IncompleteRead(b'')
-                        known=True;break
-                    total+=len(data)
-                    if total>MAX_REPLY:raise ValueError('Bounded response exceeded')
+                for data in response_chunks(response,upstream_socket,deadline,MAX_REPLY):
                     safe=scrubber.feed(data)
                     if connected:
                         try:self.wfile.write(safe);self.wfile.flush()
                         except (BrokenPipeError,ConnectionResetError):connected=False;gate.note('client_disconnected')
+                known=True
                 if connected:
                     try:self.wfile.write(scrubber.feed(b'',True));self.wfile.flush()
                     except (BrokenPipeError,ConnectionResetError):pass
@@ -201,6 +283,7 @@ def handler(config,gate):
                 gate.note('upstream_failure')
                 if not sent:self.reply(502,{'error':'upstream request failed'})
             finally:
+                if watchdog is not None:watchdog.cancel();watchdog.join()
                 if connection is not None:connection.close()
                 gate.release(ticket,known=known or not forwarded)
     return Handler

@@ -148,6 +148,10 @@ A queued disconnect removes the caller. A forwarded disconnect retains its slot
 until the upstream response terminates. A forwarding timeout with unknown upstream
 termination quarantines inference and stops new admission. Cleanup preserves that
 uncertainty rather than treating a removed container as proof the server stopped.
+The absolute upstream deadline covers resolution, address attempts, TLS setup,
+response headers, model-list bodies and stream chunk metadata/trailers. Late
+resolver results cannot launch an upstream request. Partial declared lengths or incomplete chunk
+termination cannot release the slot as known completion.
 This gateway does not constrain unrelated model-server clients or establish model
 throughput. Request bodies are bounded to 2 MiB, responses to 64 MiB, and helper
 threads are bounded by the inference queue limit.

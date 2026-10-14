@@ -4,27 +4,32 @@
 
 The new schema-2 mode requires fresh native ARM64 overlap and both-release model
 qualification. Historical serial receipts below do not establish that scope.
-Current development status: a fresh native ARM64 infrastructure gate passed
-four exact-release image admissions, gateway/token routing, actual two-container
-overlap, FIFO third-worker admission, cancellation, owner-loss recovery and both
-sandbox-enabled DOM gates. The latest Pi/model matrix stopped in its first coding
-lane with five passes and one queue-admission failure across eleven segments.
-The selected 120-second queue expired while another model request remained within
-its 180-second upstream budget. The runner retained the failure and stopped later
-lanes. Earlier partial runs retain their original identity: one passed all 24
-Pi 0.87.1 coding/lookup/credential cells, then stopped on a browser token ceiling.
-No complete both-release collection passed. One inference slot and confirmed
-upstream completion were retained.
-Owned resources and private stores were
-independently confirmed cleaned. Offline tests cover explicit longer queue
-budgets, derived preflight deadlines, unchanged serial behavior,
-explicit bounded real-model token choices without changing scripted fault budgets,
-both reviewed SDK payloads, storage opt-out admission and rejection of storage
-enablement, plus complete/truncated HTTP response accounting and redaction;
-concurrent atomic registry replacement also has deterministic and
-live host-reader fixtures. A fresh approved run remains required for Pi/model
-qualification. No WorkChord workflow or real application-actor acceptance is
-claimed by this development status.
+Current development status: on 14 October 2026, a fresh native ARM64 infrastructure
+gate passed four exact-release image admissions, gateway/token routing, actual
+two-container overlap, FIFO third-worker admission, cancellation, owner-loss
+recovery and both sandbox-enabled DOM gates. The collection passed all 30
+Pi 0.87.1 positive cells and all eight scripted fault lanes (32 planned cell
+oracles), then four Pi 1.2.0 coding cells. The parent stopped the collection after
+independent offline review found that slow HTTP response metadata/model-list
+bodies could exceed the gateway's absolute deadline, and incomplete final chunk
+trailers could be counted as complete. Those defects were not observed in the
+native run. Two active coding cells were interrupted; later lanes did not run.
+The retained run contains 98 actual Pi segments: 72 real-model segments and 26
+scripted fault segments. No complete both-release collection passed. Earlier
+partial runs retain their original identity and blocked outcomes.
+All 450 registered resources, the disposable authority and private stores were
+independently confirmed cleaned. Known application and inference key scans found
+no retained matches. The deadline/framing corrections require a fresh approved
+collection; earlier native observations do not qualify their changed runner bytes.
+Offline tests cover explicit longer queue budgets, derived preflight deadlines,
+unchanged serial behavior, explicit bounded real-model token choices without
+changing scripted fault budgets, both reviewed SDK payloads, storage opt-out
+admission and rejection of storage enablement, cumulative DNS/address/TLS setup
+and response deadlines through slow headers/chunk metadata/model-list bodies,
+strict final trailers, complete/truncated
+response accounting and redaction. Concurrent atomic registry replacement also
+has deterministic and live host-reader fixtures. No WorkChord workflow or real
+application-actor acceptance is claimed by this development status.
 
 
 The package implements bounded coding delegation, frozen application experiments
@@ -58,8 +63,7 @@ including actual same-user lease exclusion/release and rejected CLI dispatch.
 Worker/release/profile contracts, qualification harness and task inputs remain
 unchanged; the parent sources and aggregate package/runner provenance differ.
 Those corrections do not create a new native measurement or authorize execution
-of old frozen experiments under the new identity. Parallel agents remain a future
-design without overlapping-worker qualification.
+of old frozen experiments under the new identity. These historical serial measurements do not establish parallel qualification.
 
 The exact images used Node 24.21.0 and, in the browser lane, Chromium 155.0.8059.39
 with the pinned chromium-userns policy and sandbox enabled. Core workers used
