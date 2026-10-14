@@ -46,6 +46,16 @@ class ContractTests(unittest.TestCase):
         with self.assertRaisesRegex(contract.ParallelError,'daemon budget'):
             contract.admit_capacity(selected(),before,{'NCPU':2,'MemTotal':4*1024**3})
 
+    def test_queue_and_preflight_budgets_cover_a_long_but_bounded_other_request(self):
+        value=selected();value['gateway']['queue_wait_seconds']=120
+        self.assertEqual(contract.validate(value)['gateway']['max_inflight'],1)
+        self.assertEqual(contract.preflight_limits(value),{'request_timeout_seconds':300,'container_timeout_seconds':330})
+        value['gateway'].update(queue_wait_seconds=10,request_timeout_seconds=30)
+        self.assertEqual(contract.preflight_limits(value),{'request_timeout_seconds':120,'container_timeout_seconds':150})
+        for queue,request in ((601,600),(180,180),(True,180),(120,120)):
+            value['gateway'].update(queue_wait_seconds=queue,request_timeout_seconds=request)
+            with self.subTest(queue=queue,request=request),self.assertRaises(contract.ParallelError):contract.validate(value)
+
 
 if __name__=='__main__':unittest.main()
 
@@ -82,3 +92,10 @@ class SchemaTests(ExperimentFixture):
         value=self.parallel();self.write('different.json',{**self.endpoint,'model':'different-fixture'})
         value['variants'][1]['endpoint']='different.json'
         with self.assertRaisesRegex(ValueError,'one exact'):self.validate(value)
+
+    def test_longer_queue_requires_room_in_every_frozen_stage(self):
+        value=self.parallel();value['concurrency']['gateway']['queue_wait_seconds']=120
+        with self.assertRaisesRegex(ValueError,'every Pi stage budget'):self.validate(value)
+        value['budgets']['timeout_seconds']=600
+        admitted=self.validate(value)
+        self.assertEqual(admitted['concurrency']['gateway']['queue_wait_seconds'],120)

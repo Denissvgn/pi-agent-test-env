@@ -49,13 +49,13 @@ class Gate:
                         self.queue.remove(ticket);self.note('queue_cancelled',len(self.queue));self.condition.notify_all();return None
                 except OSError:
                     self.queue.remove(ticket);self.note('queue_cancelled',len(self.queue));self.condition.notify_all();return None
-                if self.active is None and self.queue[0] is ticket:
-                    self.queue.popleft();self.active=ticket;wait=self.clock()-start
-                    self.metrics['queue_wait_seconds_sum']+=wait;self.metrics['queue_wait_seconds_max']=max(self.metrics['queue_wait_seconds_max'],wait)
-                    self.note('forwarded',len(self.queue));return ticket,wait
-                remaining=deadline-self.clock()
+                now=self.clock();remaining=deadline-now
                 if remaining<=0:
                     self.queue.remove(ticket);self.condition.notify_all();self.note('queue_deadline',len(self.queue));return None
+                if self.active is None and self.queue[0] is ticket:
+                    self.queue.popleft();self.active=ticket;wait=now-start
+                    self.metrics['queue_wait_seconds_sum']+=wait;self.metrics['queue_wait_seconds_max']=max(self.metrics['queue_wait_seconds_max'],wait)
+                    self.note('forwarded',len(self.queue));return ticket,wait
                 self.condition.wait(min(.05,remaining))
     def release(self,ticket,known=True):
         with self.condition:

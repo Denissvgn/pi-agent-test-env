@@ -31,7 +31,7 @@ explicit `concurrency` block; these numbers are requests, not detected capacity:
     "resources": {"cpu_millis": 250, "memory_mib": 128, "pids_limit": 64},
     "max_inflight": 1,
     "max_pending": 4,
-    "queue_wait_seconds": 30,
+    "queue_wait_seconds": 120,
     "request_timeout_seconds": 180
   }
 }
@@ -55,10 +55,20 @@ The gateway uses that image's Python toolchain with the frozen runtime helper.
 
 The pending limit must cover the planned matrix (at most 64 cells). Stage budgets
 must exceed inference queue wait plus upstream request deadline. Queue limits are
-1..3600 seconds for trials and 1..30 for inference; collection is 60..14400 seconds,
+1..3600 seconds for trials and 1..600 for inference; inference wait must remain
+below the selected upstream request deadline. Collection is 60..14400 seconds,
 with exactly two trial/stage slots and one cooperating inference slot. No execution
 CLI option raises frozen ceilings. Keep the queue deadline long enough for the
 planned preceding trials; expiration blocks collection and retains pending cells.
+An inference queue wait of 30 seconds can expire while another trial's valid
+generation is running. Select the finite wait explicitly for the endpoint's
+observed request duration; a longer wait never adds another inference slot.
+Parallel model-list preflight uses the greater of 120 seconds or the selected
+queue plus upstream deadlines, with 30 seconds of container startup/exit headroom.
+These derived ceilings are recorded in each outcome and consume the frozen
+collection budget. Serial preflight retains its 120/150-second request/container
+ceilings. The example therefore requires Pi stage budgets greater than 300 seconds
+and records a 300-second preflight request/330-second container ceiling.
 
 Preparation freezes the complete contract and source/oracle/profile inputs.
 Schema-2 matrix order is repetition, declared variant, then declared case; reports

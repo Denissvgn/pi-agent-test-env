@@ -48,13 +48,22 @@ def validate(value):
     if type(gateway['max_inflight']) is not int or gateway['max_inflight'] != 1:
         raise ParallelError('Only one cooperating model request is qualified by this contract')
     integer(gateway['max_pending'],2,16)
-    integer(gateway['queue_wait_seconds'],1,30)
+    integer(gateway['queue_wait_seconds'],1,600)
     integer(gateway['request_timeout_seconds'],30,600)
     if gateway['queue_wait_seconds'] >= gateway['request_timeout_seconds']:
         raise ParallelError('Inference queue wait must be below request deadline')
     if any(gateway['resources'][k] >= aggregate[k] for k in aggregate):
         raise ParallelError('Gateway reservation must leave worker capacity')
     return copy.deepcopy(value)
+
+
+def preflight_limits(value):
+    gateway=validate(value)['gateway']
+    # A model-list request can queue behind the other trial's generation.
+    # Keep the original serial floors; cover the selected queue plus upstream
+    # deadline and retain bounded container-start/exit headroom.
+    request=max(120,gateway['queue_wait_seconds']+gateway['request_timeout_seconds'])
+    return {'request_timeout_seconds':request,'container_timeout_seconds':request+30}
 
 
 def worker_weight(policy):

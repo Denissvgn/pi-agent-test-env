@@ -167,6 +167,13 @@ numeric reasoning budget or fallback endpoint is introduced. A request ceiling
 above one requires operator-declared capacity and a separately frozen server
 qualification, not capacity guessed from the model name.
 
+Select finite inference queue and upstream deadlines explicitly. A fixed short
+queue can reject a healthy second trial before the first generation finishes.
+Their sum must fit every Pi stage; parallel model-list preflight must also cover
+that selected sum, with bounded container headroom. Record the derived preflight
+ceilings and consume the collection deadline. Serial preflight keeps its original
+limits. Changing these values requires a fresh frozen collection and approval.
+
 ## Accounting, controls and stop behavior
 
 Replace the single active-attempt field with a versioned map of active attempts

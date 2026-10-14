@@ -46,7 +46,7 @@ CONCURRENCY={'scheduler':'parallel-trials-v1','host_generation':1,'registry_awar
     'max_trials':2,'max_stages':2,'max_pending':16,'queue_wait_seconds':3600,'collection_timeout_seconds':14400,
     'aggregate':{'cpu_millis':2500,'memory_mib':3328,'pids_limit':1152},
     'gateway':{'resources':{'cpu_millis':250,'memory_mib':128,'pids_limit':64},
-               'max_inflight':1,'max_pending':4,'queue_wait_seconds':30,'request_timeout_seconds':180}}
+               'max_inflight':1,'max_pending':4,'queue_wait_seconds':120,'request_timeout_seconds':180}}
 POSITIVE=('coding','lookup','credentials','browser')
 FAULTS=('abort','timeout','recovery','crash','discovery','boundary','contamination','provider-fatal')
 
@@ -85,6 +85,7 @@ def freeze(root,images_file,endpoint_file,session=None):
        'images':images,'endpoint_sha256':provenance.digest({k:v for k,v in endpoint.items() if k!='api_key_env'}),
        'model_deployment_limits':'unknown; existing deployment retained','host':host,'session':session,
        'worker_resources':WORKER,'concurrency':CONCURRENCY,
+       'inference_preflight':parallel_contract.preflight_limits(CONCURRENCY),
        'authority_resources':{'cpu_millis':250,'memory_mib':128,'pids_limit':64},
        'batches':rows,'planned_cells':sum(r['cells'] for r in rows),'segments_ceiling':sum(r['segments_ceiling'] for r in rows),
        'docker_launches_ceiling':900,'infrastructure_seconds_ceiling':1200,'collection_seconds_ceiling':14400,
@@ -106,6 +107,8 @@ def verify(root):
         raise ValueError('Frozen worker policy bytes changed before admission')
     if manifest['worker_resources']!=WORKER or experiments.read_json(root/'worker.json')!=manifest['worker_resources']:
         raise ValueError('Frozen worker policy changed before admission')
+    if manifest.get('inference_preflight')!=parallel_contract.preflight_limits(CONCURRENCY):
+        raise ValueError('Frozen inference preflight limits changed before admission')
     if manifest['batches']!=matrix():raise ValueError('Fixed batch matrix changed')
     if manifest['endpoint_sha256']!=provenance.digest({k:v for k,v in lab.load_endpoint(root/'endpoint.json').items() if k!='api_key_env'}):
         raise ValueError('Frozen endpoint changed')

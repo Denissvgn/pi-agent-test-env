@@ -1106,13 +1106,19 @@ def _execute_suite(args,attempt,smoke=False):
     summary['infrastructure']['phase']='endpoint'
     endpoint = load_endpoint(resolve_endpoint_path(args))
     upstream_endpoint=copy.deepcopy(endpoint)
+    preflight_arguments=['preflight'];preflight_timeout=150
     if getattr(args,'_parallel_session',None):
         endpoint=args._parallel_session.endpoint(endpoint)
         import experiments
         contract=experiments.read_json(Path(args._experiment_root)/'experiment.json')['concurrency']
+        import parallel_contract
+        preflight=parallel_contract.preflight_limits(contract)
+        preflight_arguments+=['--request-timeout',str(preflight['request_timeout_seconds'])]
+        preflight_timeout=preflight['container_timeout_seconds']
         summary['inference_admission']={'contract_sha256':provenance.digest(contract),'max_inflight':1,
             'upstream_configuration_sha256':provenance.digest({k:v for k,v in upstream_endpoint.items() if k!='api_key_env'}),
-            'routes':{k:endpoint[k] for k in ('base_url','host_base_url')},'scope':'Cooperating gateway requests only; unrelated server clients excluded'}
+            'routes':{k:endpoint[k] for k in ('base_url','host_base_url')},'preflight':preflight,
+            'scope':'Cooperating gateway requests only; unrelated server clients excluded'}
     summary['endpoint']={k:v for k,v in endpoint.items() if k not in ('base_url','host_base_url')}
     summary['endpoint']['routes']={name:{'url':endpoint.get(name,endpoint['base_url']),'digest':hashlib.sha256(endpoint.get(name,endpoint['base_url']).encode()).hexdigest()} for name in ('base_url','host_base_url')}
     summary['infrastructure']['phase']='secret'
@@ -1228,8 +1234,8 @@ def _execute_suite(args,attempt,smoke=False):
         attempt.process(boundary_result)
         if boundary_result['exit_code'] or boundary_result.get('cleanup_confirmed') is not True:
             raise LabError('Filesystem isolation probe failed; inspect boundary/stderr.log')
-        api = run_stage(args, image['id'], runroot, workspace, 'preflight', ['preflight'],
-                        endpoint=endpoint, secret=secret, timeout=150, redaction_secrets=redaction_secrets)
+        api = run_stage(args, image['id'], runroot, workspace, 'preflight', preflight_arguments,
+                        endpoint=endpoint, secret=secret, timeout=preflight_timeout, redaction_secrets=redaction_secrets)
         attempt.process(api)
         if api['exit_code'] or api.get('cleanup_confirmed') is not True:
             raise LabError('Model endpoint preflight failed; inspect preflight/stderr.log. No fallback used.')
