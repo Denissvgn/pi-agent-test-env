@@ -203,6 +203,27 @@ class Scrubber:
         return output
 
 
+def active_tokens(path):
+    """Bounded no-follow reads, reopening only a verified atomic replacement."""
+    import os,stat
+    for unused in range(3):
+        fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+        with os.fdopen(fd,'rb') as source:
+            st=os.fstat(source.fileno())
+            if st.st_nlink==0:
+                current=os.stat(path,follow_symlinks=False)
+                if (st.st_dev,st.st_ino)!=(current.st_dev,current.st_ino):continue
+            if not stat.S_ISREG(st.st_mode) or st.st_uid!=os.getuid() or st.st_nlink!=1 or st.st_mode&0o077 or st.st_size>1024*1024:
+                raise ValueError('Invalid private activation state')
+            raw=source.read(1024*1024+1)
+            if len(raw)>1024*1024:raise ValueError('Activation state exceeds bound')
+            state=json.loads(raw)
+            if not isinstance(state,dict) or set(state)!={'tokens'} or not isinstance(state['tokens'],list) or len(state['tokens'])>2 or any(not isinstance(token,str) for token in state['tokens']):
+                raise ValueError('Invalid activation contract')
+            return state['tokens']
+    raise ValueError('Activation state changed during bounded observation')
+
+
 def handler(config,gate):
     def held_keys():return [config.get('upstream_key',''),*config.get('redaction_keys',[]),*[r['upstream_key'] for r in config.get('routes',{}).values()],*([] if config.get('token_prefix') else config['tokens'])]
     class Handler(BaseHTTPRequestHandler):
@@ -217,14 +238,8 @@ def handler(config,gate):
             token=self.headers.get('Authorization','').removeprefix('Bearer ')
             if not token or token not in config['tokens']:return None
             if config.get('active_tokens_file'):
-                import os,stat
                 try:
-                    fd=os.open(config['active_tokens_file'],os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
-                    with os.fdopen(fd,'rb') as source:
-                        st=os.fstat(source.fileno())
-                        if not stat.S_ISREG(st.st_mode) or st.st_uid!=os.getuid() or st.st_nlink!=1 or st.st_mode&0o077 or st.st_size>1024*1024:return None
-                        state=json.load(source)
-                    if not isinstance(state,dict) or set(state)!={'tokens'} or not isinstance(state['tokens'],list) or len(state['tokens'])>2 or token not in state['tokens']:return None
+                    if token not in active_tokens(config['active_tokens_file']):return None
                 except (OSError,ValueError,TypeError):return None
             return token
         def selected(self,token):

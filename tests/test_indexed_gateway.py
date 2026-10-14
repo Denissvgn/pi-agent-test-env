@@ -98,5 +98,41 @@ class RoutedTests(unittest.TestCase):
         self.assertNotIn(self.keys['beta'].encode(),body)
         self.assertEqual(self.calls[-1][0],'alpha')
 
+    def test_verified_atomic_replacement_reopens_before_forwarding(self):
+        import os,tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            target=Path(folder)/'active.json';target.write_text(json.dumps({'tokens':['synthetic-token-a','synthetic-token-b']}));target.chmod(0o600)
+            self.config['active_tokens_file']=str(target);fstat=os.fstat;calls=[]
+            def replace(fd):
+                if not calls:
+                    other=target.with_name('replacement.json');other.write_text(target.read_text());other.chmod(0o600);os.replace(other,target)
+                calls.append(fd);return fstat(fd)
+            with patch.object(os,'fstat',side_effect=replace):self.assertEqual(self.request('synthetic-token-a')[0],200)
+            self.assertGreaterEqual(len(calls),2);self.assertEqual(len(self.calls),1)
+    def test_atomic_replacement_does_not_restore_a_revoked_token(self):
+        import os,tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            target=Path(folder)/'active.json';target.write_text(json.dumps({'tokens':['synthetic-token-a','synthetic-token-b']}));target.chmod(0o600)
+            self.config['active_tokens_file']=str(target);fstat=os.fstat;replaced=[]
+            def replace(fd):
+                if not replaced:
+                    other=target.with_name('replacement.json');other.write_text(json.dumps({'tokens':['synthetic-token-b']}));other.chmod(0o600);os.replace(other,target);replaced.append(True)
+                return fstat(fd)
+            with patch.object(os,'fstat',side_effect=replace):self.assertEqual(self.request('synthetic-token-a')[0],401)
+            self.assertEqual(self.calls,[])
+    def test_replacement_retry_is_bounded_and_rejects_insecure_new_state(self):
+        import os,tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            target=Path(folder)/'active.json';target.write_text(json.dumps({'tokens':['synthetic-token-a']}));target.chmod(0o600)
+            self.config['active_tokens_file']=str(target);fstat=os.fstat;calls=[]
+            def always_replace(fd):
+                other=target.with_name('replacement.json');other.write_text(target.read_text());other.chmod(0o600);os.replace(other,target);calls.append(fd);return fstat(fd)
+            with patch.object(os,'fstat',side_effect=always_replace):self.assertEqual(self.request('synthetic-token-a')[0],401)
+            self.assertEqual(len(calls),3);self.assertEqual(self.calls,[])
+            target.chmod(0o644);self.assertEqual(self.request('synthetic-token-a')[0],401);self.assertEqual(self.calls,[])
+
 
 if __name__=='__main__':unittest.main()

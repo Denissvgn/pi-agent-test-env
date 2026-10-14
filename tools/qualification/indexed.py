@@ -336,7 +336,7 @@ def infrastructure_routes(root,manifest):
         routes={name:{'endpoint':{'base_url':authority.child+'/'+name+'/v1','host_base_url':authority.host+'/'+name+'/v1','model':'qualification-diagnostic','max_tokens':1024},
             'upstream_key':authority.config['route_keys'][name],'limits':{'queue_wait_seconds':10,'request_timeout_seconds':30}} for name in ('route-a','route-b')}
         config={'routes':routes,'tokens':{token:{'route':name} for token,name in zip(tokens,routes)},'token_prefix':prefix,'active_tokens_file':True}
-        observed=[];calls=0
+        observed=[];calls=0;http_observations=[];http_lock=threading.Lock()
         with resources.admission_lock(lab.default_lock_file()) as registry:
             registry.command=lambda argv:predecessor.command(argv,required=False);registry.binding={'indexed_host_generation':2};lab.require_host(args)
             pool=Allocator(CONCURRENCY['aggregate']);weight=__import__('parallel_contract').worker_weight(resources.validate_policy(WORKER))
@@ -346,12 +346,23 @@ def infrastructure_routes(root,manifest):
                     route=__import__('urllib.parse',fromlist=['urlsplit']).urlsplit(broker['host_base_url'])
                     def request(token,method='POST',extra=None):
                         nonlocal calls
-                        calls+=1
-                        if calls>64:raise RuntimeError('Direct scripted HTTP ceiling')
+                        with http_lock:
+                            if calls>=64:raise RuntimeError('Direct scripted HTTP ceiling')
+                            calls+=1;ordinal=calls
                         connection=http.client.HTTPConnection(route.hostname,route.port,timeout=45)
                         body=json.dumps({'model':'qualification-diagnostic','messages':[],'max_tokens':16,**(extra or {})}) if method=='POST' else None
                         connection.request(method,'/v1/models' if method=='GET' else '/v1/chat/completions',body,{'Authorization':'Bearer '+token})
-                        response=connection.getresponse();raw=response.read();headers=str(response.getheaders());status=response.status;connection.close()
+                        response=connection.getresponse();status=response.status
+                        observation={'ordinal':ordinal,'method':method,'status':status,'completion':'reading','request_fields':sorted(extra or {})}
+                        with http_lock:
+                            http_observations.append(observation);controls.atomic(folder/'http-observations.json',http_observations)
+                        try:
+                            raw=response.read();headers=str(response.getheaders());observation['completion']='http_complete'
+                        except (OSError,http.client.HTTPException):
+                            observation['completion']='framing_or_transport_error';raise
+                        finally:
+                            connection.close()
+                            with http_lock:controls.atomic(folder/'http-observations.json',http_observations)
                         redactor=application_credentials.Redactor([authority.inference,authority.second_inference,*tokens])
                         if redactor.contains(raw) or redactor.contains(headers.encode()):raise RuntimeError('Response boundary leaked a held key/token')
                         return status,json.loads(raw)
@@ -379,8 +390,11 @@ def infrastructure_routes(root,manifest):
                     broker['activate'](tokens)
                     authority.config['truncate_fixture']=True;authority.write()
                     try:request(tokens[0])
-                    except (ValueError,http.client.HTTPException):pass
-                    else:raise RuntimeError('Incomplete response did not fail')
+                    except (ValueError,http.client.HTTPException):
+                        if http_observations[-1]['status']!=200:raise RuntimeError('Truncation fixture was rejected before forwarding')
+                    else:
+                        if http_observations[-1]['status']!=200:raise RuntimeError('Truncation fixture was rejected before forwarding')
+                        raise RuntimeError('Incomplete response did not fail')
                     for token in tokens:
                         if request(token)[0]!=429:raise RuntimeError('Uncertainty did not quarantine every route')
                     broker['activate']([])
