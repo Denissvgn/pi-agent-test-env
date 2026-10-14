@@ -68,7 +68,14 @@ def matrix():
 def command(argv,timeout=30,required=True):return pi_release.command(argv,timeout,required)
 
 
-def freeze(root,images_file,endpoint_file,session=None):
+def coding_token_budget(value):
+    if type(value) is not int or value not in (64000,128000):
+        raise ValueError('Select a reviewed coding token ceiling: 64000 or 128000')
+    return value
+
+
+def freeze(root,images_file,endpoint_file,session=None,coding_max_total_tokens=64000):
+    coding_max_total_tokens=coding_token_budget(coding_max_total_tokens)
     root=Path(root).resolve()
     if root.exists():raise ValueError('Fresh qualification directory required')
     selected=json.loads(Path(images_file).read_text());images={}
@@ -86,6 +93,7 @@ def freeze(root,images_file,endpoint_file,session=None):
        'model_deployment_limits':'unknown; existing deployment retained','host':host,'session':session,
        'worker_resources':WORKER,'concurrency':CONCURRENCY,
        'inference_preflight':parallel_contract.preflight_limits(CONCURRENCY),
+       'coding_max_total_tokens':coding_max_total_tokens,
        'authority_resources':{'cpu_millis':250,'memory_mib':128,'pids_limit':64},
        'batches':rows,'planned_cells':sum(r['cells'] for r in rows),'segments_ceiling':sum(r['segments_ceiling'] for r in rows),
        'docker_launches_ceiling':900,'infrastructure_seconds_ceiling':1200,'collection_seconds_ceiling':14400,
@@ -95,7 +103,8 @@ def freeze(root,images_file,endpoint_file,session=None):
     controls.atomic(root/'integrity.json',{'manifest_sha256':hashlib.sha256((root/'manifest.json').read_bytes()).hexdigest(),
         'worker_sha256':hashlib.sha256((root/'worker.json').read_bytes()).hexdigest()})
     controls.atomic(root/'state.json',{'phase':'frozen','batches':[],'attempted_batches':[],'native_pi_segments':0})
-    return {'qualification':str(root),'planned_cells':manifest['planned_cells'],'segments_ceiling':manifest['segments_ceiling']}
+    return {'qualification':str(root),'planned_cells':manifest['planned_cells'],'segments_ceiling':manifest['segments_ceiling'],
+            'coding_max_total_tokens':coding_max_total_tokens}
 
 
 def verify(root):
@@ -109,6 +118,7 @@ def verify(root):
         raise ValueError('Frozen worker policy changed before admission')
     if manifest.get('inference_preflight')!=parallel_contract.preflight_limits(CONCURRENCY):
         raise ValueError('Frozen inference preflight limits changed before admission')
+    coding_token_budget(manifest.get('coding_max_total_tokens'))
     if manifest['batches']!=matrix():raise ValueError('Fixed batch matrix changed')
     if manifest['endpoint_sha256']!=provenance.digest({k:v for k,v in lab.load_endpoint(root/'endpoint.json').items() if k!='api_key_env'}):
         raise ValueError('Frozen endpoint changed')
@@ -354,6 +364,8 @@ def definition(root,batch,manifest,authority):
                 rule=experiments.read_json(fixture/'expected.json');rule['kind']='recovery';controls.atomic(fixture/'expected.json',rule)
         cases.append({'name':name,'project':str(project),'plan':str(planpath)})
     concurrency=copy.deepcopy(CONCURRENCY);budget=dict(fixtures.CORE_BUDGET)
+    if batch['real_model'] and kind=='coding':
+        budget['max_total_tokens']=coding_token_budget(manifest.get('coding_max_total_tokens',64000))
     if not batch['real_model']:
         budget={'timeout_seconds':60,'max_turns':20,'max_total_tokens':16000}
         concurrency['gateway'].update(queue_wait_seconds=10,request_timeout_seconds=30)
@@ -613,10 +625,11 @@ def collect(root):
 def main():
     parser=argparse.ArgumentParser(description=__doc__);sub=parser.add_subparsers(dest='operation',required=True)
     freeze_parser=sub.add_parser('freeze');freeze_parser.add_argument('--root',required=True);freeze_parser.add_argument('--images',required=True);freeze_parser.add_argument('--endpoint',required=True);freeze_parser.add_argument('--session',required=True)
+    freeze_parser.add_argument('--coding-max-total-tokens',type=int,choices=(64000,128000),default=64000)
     for name in ('infrastructure','collect'):
         item=sub.add_parser(name);item.add_argument('--root',required=True)
     args=parser.parse_args()
-    if args.operation=='freeze':print(json.dumps(freeze(args.root,args.images,args.endpoint,args.session),indent=2))
+    if args.operation=='freeze':print(json.dumps(freeze(args.root,args.images,args.endpoint,args.session,args.coding_max_total_tokens),indent=2))
     elif args.operation=='infrastructure':infrastructure(args.root)
     else:collect(args.root)
 

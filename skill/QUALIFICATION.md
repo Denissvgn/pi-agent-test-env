@@ -8,12 +8,15 @@ Current development status: a fresh native ARM64 infrastructure gate passed
 four exact-release image admissions, gateway/token routing, actual two-container
 overlap, FIFO third-worker admission, cancellation, owner-loss recovery and both
 sandbox-enabled DOM gates. The following Pi/model matrix stopped after its first
-six coding cells: two passed, three failed and one blocked across nine participant
-segments. The nonpassing outcomes hit the selected 30-second inference queue
-deadline; the gateway retained one request slot and confirmed upstream completion.
+six coding cells: five passed and one failed across twelve participant segments.
+The failed reviewer exhausted its 64,000-token ceiling; the runner retained the
+failure and stopped the matrix. All six implementers verified successful tool use.
+The selected longer queue admitted waits over 30 seconds while retaining one
+request slot and confirmed upstream completion.
 No complete positive lane passed. Owned resources and private stores were
 independently confirmed cleaned. Offline tests cover explicit longer queue
 budgets, derived preflight deadlines, unchanged serial behavior,
+explicit bounded coding-token choices without changing other lane budgets,
 both reviewed SDK payloads, storage opt-out admission and rejection of storage
 enablement, plus complete/truncated HTTP response accounting and redaction;
 concurrent atomic registry replacement also has deterministic and
