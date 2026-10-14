@@ -7,13 +7,14 @@ qualification. Historical serial receipts below do not establish that scope.
 Current development status: a fresh native ARM64 infrastructure gate passed
 four exact-release image admissions, gateway/token routing, actual two-container
 overlap, FIFO third-worker admission, cancellation, owner-loss recovery and both
-sandbox-enabled DOM gates. The following Pi/model matrix passed all Pi 0.87.1
-coding, lookup and credential lanes: 24 cells/54 participant segments, including
-independent application effects, isolation, redaction and cleanup checks. The
-browser lane then stopped with five passes and one token-budget failure across
-six segments. Its independent task check passed, but invocation validity failed
-at the declared 64,000-token ceiling. The runner retained that failure and stopped
-all later lanes. One inference slot and confirmed upstream completion were retained.
+sandbox-enabled DOM gates. The latest Pi/model matrix stopped in its first coding
+lane with five passes and one queue-admission failure across eleven segments.
+The selected 120-second queue expired while another model request remained within
+its 180-second upstream budget. The runner retained the failure and stopped later
+lanes. Earlier partial runs retain their original identity: one passed all 24
+Pi 0.87.1 coding/lookup/credential cells, then stopped on a browser token ceiling.
+No complete both-release collection passed. One inference slot and confirmed
+upstream completion were retained.
 Owned resources and private stores were
 independently confirmed cleaned. Offline tests cover explicit longer queue
 budgets, derived preflight deadlines, unchanged serial behavior,

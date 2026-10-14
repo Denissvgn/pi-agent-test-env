@@ -50,8 +50,8 @@ def validate(value):
     integer(gateway['max_pending'],2,16)
     integer(gateway['queue_wait_seconds'],1,600)
     integer(gateway['request_timeout_seconds'],30,600)
-    if gateway['queue_wait_seconds'] >= gateway['request_timeout_seconds']:
-        raise ParallelError('Inference queue wait must be below request deadline')
+    if gateway['queue_wait_seconds'] > gateway['request_timeout_seconds']:
+        raise ParallelError('Inference queue wait must not exceed request deadline')
     if any(gateway['resources'][k] >= aggregate[k] for k in aggregate):
         raise ParallelError('Gateway reservation must leave worker capacity')
     return copy.deepcopy(value)

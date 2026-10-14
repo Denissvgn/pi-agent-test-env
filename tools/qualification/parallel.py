@@ -46,7 +46,7 @@ CONCURRENCY={'scheduler':'parallel-trials-v1','host_generation':1,'registry_awar
     'max_trials':2,'max_stages':2,'max_pending':16,'queue_wait_seconds':3600,'collection_timeout_seconds':14400,
     'aggregate':{'cpu_millis':2500,'memory_mib':3328,'pids_limit':1152},
     'gateway':{'resources':{'cpu_millis':250,'memory_mib':128,'pids_limit':64},
-               'max_inflight':1,'max_pending':4,'queue_wait_seconds':120,'request_timeout_seconds':180}}
+               'max_inflight':1,'max_pending':4,'queue_wait_seconds':180,'request_timeout_seconds':180}}
 POSITIVE=('coding','lookup','credentials','browser')
 FAULTS=('abort','timeout','recovery','crash','discovery','boundary','contamination','provider-fatal')
 

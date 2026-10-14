@@ -50,9 +50,12 @@ class ContractTests(unittest.TestCase):
         value=selected();value['gateway']['queue_wait_seconds']=120
         self.assertEqual(contract.validate(value)['gateway']['max_inflight'],1)
         self.assertEqual(contract.preflight_limits(value),{'request_timeout_seconds':300,'container_timeout_seconds':330})
+        value['gateway']['queue_wait_seconds']=180
+        self.assertEqual(contract.validate(value)['gateway']['max_inflight'],1)
+        self.assertEqual(contract.preflight_limits(value),{'request_timeout_seconds':360,'container_timeout_seconds':390})
         value['gateway'].update(queue_wait_seconds=10,request_timeout_seconds=30)
         self.assertEqual(contract.preflight_limits(value),{'request_timeout_seconds':120,'container_timeout_seconds':150})
-        for queue,request in ((601,600),(180,180),(True,180),(120,120)):
+        for queue,request in ((601,600),(181,180),(True,180),(121,120)):
             value['gateway'].update(queue_wait_seconds=queue,request_timeout_seconds=request)
             with self.subTest(queue=queue,request=request),self.assertRaises(contract.ParallelError):contract.validate(value)
 
