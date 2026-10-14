@@ -404,7 +404,39 @@ def live_agents(exp):
     return found
 
 
-def count_segments(exp):return len(list((exp/'runs').glob('*/stages/*/segments/*.json')))
+def canonical_runs(directory):
+    """Retained attempts only; a validated latest alias is not another attempt."""
+    directory=Path(directory)
+    if directory.is_symlink() or directory.parent.is_symlink():raise RuntimeError('Linked run inventory')
+    if not directory.exists():return []
+    runs=[]
+    for path in directory.iterdir():
+        if path.name=='latest' and path.is_symlink():
+            target=path.resolve(strict=True)
+            if target.parent!=directory.resolve() or not controls.valid_id(target.name) or not target.is_dir():raise RuntimeError('Invalid latest run alias')
+            continue
+        if path.is_symlink() or not path.is_dir() or not controls.valid_id(path.name):raise RuntimeError('Invalid canonical run directory')
+        runs.append(path)
+    return sorted(runs)
+
+
+def count_segments(exp):
+    exp=Path(exp)
+    if exp.is_symlink() or exp.parent.is_symlink():raise RuntimeError('Linked experiment inventory')
+    count=0
+    for run in canonical_runs(exp/'runs'):
+        stages=run/'stages'
+        if stages.is_symlink():raise RuntimeError('Linked stage inventory')
+        if not stages.exists():continue
+        for stage in stages.iterdir():
+            if stage.is_symlink() or not stage.is_dir() or not controls.valid_id(stage.name):raise RuntimeError('Invalid canonical stage directory')
+            segments=stage/'segments'
+            if segments.is_symlink():raise RuntimeError('Linked segment inventory')
+            if not segments.exists():continue
+            for path in segments.iterdir():
+                if path.is_symlink() or not path.is_file() or path.suffix!='.json' or not controls.valid_id(path.stem):raise RuntimeError('Invalid canonical segment file')
+                count+=1
+    return count
 
 
 def validate_fault(exp,kind,rows,invocation,batch):

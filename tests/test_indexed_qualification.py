@@ -8,6 +8,32 @@ import indexed,indexed_budget,experiments,secret_store
 from test_indexed_contract import config
 
 class IntentTests(unittest.TestCase):
+    def coding_inspection_fixture(self):
+        import uuid
+        manifest={'batches':[{'id':'serial','kind':'coding'},{'id':'parallel','kind':'coding'}]};runs=[]
+        for number in range(36):
+            parent=(self.root/'batches/serial/standalone-runs'/str(number)/'runs') if number<24 else self.root/'batches/parallel/experiment/runs'
+            run=parent/str(uuid.uuid4());run.mkdir(parents=True);workspace=self.root/('workspace-'+str(number));workspace.mkdir();(workspace/'slug.py').write_text('synthetic=True\n')
+            reviewer=run/'logs/reviewer';reviewer.mkdir(parents=True);(reviewer/'final.txt').write_text('Synthetic inspection fixture.\n')
+            indexed.controls.atomic(run/'result.json',{'run_id':run.name,'workspace':str(workspace),'agents':[{}, {'logs':'logs/reviewer'}],'protected_inputs':{'status':'unchanged'}})
+            alias=parent/'latest'
+            if alias.is_symlink():alias.unlink()
+            alias.symlink_to(run);runs.append(run)
+        return manifest,runs
+    def test_coding_inspection_collects_exactly_36_canonical_pipelines_with_latest_aliases(self):
+        manifest,runs=self.coding_inspection_fixture();targets=indexed.inspection_targets(self.root,manifest)
+        self.assertEqual(len(targets),36);self.assertEqual({r['run_id'] for r in targets},{run.name for run in runs})
+    def test_coding_inspection_rejects_run_identity_mismatch_and_foreign_alias(self):
+        manifest,runs=self.coding_inspection_fixture();path=runs[0]/'result.json';record=experiments.read_json(path);record['run_id']='foreign';indexed.controls.atomic(path,record)
+        with self.assertRaises(RuntimeError):indexed.inspection_targets(self.root,manifest)
+        record['run_id']=runs[0].name;indexed.controls.atomic(path,record)
+        alias=runs[-1].parent/'latest';alias.unlink();alias.symlink_to(runs[0])
+        with self.assertRaises(RuntimeError):indexed.inspection_targets(self.root,manifest)
+    def test_coding_inspection_rejects_linked_experiment_and_batch_ancestors(self):
+        manifest,runs=self.coding_inspection_fixture();folder=self.root/'batches/parallel';experiment=folder/'experiment';real=folder/'experiment-real';experiment.rename(real);experiment.symlink_to(real)
+        with self.assertRaises(RuntimeError):indexed.inspection_targets(self.root,manifest)
+        experiment.unlink();real.rename(experiment);batch_real=self.root/'parallel-real';folder.rename(batch_real);folder.symlink_to(batch_real)
+        with self.assertRaises(RuntimeError):indexed.inspection_targets(self.root,manifest)
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup);self.root=Path(self.tmp.name).resolve()
         self.store=self.root/'operator-store'

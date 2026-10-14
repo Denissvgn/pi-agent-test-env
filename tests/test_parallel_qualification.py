@@ -17,6 +17,41 @@ import secret_store
 
 
 class QualificationTests(unittest.TestCase):
+    def test_segment_inventory_counts_latest_alias_once_and_all_real_attempts(self):
+        import uuid
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);runs=root/'runs';runs.mkdir();created=[]
+            for unused in range(2):
+                run=runs/str(uuid.uuid4());segments=run/'stages'/str(uuid.uuid4())/'segments';segments.mkdir(parents=True)
+                (segments/(str(uuid.uuid4())+'.json')).write_text('{}');created.append(run)
+            (runs/'latest').symlink_to(created[-1])
+            self.assertEqual(qualification.count_segments(root),2)
+            self.assertEqual(qualification.canonical_runs(runs),sorted(created))
+    def test_segment_inventory_rejects_foreign_or_unexpected_aliases(self):
+        import uuid
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);runs=root/'runs';runs.mkdir();outside=root/str(uuid.uuid4());outside.mkdir()
+            (runs/'latest').symlink_to(outside)
+            with self.assertRaises(RuntimeError):qualification.count_segments(root)
+            (runs/'latest').unlink();(runs/str(uuid.uuid4())).symlink_to(outside)
+            with self.assertRaises(RuntimeError):qualification.count_segments(root)
+    def test_segment_inventory_rejects_linked_stages_and_segment_files(self):
+        import uuid
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);run=root/'runs'/str(uuid.uuid4());run.mkdir(parents=True);outside=root/'outside';outside.mkdir()
+            (run/'stages').symlink_to(outside)
+            with self.assertRaises(RuntimeError):qualification.count_segments(root)
+            (run/'stages').unlink();stage=run/'stages'/str(uuid.uuid4());stage.mkdir(parents=True)
+            segments=stage/'segments';segments.mkdir();target=outside/'record';target.write_text('{}')
+            (segments/(str(uuid.uuid4())+'.json')).symlink_to(target)
+            with self.assertRaises(RuntimeError):qualification.count_segments(root)
+
+    def test_segment_inventory_rejects_linked_experiment_ancestor(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);real=root/'real';real.mkdir();(real/'runs').mkdir();alias=root/'alias';alias.symlink_to(real)
+            with self.assertRaises(RuntimeError):qualification.count_segments(alias)
+            with self.assertRaises(RuntimeError):qualification.canonical_runs(alias/'runs')
+
     def test_fixed_matrix_contains_both_releases_three_positive_repetitions_and_eight_faults(self):
         rows=qualification.matrix();self.assertEqual(len(rows),24)
         self.assertEqual(sum(r['cells'] for r in rows),124);self.assertEqual(sum(r['segments_ceiling'] for r in rows),192)

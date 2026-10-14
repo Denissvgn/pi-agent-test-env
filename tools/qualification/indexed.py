@@ -559,13 +559,26 @@ def collect_phase(root,collection):
 
 
 def inspection_targets(root,manifest):
+    root=Path(root)
+    if root.is_symlink() or (root/'batches').is_symlink():raise RuntimeError('Linked coding batch inventory')
     targets=[]
     for batch in manifest['batches']:
         if batch['kind']!='coding':continue
         folder=Path(root)/'batches'/batch['id']
-        candidates=list((folder/'experiment/runs').glob('*/result.json'))+list((folder/'standalone-runs').glob('*/runs/*/result.json'))
+        if folder.is_symlink():raise RuntimeError('Linked coding batch')
+        runs=predecessor.canonical_runs(folder/'experiment/runs')
+        standalone=folder/'standalone-runs'
+        if standalone.is_symlink():raise RuntimeError('Linked standalone inventory')
+        if standalone.exists():
+            for group in standalone.iterdir():
+                if group.is_symlink() or not group.is_dir():raise RuntimeError('Invalid standalone run group')
+                runs+=predecessor.canonical_runs(group/'runs')
+        candidates=[run/'result.json' for run in runs]
         for path in candidates:
-            record=experiments.read_json(path);workspace=Path(record['workspace']);reviewer=record['agents'][1]
+            if path.is_symlink():raise RuntimeError('Linked coding result')
+            record=experiments.read_json(path)
+            if record['run_id']!=path.parent.name:raise RuntimeError('Coding run identity mismatch')
+            workspace=Path(record['workspace']);reviewer=record['agents'][1]
             target=workspace/'slug.py';final=path.parent/reviewer['logs']/'final.txt'
             if not target.is_file() or not final.is_file() or record['protected_inputs']['status']!='unchanged':raise RuntimeError('Coding inspection artifacts missing')
             targets.append({'run_id':record['run_id'],'implementation':str(target),'reviewer':str(final),
