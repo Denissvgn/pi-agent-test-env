@@ -4,8 +4,12 @@
 
 The new schema-2 mode requires fresh native ARM64 overlap and both-release model
 qualification. Historical serial receipts below do not establish that scope.
-Current development status: offline fixtures and independent forward testing;
-native parallel qualification remains pending. No WorkChord workflow or real
+Current development status: the first fresh native infrastructure run passed
+four exact-release ARM64 image admissions and scripted gateway/token preflight.
+It stopped on missing-network cleanup classification before container-overlap,
+DOM or Pi/model workflow qualification. Owned absence and private-store cleanup
+were independently confirmed; the classifier correction has deterministic negative
+fixtures. A fresh approved run remains required for parallel qualification. No WorkChord workflow or real
 application-actor acceptance is claimed by this development status.
 
 

@@ -135,8 +135,8 @@ def invoke(root,label,argv,timeout,env=None,control=None):
 
 def absence(name,network=False):
     reply=command(['docker','network' if network else 'container','inspect',name],required=False)
-    marker='No such network' if network else 'No such container'
-    if reply.returncode==0 or marker not in reply.stderr:raise RuntimeError('Owned absence unconfirmed')
+    confirmed=ownership_registry.network_absent(reply,name) if network else ownership_registry.absent(reply)
+    if not confirmed:raise RuntimeError('Owned absence unconfirmed')
 
 
 def registry_records():

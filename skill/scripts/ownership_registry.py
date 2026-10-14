@@ -54,6 +54,15 @@ def absent(reply):
     return reply.returncode!=0 and ('No such container' in reply.stderr or 'No such object' in reply.stderr)
 
 
+def network_absent(reply,name):
+    """Recognize only bounded Docker missing-network replies for the requested name."""
+    if reply.returncode==0:return False
+    escaped=re.escape(name)
+    patterns=(r'(?:Error response from daemon: )?network '+escaped+r' not found',
+              r'(?:Error(?: response from daemon)?: )?No such network(?::? '+escaped+r')')
+    return any(re.fullmatch(pattern,reply.stderr.strip()) is not None for pattern in patterns)
+
+
 class Registry:
     def __init__(self,path,command=docker,recover_sensitive=None):
         self.root=private_directory(path);self.command=command
@@ -203,7 +212,7 @@ class Registry:
     def remove_network(self,record):
         reply=self.command(['docker','network','inspect',record['container']])
         if reply.returncode:
-            if 'No such network' not in reply.stderr:raise RegistryError('Owned network absence uncertain')
+            if not network_absent(reply,record['container']):raise RegistryError('Owned network absence uncertain')
         else:
             data=json.loads(reply.stdout)[0];labels=data.get('Labels') or {}
             if labels.get(LABEL)!=record['launch_id'] or labels.get(REGISTRY_LABEL)!=self.registry_id or data.get('Driver')!='bridge' or data.get('Containers'):
@@ -211,7 +220,7 @@ class Registry:
             removed=self.command(['docker','network','rm',record['container']])
             if removed.returncode:raise RegistryError('Owned network cleanup failed')
             absent=self.command(['docker','network','inspect',record['container']])
-            if absent.returncode==0 or 'No such network' not in absent.stderr:raise RegistryError('Owned network absence uncertain')
+            if not network_absent(absent,record['container']):raise RegistryError('Owned network absence uncertain')
         record['status']='absent';self.write(record)
 
     def builder_intent(self,name,image):

@@ -94,3 +94,24 @@ class CohortTests(unittest.TestCase):
                 fcntl.flock(old_client,fcntl.LOCK_UN)
             with self.assertRaises(resources.AdmissionError):
                 with resources.admission_lock(lease):self.fail('New cohort must not repeat old crash exposure')
+
+class NetworkAbsenceTests(unittest.TestCase):
+    def reply(self,code,error):return type('Reply',(),{'returncode':code,'stderr':error})()
+    def test_exact_native_and_legacy_missing_network_replies(self):
+        for error in ('Error response from daemon: network pi-trial-fixture not found',
+                      'Error response from daemon: No such network: pi-trial-fixture',
+                      'Error: No such network: pi-trial-fixture'):
+            self.assertTrue(registry.network_absent(self.reply(1,error),'pi-trial-fixture'))
+    def test_other_identity_daemon_failure_generic_not_found_and_success_are_unknown(self):
+        for code,error in ((1,'Error response from daemon: network another-trial not found'),
+                           (1,'cannot connect to daemon: not found'),(1,'Docker CLI not found'),
+                           (1,'No such network'),(1,'Error: No such network'),(1,'Error response from daemon: No such network'),
+                           (1,'Error response from daemon: network pi-trial-fixture not found; credential=synthetic'),
+                           (0,'Error response from daemon: network pi-trial-fixture not found')):
+            self.assertFalse(registry.network_absent(self.reply(code,error),'pi-trial-fixture'))
+    def test_remove_network_persists_confirmed_absence_without_retrying_dispatch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            command=mock.Mock(return_value=self.reply(1,'Error response from daemon: network pi-trial-fixture not found'))
+            owned=registry.Registry(Path(temp).resolve()/'registry',command)
+            record=owned.network_intent('pi-trial-fixture');owned.remove_network(record);owned.release(record,True)
+            self.assertEqual(owned.load()[0]['status'],'released');self.assertEqual(command.call_count,1)
