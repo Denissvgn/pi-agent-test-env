@@ -7,16 +7,17 @@ qualification. Historical serial receipts below do not establish that scope.
 Current development status: a fresh native ARM64 infrastructure gate passed
 four exact-release image admissions, gateway/token routing, actual two-container
 overlap, FIFO third-worker admission, cancellation, owner-loss recovery and both
-sandbox-enabled DOM gates. The following Pi/model matrix stopped after its first
-six coding cells: five passed and one failed across twelve participant segments.
-The failed reviewer exhausted its 64,000-token ceiling; the runner retained the
-failure and stopped the matrix. All six implementers verified successful tool use.
-The selected longer queue admitted waits over 30 seconds while retaining one
-request slot and confirmed upstream completion.
-No complete positive lane passed. Owned resources and private stores were
+sandbox-enabled DOM gates. The following Pi/model matrix passed all Pi 0.87.1
+coding, lookup and credential lanes: 24 cells/54 participant segments, including
+independent application effects, isolation, redaction and cleanup checks. The
+browser lane then stopped with five passes and one token-budget failure across
+six segments. Its independent task check passed, but invocation validity failed
+at the declared 64,000-token ceiling. The runner retained that failure and stopped
+all later lanes. One inference slot and confirmed upstream completion were retained.
+Owned resources and private stores were
 independently confirmed cleaned. Offline tests cover explicit longer queue
 budgets, derived preflight deadlines, unchanged serial behavior,
-explicit bounded coding-token choices without changing other lane budgets,
+explicit bounded real-model token choices without changing scripted fault budgets,
 both reviewed SDK payloads, storage opt-out admission and rejection of storage
 enablement, plus complete/truncated HTTP response accounting and redaction;
 concurrent atomic registry replacement also has deterministic and

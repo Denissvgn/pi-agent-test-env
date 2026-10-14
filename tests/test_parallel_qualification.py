@@ -28,7 +28,7 @@ class QualificationTests(unittest.TestCase):
     def test_every_definition_freezes_before_dispatch_and_keeps_real_scripted_endpoints_distinct(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp).resolve();qualification.controls.atomic(root/'worker.json',qualification.WORKER)
-            manifest={'images':{p+'-'+r:{'id':'sha256:'+'a'*64} for p in ('core','browser') for r in ('0.87.1','1.2.0')},'coding_max_total_tokens':128000}
+            manifest={'images':{p+'-'+r:{'id':'sha256:'+'a'*64} for p in ('core','browser') for r in ('0.87.1','1.2.0')},'coding_max_total_tokens':128000,'other_positive_max_total_tokens':128000}
             endpoint={'base_url':'http://example.invalid/v1','model':'synthetic-real-lane-label','api_key_env':'MODEL_KEY',
                       'context_window':32768,'max_tokens':1024}
             with mock.patch.object(qualification.pi_release,'native',side_effect=lambda image:image),mock.patch.object(secret_store,'resolve_secret',return_value=('synthetic-model-key-0123456789','fixture')):
@@ -39,7 +39,7 @@ class QualificationTests(unittest.TestCase):
                 folder,exp=qualification.definition(root,batch,manifest,owner)
                 metadata,matrix=experiments.verify(exp,lab)
                 self.assertEqual(metadata['schema'],2);self.assertEqual(len(matrix['cells']),batch['cells'])
-                expected=128000 if batch['kind']=='coding' else 64000 if batch['real_model'] else 16000
+                expected=128000 if batch['real_model'] else 16000
                 for cell in matrix['cells']:
                     plan=experiments.read_json(exp/cell['plan'])
                     self.assertTrue(all(agent['max_total_tokens']==expected for agent in plan['agents']))
@@ -54,13 +54,15 @@ class QualificationTests(unittest.TestCase):
             self.assertFalse(list(root.glob('**/result.json')))
 
     def test_coding_budget_selection_is_bounded_and_invalid_values_reject_before_native_inspection(self):
-        self.assertEqual(qualification.coding_token_budget(64000),64000)
-        self.assertEqual(qualification.coding_token_budget(128000),128000)
+        self.assertEqual(qualification.token_budget(64000),64000)
+        self.assertEqual(qualification.token_budget(128000),128000)
         with tempfile.TemporaryDirectory() as temp,mock.patch.object(qualification.pi_release,'native') as native:
             root=Path(temp)/'uncreated'
             for invalid in (True,None,0,64001,128001,128000.0):
                 with self.subTest(budget=invalid),self.assertRaises(ValueError):
                     qualification.freeze(root,'unused-images','unused-endpoint','fixture-session',invalid)
+                with self.subTest(other_budget=invalid),self.assertRaises(ValueError):
+                    qualification.freeze(root,'unused-images','unused-endpoint','fixture-session',64000,invalid)
             native.assert_not_called();self.assertFalse(root.exists())
 
 from http.server import ThreadingHTTPServer
