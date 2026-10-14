@@ -149,7 +149,9 @@ def boundary():
           'boundary_extension_present':ext_path.is_file(),'uid':os.getuid()})
 
 
-def preflight(config, chat=False):
+def preflight(config, chat=False, request_timeout=120):
+    if type(request_timeout) is not int or not 1<=request_timeout<=1200:
+        raise ValueError('Preflight request timeout must be a bounded integer')
     base = config['base_url'].rstrip('/')
     key = os.environ.get('PI_LAB_API_KEY', '')
     if not key:
@@ -161,7 +163,7 @@ def preflight(config, chat=False):
         req = Request((base[:-3] if server_root else base) + route, data=data, headers=headers,
                       method='GET' if data is None else 'POST')
         try:
-            with client.open(req, timeout=120) as response:
+            with client.open(req, timeout=request_timeout) as response:
                 raw = response.read(4 * 1024 * 1024 + 1)
                 if len(raw) > 4 * 1024 * 1024:
                     raise RuntimeError('API response exceeded 4 MiB')
@@ -573,13 +575,17 @@ def agent(config, task):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument('operation', choices=['probe', 'boundary', 'preflight', 'browser', 'agent', 'check'])
+    p.add_argument('operation', choices=['probe', 'boundary', 'preflight', 'browser', 'agent', 'check', 'gateway'])
     p.add_argument('--profile', choices=['core', 'browser'], default='core')
     p.add_argument('--chat', action='store_true')
+    p.add_argument('--request-timeout',type=int,default=120)
     p.add_argument('--webgl', action='store_true')
     p.add_argument('--task', default='/opt/pi-control/task.json')
     p.add_argument('--config', default='/opt/pi-control/endpoint.json')
     a = p.parse_args()
+    if a.operation == 'gateway':
+        import inference_gateway
+        return inference_gateway.main(a.config)
     if a.operation == 'probe':
         probe(a.profile)
     elif a.operation == 'boundary':
@@ -587,7 +593,7 @@ def main():
     elif a.operation == 'browser':
         browser(a.webgl)
     elif a.operation == 'preflight':
-        preflight(json.loads(Path(a.config).read_text()), a.chat)
+        preflight(json.loads(Path(a.config).read_text()), a.chat,a.request_timeout)
     elif a.operation == 'agent':
         return agent(json.loads(Path(a.config).read_text()), json.loads(Path(a.task).read_text()))
     else:

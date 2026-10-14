@@ -33,6 +33,7 @@ from resources import configure, requested_policy, thread_environment, admission
 from builder import limited_build
 import secret_store
 import application_credentials
+import ownership_registry
 import browser_security
 import pr_review_gate
 import lab_env
@@ -150,6 +151,8 @@ def require_host(args) -> dict:
     if args.platform not in ('linux/arm64', 'linux/amd64'):
         raise LabError(f'This skill supports linux/arm64 and linux/amd64, found {args.platform}')
     args.native_platform = 'linux/' + (daemon_arch or host_machine)
+    registry=ownership_registry.CURRENT.get()
+    if registry is not None:registry.bind_daemon(info.get('ID'))
     limits = configure(args, info)
     return {'docker_context': context, 'docker_version': info.get('ServerVersion'),
             'host_machine': host_machine, 'daemon_architecture': daemon_arch,
@@ -252,6 +255,9 @@ def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
                application_secrets=None, redaction_secrets=()) -> dict:
     """Drain both pipes continuously. Bound wall time/log size; remove the container on all exits."""
     logdir.mkdir(parents=True, exist_ok=True)
+    registry=ownership_registry.CURRENT.get();launch=None
+    if registry is not None and argv[:2]==['docker','run']:
+        launch,argv=registry.intent(argv,name,binding={'stage_id':stage[1]['stage_id'],'segment_id':controls.read(stage[0]/'stages'/stage[1]['stage_id']/'state.json').get('segment_id')} if stage else None)
     save(logdir / 'command.json', {'argv': argv, 'api_key_inherited': bool(secret), 'started_at': now()})
     application_secrets = application_secrets or {}
     redactor = application_credentials.Redactor([secret, *application_secrets.values(), *redaction_secrets])
@@ -316,6 +322,7 @@ def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
         for t in threads:
             t.start()
         while p.poll() is None:
+            if registry is not None:registry.check_cancel()
             if stage:
                 controls.capture_observations(stage[0],stage[1])
                 budget=controls.process_budget_requests(stage[0],stage[1])
@@ -387,6 +394,9 @@ def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
         if cleanup.returncode and 'No such container' not in cleanup.stderr:
             result['cleanup_warning'] = cleanup.stderr.strip()
         result['cleanup_confirmed'] = cleanup.returncode == 0 or 'No such container' in cleanup.stderr
+        if launch is not None:
+            result['cleanup_confirmed']=registry.confirm_absent(launch)
+            result['ownership_launch_id']=launch['launch_id']
         if p is not None:
             if argv[:2] != ['docker','run']:
                 try:os.killpg(p.pid,signal.SIGKILL)
@@ -427,7 +437,7 @@ def image_info(image: str, selected_platform: str) -> dict:
 
 def probe_image(args, image: str) -> dict:
     info = image_info(image, args.platform)
-    scratch = checked_path(Path.home() / '.cache' / 'pi-agent-test-env')
+    scratch = checked_path(args._attempt_root/'image-probe-work') if getattr(args,'_parallel_session',None) else checked_path(Path.home() / '.cache' / 'pi-agent-test-env')
     scratch.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='probe-', dir=scratch) as td:
         top = Path(td)
@@ -441,7 +451,8 @@ def probe_image(args, image: str) -> dict:
         control_channels(control, args.uid)
         state = state_dir(top, 'probe', args.uid)
         name = 'pi-lab-probe-' + uuid.uuid4().hex[:10]
-        argv = docker_args(args, info['id'], workspace, control, state, name, 'none')
+        argv = docker_args(args, info['id'], workspace, control, state, name, 'none',
+                           helpers=trusted_runtime(Path(args._attempt_root)) if getattr(args,'_parallel_session',None) else None)
         receipt_path=None
         if getattr(args,'_attempt_root',None):
             receipts=Path(args._attempt_root)/'image-probes';receipts.mkdir(exist_ok=True)
@@ -968,6 +979,7 @@ def endpoint_secret(endpoint: dict, args) -> str:
     that lets the user type the key with hidden input. Prompting happens only when
     explicitly requested with --prompt-secret, so an unattended agent never hangs.
     """
+    if getattr(args,'_parallel_session',None):return args._parallel_inference_key
     name = endpoint['api_key_env']
     store = getattr(args, 'secrets_dir', None)
     try:
@@ -1031,12 +1043,29 @@ def run_suite(args, smoke=False, initial_record=None):
             project=checked_path(Path(args.project));lease=Path(args.lock_file).expanduser().absolute()
             if lease==project or project in lease.parents or project in lease.resolve().parents:
                 raise LabError('The host admission lock must remain outside the project')
-        with admission_lock(args.lock_file,args.lock_wait_seconds):
+        private=getattr(args,'_parallel_session',None)
+        lease=private.admission(args,attempt) if private is not None else admission_lock(args.lock_file,args.lock_wait_seconds)
+        with lease as registry:
+            if registry is not None:
+                registry.runroot=attempt.root
+                registry.binding={k:attempt.record[k] for k in ('run_id','attempt_id','trial_id') if k in attempt.record}
+                if private is None:registry.command=lambda argv:command(argv,timeout=15,required=False)
             _execute_suite(args,attempt,smoke)
     except KeyboardInterrupt:
         _observe_last_process(attempt)
-        attempt.cancel()
-        if getattr(args,'score_after_cancel',False) and attempt.record['scoring']['status']=='skipped':
+        private=getattr(args,'_parallel_session',None)
+        owner_lost=private is not None and private.owner_lost and not private.cancelled
+        if owner_lost:
+            attempt.record['controller_interruption']={'kind':'controller_lost','scope':'private admission owner channel closed'}
+            attempt.record['infrastructure'].update(status='failed',reason='controller_lost')
+            attempt.record['invocation']['status']='invalid'
+            if attempt.record['termination']['reason'] in ('not_started','completed','cancelled'):
+                attempt.record['termination'].update(reason='process_error',trigger='controller_lost')
+            if attempt.record['scoring']['status']!='completed':
+                attempt.record['scoring'].update(status='skipped',reason='controller_lost')
+                attempt.record['task_result'].update(status='unknown',score=None,test_counts=None)
+        else:attempt.cancel()
+        if not owner_lost and getattr(args,'score_after_cancel',False) and attempt.record['scoring']['status']=='skipped':
             try:
                 with admission_lock(args.lock_file,args.lock_wait_seconds):
                     plan=controls.read(attempt.root/'plan.json')
@@ -1076,6 +1105,20 @@ def _execute_suite(args,attempt,smoke=False):
     summary['agent_profile']={'id':profile['id'],'kind':profile['kind'],'sha256':agent_profiles.identity(profile),'requested':profile,'loading':'unverified'}
     summary['infrastructure']['phase']='endpoint'
     endpoint = load_endpoint(resolve_endpoint_path(args))
+    upstream_endpoint=copy.deepcopy(endpoint)
+    preflight_arguments=['preflight'];preflight_timeout=150
+    if getattr(args,'_parallel_session',None):
+        endpoint=args._parallel_session.endpoint(endpoint)
+        import experiments
+        contract=experiments.read_json(Path(args._experiment_root)/'experiment.json')['concurrency']
+        import parallel_contract
+        preflight=parallel_contract.preflight_limits(contract)
+        preflight_arguments+=['--request-timeout',str(preflight['request_timeout_seconds'])]
+        preflight_timeout=preflight['container_timeout_seconds']
+        summary['inference_admission']={'contract_sha256':provenance.digest(contract),'max_inflight':1,
+            'upstream_configuration_sha256':provenance.digest({k:v for k,v in upstream_endpoint.items() if k!='api_key_env'}),
+            'routes':{k:endpoint[k] for k in ('base_url','host_base_url')},'preflight':preflight,
+            'scope':'Cooperating gateway requests only; unrelated server clients excluded'}
     summary['endpoint']={k:v for k,v in endpoint.items() if k not in ('base_url','host_base_url')}
     summary['endpoint']['routes']={name:{'url':endpoint.get(name,endpoint['base_url']),'digest':hashlib.sha256(endpoint.get(name,endpoint['base_url']).encode()).hexdigest()} for name in ('base_url','host_base_url')}
     summary['infrastructure']['phase']='secret'
@@ -1088,7 +1131,10 @@ def _execute_suite(args,attempt,smoke=False):
         planpath = checked_path(Path(args.plan))
         admitted_plan = validate_plan(json.loads(planpath.read_text()), planpath.parent, profile)
         secret_store_outside(project, args)
-        stage_credentials = application_credentials.resolve(admitted_plan, endpoint, secret,
+        if getattr(args,'_parallel_session',None):
+            from parallel_dispatch import private_credentials
+            stage_credentials=private_credentials(admitted_plan,args._parallel_session.bootstrap.get('credentials',{}))
+        else:stage_credentials = application_credentials.resolve(admitted_plan, endpoint, secret,
             getattr(args, 'secrets_dir', None) or secret_store.default_store(), project, runroot, args.in_place,
             forbidden_roots=[ROOT, getattr(args, '_experiment_root', None)])
     redaction_secrets = [value for assigned in stage_credentials.values() for value in assigned.values()]
@@ -1110,7 +1156,7 @@ def _execute_suite(args,attempt,smoke=False):
     try: agent_profiles.admit(profile, args.observed_pi_version)
     except ValueError as exc: raise LabError(str(exc), 'unsupported-agent-profile') from exc
     summary['reasoning']=reasoning_receipt
-    summary['provenance']=provenance.execution(endpoint,image,ROOT)
+    summary['provenance']=provenance.execution(upstream_endpoint,image,ROOT)
     attempt.persist()
     if project is not None and (not project.is_dir() or project == Path('/') or project == Path.home()):
         raise LabError('Choose a project directory, not / or your complete home','invalid-project')
@@ -1188,8 +1234,8 @@ def _execute_suite(args,attempt,smoke=False):
         attempt.process(boundary_result)
         if boundary_result['exit_code'] or boundary_result.get('cleanup_confirmed') is not True:
             raise LabError('Filesystem isolation probe failed; inspect boundary/stderr.log')
-        api = run_stage(args, image['id'], runroot, workspace, 'preflight', ['preflight'],
-                        endpoint=endpoint, secret=secret, timeout=150, redaction_secrets=redaction_secrets)
+        api = run_stage(args, image['id'], runroot, workspace, 'preflight', preflight_arguments,
+                        endpoint=endpoint, secret=secret, timeout=preflight_timeout, redaction_secrets=redaction_secrets)
         attempt.process(api)
         if api['exit_code'] or api.get('cleanup_confirmed') is not True:
             raise LabError('Model endpoint preflight failed; inspect preflight/stderr.log. No fallback used.')

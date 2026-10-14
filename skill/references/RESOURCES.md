@@ -49,21 +49,24 @@ alone is a relative weight, not a hard cap; this runner does not rely on it.
 
 ## Workload parallelism
 
-The runner executes one stage at a time. An implementation agent, reviewer, and
-independent verifier do not run concurrently. All subcommands that touch Docker
+Each trial executes one stage at a time. An implementation agent, reviewer, and
+independent verifier within that trial do not run concurrently. Schema-2 mode
+permits overlap between two independent owned trial snapshots. All subcommands that touch Docker
 also take the same-user host lock:
 
 ```text
-~/.local/state/pi-agentic-development/operation.lock
+~/.local/state/pi-agent-test-env/operation.lock
 ```
 
 A second cooperating invocation exits busy by default, or waits with
-`--lock-wait-seconds 300`. The lock is released by the OS on process termination;
-the file remains to avoid unlink races. Do not select different lock files merely
+`--lock-wait-seconds 300`. The lease stays held by cooperating host controllers until they exit;
+the file remains to avoid unlink races. Registry-aware clients reconcile surviving
+ownership after lease release instead of assuming all containers stopped. Do not select different lock files merely
 to bypass the budget. This is not a scheduler for other users, other tools, or the
 whole Docker daemon. If you introduce separate parallel jobs, the aggregate
 ceiling is approximately `parallel jobs * per-job CPU/RAM limit`; use a real parent
-scheduler or cgroup budget before doing that. No parallel-agent mode is shipped.
+scheduler or cgroup budget before doing that. Explicit schema-2 collections use a weighted parent scheduler for two independent
+trials; see [PARALLEL-AGENTS.md](PARALLEL-AGENTS.md). Serial remains default.
 
 Known admission failures use a closed nonsecret diagnostic catalog:
 `host-admission-busy`, `resource-policy-invalid`, `admission-lock-insecure` and
@@ -177,3 +180,7 @@ Primary references:
 - https://docs.docker.com/build/buildkit/configure/
 - https://docs.docker.com/reference/cli/docker/container/update/
 - https://docs.docker.com/desktop/settings-and-maintenance/settings/
+
+Registry-aware admission also reports `host-registry-unsafe` with bounded guidance
+when ownership, daemon identity, writer absence or sensitive/inference cleanup
+cannot be reconciled. Do not delete the registry or bypass its host lease.

@@ -11,6 +11,7 @@ import sys
 import tempfile
 import uuid
 from resources import memory_bytes
+import ownership_registry
 
 
 def builder_options(name, limits, config_path, image, platform=None):
@@ -44,6 +45,8 @@ def limited_build(args, dockerfile, context, command):
     if buildkit.get('Os')+'/'+buildkit.get('Architecture')!=args.platform:
         raise ValueError('BuildKit image architecture differs from selected native platform; refusing bootstrap')
     name = 'pi-agentic-build-' + uuid.uuid4().hex[:12]
+    registry=ownership_registry.CURRENT.get();registered=None
+    if registry is not None:registered=registry.builder_intent(name,buildkit['Id'])
     created = False
     receipt = {'builder_name': name, 'limits': limits,'buildkit_image_id':buildkit['Id'],'platform':args.platform}
     try:
@@ -58,6 +61,8 @@ def limited_build(args, dockerfile, context, command):
             # convention changes instead of running without verified host limits.
             runtime = json.loads(command(['docker', 'inspect', 'buildx_buildkit_' + name + '0']).stdout)[0]
             receipt['observed'] = verify_builder(runtime, limits)
+            if registered is not None:
+                registered['container_id']=runtime['Id'];registered['status']='running';registry.write(registered)
             argv = ['docker', 'buildx', 'build', '--builder', name, '--load',
                     '--platform', args.platform, '-t', args.image,
                     '--build-arg', 'BASE_IMAGE=' + args.base_image,
@@ -78,6 +83,9 @@ def limited_build(args, dockerfile, context, command):
     finally:
         if created:
             result = command(['docker', 'buildx', 'rm', '--force', name], timeout=120, required=False)
+            if registered is not None and not result.returncode:
+                if not registry.confirm_absent(registered):raise ValueError('Builder absence unconfirmed')
+                registry.release(registered,True)
             if result.returncode:
                 # Do not leave the build consuming resources merely because rm failed.
                 command(['docker', 'stop', 'buildx_buildkit_' + name + '0'], timeout=30, required=False)

@@ -35,6 +35,9 @@ def assessment(record,expected,configuration_digest):
              and record.get('provenance',{}).get('plan_sha256')==expected['plan_sha256']
              and record.get('provenance',{}).get('runner_content_sha256')==expected['runner_content_sha256']
              and record.get('image',{}).get('id')==expected['image'] and record.get('image',{}).get('platform')==expected['platform'])
+    if expected.get('parallel_contract_sha256'):
+        matched=matched and record.get('inference_admission',{}).get('contract_sha256')==expected['parallel_contract_sha256']
+        matched=matched and record.get('inference_admission',{}).get('max_inflight')==1
     if expected.get('profile_explicit'):
         observations=record.get('agent_profile',{}).get('observed_stages',[])
         matched=matched and record.get('provenance',{}).get('agent_profile',{}).get('sha256')==expected['agent_profile_sha256']
@@ -168,4 +171,5 @@ def expected_contracts(root,metadata,rows,lab):
                                   'plan_sha256':row['plan_sha256'],'runner_content_sha256':metadata['runner_content_sha256'],
                                   'image':metadata['execution']['image'],'platform':metadata['execution']['platform'],
                                   'profile_explicit':row.get('profile_explicit',False),'agent_profile_id':row.get('agent_profile_id','builtin'),'agent_profile_sha256':row.get('agent_profile_sha256')}
+        if metadata.get('schema')==2:expected[row['trial_id']]['parallel_contract_sha256']=provenance.digest(metadata['concurrency'])
     return expected

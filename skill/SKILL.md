@@ -13,7 +13,7 @@ description: >-
 
 # Local agent evaluation with Pi
 
-Package version: 4.3.0. Instructions are in English.
+Package version: 4.4.0. Instructions are in English.
 
 Exact reviewed Pi releases: 0.87.1 and 1.2.0. Use
 [PI-1.2.0.md](references/PI-1.2.0.md) for the newer contract and migration limits;
@@ -92,7 +92,11 @@ A changed source/runner/configuration requires a new experiment.
 Variants may differ only through implemented declared factors (prompt suffix,
 endpoint, optional reviewed profile). Cases retain independent structured scorer
 contracts. Use repeated fresh trials; never pick the best observed attempt or
-change an oracle after seeing results. Counts are capped and execution is serial.
+change an oracle after seeing results. Counts are capped; schema 1 remains serial. Schema 2 explicitly selects the
+experimental two-trial contract in [PARALLEL-AGENTS.md](references/PARALLEL-AGENTS.md).
+Use only an explicitly selected registry-aware host cohort, two owned snapshots
+and the one-slot gateway; all stage, aggregate and collection ceilings stay frozen.
+Unknown server capacity never authorizes a second inference slot.
 
 ## 0. Environment gate (before image/model execution)
 
@@ -163,7 +167,10 @@ volumes and baked environment first. A familiar tag is not compatibility evidenc
 Use finite budgets from [RESOURCES.md](references/RESOURCES.md). Low-impact policy
 requests 1 CPU, 2 GiB, 256 PIDs and 1 advisory job; memory+swap equals memory.
 Requests are capped against Docker allocation. The LLM server's resource budget
-is separate. Same-user host admission plus serial stages prevents overlap.
+is separate. Same-user host admission serializes owners. Ordinary runs retain serial stages;
+explicit schema-2 collections admit at most two independent trials under one owner.
+Read PARALLEL-AGENTS.md before selection; historical serial receipts cannot
+qualify overlapping containers.
 
 Set `IMAGE` to a trusted tag or immutable ID. Reuse before building:
 

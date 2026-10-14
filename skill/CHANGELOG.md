@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.4.0
+
+- Add explicit schema-2 two-trial scheduling with weighted reservations, private
+  host controllers, durable ownership recovery, isolated snapshots/networks and
+  a bounded one-slot inference gateway. Schema 1 remains serial.
+- Preserve scoped application credentials, cleanup/redaction and exact Pi
+  0.87.1/1.2.0 contracts. Keep uncertain cleanup or inference termination blocked.
+- Expand developer onboarding with runnable Python/Node examples and endpoint,
+  image, qualification and result-inspection guidance.
+- Qualify the experimental two-trial contract on native ARM64 for both reviewed
+  Pi releases: 124 planned cell oracles and 172 actual Pi segments, with real-model
+  and scripted fault evidence separated and owned cleanup confirmed.
+- Enforce cumulative inference deadlines through DNS/TLS/headers and response
+  metadata; incomplete chunk/trailer framing cannot release an uncertain slot.
+- Exact-head configured review must be completed before promotion.
+
 ## 4.3.0
 
 - Retain typed, whitelisted host-busy, invalid-policy and insecure/unavailable-lock

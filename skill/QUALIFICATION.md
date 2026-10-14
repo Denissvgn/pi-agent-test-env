@@ -1,5 +1,52 @@
 # Qualification and support
 
+## Experimental 4.4.0 parallel scope
+
+On 14 October 2026, a fresh frozen native ARM64 collection passed all 124
+planned cell oracles across Pi 0.87.1 and 1.2.0. All 60 real-model positive cells
+passed across overlapping coding/review, built-in/fixture lookup, disposable
+application credentials and local browser trials. The collection used 172 actual
+Pi process segments: 120 real-model segments and 52 segments with explicitly
+scripted fault responses. The 64 planned negative cells established expected
+stop/recovery behavior across eight fault lanes per release; they are not
+additional autonomous model successes. No automatic retry occurred within this
+completed collection. Earlier failed/interrupted attempts retain their original
+identity, outcomes and unrun cells.
+
+Four exact-release ARM64 image admissions, both sandbox-enabled DOM gates,
+gateway/token routing, actual two-container overlap, FIFO third-worker admission,
+cancellation and owner-loss recovery passed. Each worker was capped at 1 CPU,
+1536 MiB RAM and 512 PIDs; gateway and disposable authority each used 0.25 CPU,
+128 MiB and 64 PIDs. The aggregate ceiling was 2.5 CPUs, 3328 MiB and 1152 PIDs,
+with memory+swap equal to memory and one cooperating inference request. Positive
+stages used 128,000 total reported tokens, 12 turns and 600 seconds; reply cap was
+8192, queue/upstream deadlines 180/180 seconds and model-list preflight ceilings
+360/390 seconds. Infrastructure, collection and cleanup ceilings were respectively
+20 minutes, 4 hours and 4 minutes. The existing model deployment was unchanged;
+its CPU/GPU/RAM limits remain unknown. Older host clients were kept quiesced under
+the explicitly selected registry-aware cohort.
+
+All 798 registered resources (689 containers and 109 networks), the disposable
+authority and private stores were independently confirmed absent. Known application
+and inference-key scans found no retained matches; the original model store was
+unchanged. All twelve coding fixture diffs and reviewer reports were inspected,
+with protected specification/test/scorer bytes unchanged and independent checks
+passing. Reviewers were static-only; minor prose reasoning errors were resolved
+against the correct implementation and protected oracle. Their prose does not
+establish approval or model-review quality, and generated fixture code was not
+promoted into this package.
+
+These measurements retain their original executor, harness and frozen inputs.
+The later qualification-note update and repackaging change package identity but
+leave the tested executable and fixture bytes unchanged. Offline regressions
+separately cover cumulative DNS/address/TLS and response deadlines, strict final
+chunk/trailer framing, SDK storage opt-out, redaction, queue expiry/cancellation,
+atomic registry observation and unchanged serial behavior. This qualifies the
+explicit experimental two-trial executor within its recorded image/model/resource
+scope. Live WorkChord workflows/actors, arbitrary integrations, additional workers,
+server-wide concurrency and performance improvements remain separate claims.
+
+
 The package implements bounded coding delegation, frozen application experiments
 and one explicit fixture lookup integration. Compatibility depends on the exact
 runtime image, Pi release, model endpoint and resource configuration selected for
@@ -31,8 +78,7 @@ including actual same-user lease exclusion/release and rejected CLI dispatch.
 Worker/release/profile contracts, qualification harness and task inputs remain
 unchanged; the parent sources and aggregate package/runner provenance differ.
 Those corrections do not create a new native measurement or authorize execution
-of old frozen experiments under the new identity. Parallel agents remain a future
-design without overlapping-worker qualification.
+of old frozen experiments under the new identity. These historical serial measurements do not establish parallel qualification.
 
 The exact images used Node 24.21.0 and, in the browser lane, Chromium 155.0.8059.39
 with the pinned chromium-userns policy and sandbox enabled. Core workers used

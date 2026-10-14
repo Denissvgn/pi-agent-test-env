@@ -16,6 +16,9 @@ import time
 from types import MappingProxyType
 
 ADMISSION_FAILURES = MappingProxyType({
+    'host-registry-unsafe': (
+        'Prior owned execution cannot be safely reconciled',
+        'Keep dependent execution stopped. Inspect the owner-only launch registry and confirm owned writer absence and sensitive cleanup before requesting recovery; do not delete records or bypass the host lease.'),
     'host-admission-busy': (
         'Another pi-agent-test-env operation holds the host lock; wait or use --lock-wait-seconds',
         'Wait for the owning operation to finish, or use --lock-wait-seconds with a bounded value up to 3600. Do not delete the lock or use another lock file to bypass admission.'),
@@ -207,6 +210,19 @@ def admission_lock(path, wait_seconds=0):
                 handle.flush()
             except OSError as exc:
                 raise AdmissionError('admission-lock-unavailable', str(exc)) from None
-            yield
+            import ownership_registry
+            try:
+                registry=ownership_registry.Registry(Path(str(path.absolute())+'.registry'))
+                registry.lease_fd=handle.fileno()
+                registry.reconcile()
+            except (ownership_registry.RegistryError,OSError,ValueError) as exc:
+                raise AdmissionError('host-registry-unsafe',str(exc)) from None
+            token=ownership_registry.CURRENT.set(registry)
+            try:
+                yield registry
+                try:registry.close()
+                except (ownership_registry.RegistryError,OSError,ValueError) as exc:
+                    raise AdmissionError('host-registry-unsafe',str(exc)) from None
+            finally:ownership_registry.CURRENT.reset(token)
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
