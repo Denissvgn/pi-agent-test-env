@@ -2,34 +2,49 @@
 
 ## Experimental 4.4.0 parallel scope
 
-The new schema-2 mode requires fresh native ARM64 overlap and both-release model
-qualification. Historical serial receipts below do not establish that scope.
-Current development status: on 14 October 2026, a fresh native ARM64 infrastructure
-gate passed four exact-release image admissions, gateway/token routing, actual
-two-container overlap, FIFO third-worker admission, cancellation, owner-loss
-recovery and both sandbox-enabled DOM gates. The collection passed all 30
-Pi 0.87.1 positive cells and all eight scripted fault lanes (32 planned cell
-oracles), then four Pi 1.2.0 coding cells. The parent stopped the collection after
-independent offline review found that slow HTTP response metadata/model-list
-bodies could exceed the gateway's absolute deadline, and incomplete final chunk
-trailers could be counted as complete. Those defects were not observed in the
-native run. Two active coding cells were interrupted; later lanes did not run.
-The retained run contains 98 actual Pi segments: 72 real-model segments and 26
-scripted fault segments. No complete both-release collection passed. Earlier
-partial runs retain their original identity and blocked outcomes.
-All 450 registered resources, the disposable authority and private stores were
-independently confirmed cleaned. Known application and inference key scans found
-no retained matches. The deadline/framing corrections require a fresh approved
-collection; earlier native observations do not qualify their changed runner bytes.
-Offline tests cover explicit longer queue budgets, derived preflight deadlines,
-unchanged serial behavior, explicit bounded real-model token choices without
-changing scripted fault budgets, both reviewed SDK payloads, storage opt-out
-admission and rejection of storage enablement, cumulative DNS/address/TLS setup
-and response deadlines through slow headers/chunk metadata/model-list bodies,
-strict final trailers, complete/truncated
-response accounting and redaction. Concurrent atomic registry replacement also
-has deterministic and live host-reader fixtures. No WorkChord workflow or real
-application-actor acceptance is claimed by this development status.
+On 14 October 2026, a fresh frozen native ARM64 collection passed all 124
+planned cell oracles across Pi 0.87.1 and 1.2.0. All 60 real-model positive cells
+passed across overlapping coding/review, built-in/fixture lookup, disposable
+application credentials and local browser trials. The collection used 172 actual
+Pi process segments: 120 real-model segments and 52 segments with explicitly
+scripted fault responses. The 64 planned negative cells established expected
+stop/recovery behavior across eight fault lanes per release; they are not
+additional autonomous model successes. No automatic retry occurred within this
+completed collection. Earlier failed/interrupted attempts retain their original
+identity, outcomes and unrun cells.
+
+Four exact-release ARM64 image admissions, both sandbox-enabled DOM gates,
+gateway/token routing, actual two-container overlap, FIFO third-worker admission,
+cancellation and owner-loss recovery passed. Each worker was capped at 1 CPU,
+1536 MiB RAM and 512 PIDs; gateway and disposable authority each used 0.25 CPU,
+128 MiB and 64 PIDs. The aggregate ceiling was 2.5 CPUs, 3328 MiB and 1152 PIDs,
+with memory+swap equal to memory and one cooperating inference request. Positive
+stages used 128,000 total reported tokens, 12 turns and 600 seconds; reply cap was
+8192, queue/upstream deadlines 180/180 seconds and model-list preflight ceilings
+360/390 seconds. Infrastructure, collection and cleanup ceilings were respectively
+20 minutes, 4 hours and 4 minutes. The existing model deployment was unchanged;
+its CPU/GPU/RAM limits remain unknown. Older host clients were kept quiesced under
+the explicitly selected registry-aware cohort.
+
+All 798 registered resources (689 containers and 109 networks), the disposable
+authority and private stores were independently confirmed absent. Known application
+and inference-key scans found no retained matches; the original model store was
+unchanged. All twelve coding fixture diffs and reviewer reports were inspected,
+with protected specification/test/scorer bytes unchanged and independent checks
+passing. Reviewers were static-only; minor prose reasoning errors were resolved
+against the correct implementation and protected oracle. Their prose does not
+establish approval or model-review quality, and generated fixture code was not
+promoted into this package.
+
+These measurements retain their original executor, harness and frozen inputs.
+The later qualification-note update and repackaging change package identity but
+leave the tested executable and fixture bytes unchanged. Offline regressions
+separately cover cumulative DNS/address/TLS and response deadlines, strict final
+chunk/trailer framing, SDK storage opt-out, redaction, queue expiry/cancellation,
+atomic registry observation and unchanged serial behavior. This qualifies the
+explicit experimental two-trial executor within its recorded image/model/resource
+scope. Live WorkChord workflows/actors, arbitrary integrations, additional workers,
+server-wide concurrency and performance improvements remain separate claims.
 
 
 The package implements bounded coding delegation, frozen application experiments

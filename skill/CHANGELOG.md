@@ -9,7 +9,12 @@
   0.87.1/1.2.0 contracts. Keep uncertain cleanup or inference termination blocked.
 - Expand developer onboarding with runnable Python/Node examples and endpoint,
   image, qualification and result-inspection guidance.
-- Qualification and exact-head review evidence must be completed before promotion.
+- Qualify the experimental two-trial contract on native ARM64 for both reviewed
+  Pi releases: 124 planned cell oracles and 172 actual Pi segments, with real-model
+  and scripted fault evidence separated and owned cleanup confirmed.
+- Enforce cumulative inference deadlines through DNS/TLS/headers and response
+  metadata; incomplete chunk/trailer framing cannot release an uncertain slot.
+- Exact-head configured review must be completed before promotion.
 
 ## 4.3.0
 
