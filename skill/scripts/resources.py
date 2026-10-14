@@ -53,6 +53,9 @@ class AdmissionError(ValueError):
 
 def admission_diagnostic(exc):
     """Do not classify arbitrary exception text, hashes or reason/remedy attributes."""
+    import indexed_contract
+    selected=indexed_contract.diagnostic(exc)
+    if selected is not None:return selected
     if not isinstance(exc, AdmissionError):
         return None
     if type(exc) is not AdmissionError:

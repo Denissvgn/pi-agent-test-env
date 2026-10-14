@@ -89,7 +89,7 @@ class Registry:
                 continue
             if not re.fullmatch(r'[a-f0-9-]{36}\.json',path.name):raise RegistryError('Unknown registry entry')
             record=read_private(path)
-            if (not isinstance(record,dict) or type(record.get('schema')) is not int or record.get('schema')!=SCHEMA
+            if (not isinstance(record,dict) or type(record.get('schema')) is not int or record.get('schema') not in (1,2)
                 or not controls.valid_id(record.get('launch_id')) or path.stem!=record['launch_id']
                 or record.get('registry')!=self.registry_id or not controls.valid_id(record.get('generation'))
                 or record.get('status') not in ('intent','running','absent','released','quarantined')
@@ -98,6 +98,7 @@ class Registry:
                 or record.get('kind','container') not in ('container','network','builder')
                 or not isinstance(record.get('mounts'),list)):
                 raise RegistryError('Malformed launch registry')
+            if record['schema']==2 and (not isinstance(record.get('binding'),dict) or type(record['binding'].get('indexed_host_generation')) is not int or record['binding']['indexed_host_generation']!=2):raise RegistryError('Invalid indexed registry generation')
             if any(not isinstance(m,dict) or set(m)!={'source','target','rw'} or not isinstance(m['source'],str) or not Path(m['source']).is_absolute() or not isinstance(m['target'],str) or not m['target'].startswith('/') or type(m['rw']) is not bool for m in record['mounts']):
                 raise RegistryError('Malformed ownership mount bindings')
             records.append(record)
@@ -185,6 +186,7 @@ class Registry:
                 'registry':self.registry_id,'status':'intent','container':name,'image':image,'mounts':mounts,
                 'binding':{**self.binding,**(binding or {})},'runroot':str(runroot or self.runroot) if runroot or self.runroot else None,
                 'created_at':controls.now(),'owner_pid':os.getpid(),'daemon':self.daemon}
+        if record['binding'].get('indexed_host_generation')==2:record['schema']=2
         self.write(record) # fsync precedes the Docker CLI launch.
         labelled=argv[:2]+['--label',LABEL+'='+record['launch_id'],'--label',REGISTRY_LABEL+'='+self.registry_id]+argv[2:]
         return record,labelled

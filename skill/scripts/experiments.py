@@ -74,8 +74,12 @@ def scorer_identity(plan):
     return identities
 
 
-def validate(path,lab,endpoint_path=None):
+def validate(path,lab,endpoint_path=None,catalog=None):
     path=Path(path).absolute();value=read_json(path);base=path.parent
+    if value.get('schema')==3:
+        if endpoint_path is not None:raise ExperimentError('Indexed experiment cannot accept an endpoint override')
+        import indexed_experiments
+        return indexed_experiments.validate(path,lab,catalog)
     required=('schema','name','baseline','repetitions','cases','variants','budgets','execution','policies')
     if type(value.get('schema')) is not int or value['schema'] not in (1,2):raise ExperimentError('Experiment schema 1 or 2 required')
     fields=required+('concurrency',) if value['schema']==2 else required
@@ -159,7 +163,11 @@ def plan_path_map(experiment_id,pairs):
     return paths
 
 
-def prepare(path,destination,lab,endpoint_path=None):
+def prepare(path,destination,lab,endpoint_path=None,session=None,catalog=None):
+    if read_json(path).get('schema')==3:
+        if endpoint_path is not None:raise ExperimentError('Indexed experiment cannot accept an endpoint override')
+        import indexed_experiments
+        return indexed_experiments.prepare(path,destination,lab,session,catalog)
     definition=validate(path,lab,endpoint_path)
     lexical=Path(destination).expanduser().absolute();root=lexical.resolve()
     for case in definition['cases']:
@@ -282,7 +290,7 @@ def verify_plan_ownership(root,metadata,matrix,manifest,lab):
             if (not isinstance(plan,dict) or not isinstance(plan.get('agents'),list)
                 or any(not isinstance(agent,dict) or 'prompt_file' in agent for agent in plan['agents'])):
                 raise ExperimentError('Frozen plans require inline agent prompts')
-            normalized[key]=provenance.digest(lab.validate_plan(plan,base,profile))
+            normalized[key]=provenance.digest(lab.validate_plan(plan,base,profile,external_bindings=metadata['schema']==3))
         if normalized[key]!=cell.get('plan_sha256'):raise ExperimentError('Frozen normalized plan hash mismatch')
 
 
@@ -302,14 +310,32 @@ def verify(root,lab):
     actual={'inputs/'+name for name in lab.tree_hashes(root/'inputs',include_ignored=True)}
     if expected!=actual:raise ExperimentError('Frozen input set changed')
     metadata=read_json(root/'experiment.json');matrix=read_json(root/'matrix.json')
-    if type(metadata.get('schema')) is not int or metadata['schema'] not in (1,2) or matrix.get('schema')!=metadata['schema']:
+    if type(metadata.get('schema')) is not int or metadata['schema'] not in (1,2,3) or matrix.get('schema')!=metadata['schema']:
         raise ExperimentError('Unsupported experiment/matrix schema')
     if metadata['schema']==2:
         contract=parallel_contract.validate(metadata.get('concurrency'))
         if 'inputs/concurrency.json' not in manifest['files'] or read_json(root/'inputs/concurrency.json')!=contract:
             raise ExperimentError('Frozen concurrency contract mismatch')
-    elif 'concurrency' in metadata:
+    elif 'concurrency' in metadata and not (metadata['schema']==3 and metadata.get('mode')=='parallel'):
         raise ExperimentError('Serial experiment cannot acquire parallel mode')
+    if metadata['schema']==3:
+        import indexed_contract
+        selected=indexed_contract.helper_contract(metadata.get('indexed_execution'))
+        if metadata.get('mode')=='parallel':indexed_contract.parallel(metadata.get('concurrency'))
+        if read_json(root/'inputs/indexed-contract.json')!=selected:raise ExperimentError('Indexed contract changed')
+        for cell in matrix['cells']:
+            bindingpath=cell.get('inference_bindings')
+            if bindingpath not in manifest['files']:raise ExperimentError('Missing frozen inference bindings')
+            bindings=read_json(root/bindingpath)
+            plan=read_json(root/cell['plan']);names=[a['name'] for a in plan['agents']]
+            if not isinstance(bindings,dict) or set(bindings)!=set(names):raise ExperimentError('Ambiguous stage bindings')
+            for binding in bindings.values():
+                selected_binding=copy.deepcopy(binding);authority=selected_binding.pop('authority_id',None)
+                indexed_contract.identity(authority);indexed_contract.entry(selected_binding,lab.normalize_endpoint)
+            import indexed_experiments
+            if cell['configuration_digest']!=indexed_experiments.cell_digest(root,metadata,cell,bindings):raise ExperimentError('Indexed configuration identity mismatch')
+            first=bindings[plan['agents'][0]['name']]['configuration']['endpoint']
+            if read_json(root/cell['endpoint'])!=first:raise ExperimentError('Indexed first-stage endpoint mismatch')
     if metadata['experiment_id']!=matrix['experiment_id']:raise ExperimentError('Matrix identity mismatch')
     verify_plan_ownership(root,metadata,matrix,manifest,lab)
     return metadata,matrix
@@ -322,12 +348,15 @@ def add_parser(sub):
     resume.add_argument('--experiment',required=True);resume.add_argument('--session');resume.add_argument('--retry-trial',help='Explicit trial UUID; first attempt remains primary')
     export=sub.add_parser('experiment-export',help='Write deterministic complete planned-cell JSONL inside the experiment')
     export.add_argument('--experiment',required=True)
+    export.add_argument('--public',action='store_true',help='Indexed-only allowlisted opaque export; excludes private inventory')
     report=sub.add_parser('experiment-report',help='Write complete JSONL and primary/cohort JSON/Markdown comparisons')
     report.add_argument('--experiment',required=True)
     for name in ('validate-experiment','experiment-prepare'):
         p=sub.add_parser(name,help='Validate schema-1 serial or schema-2 parallel application inputs' if name=='validate-experiment' else 'Freeze all inputs and persist the complete trial matrix')
         p.add_argument('--definition',required=True);p.add_argument('--endpoint',help='Explicit common endpoint; otherwise saved environment, offline validation only')
-        if name=='experiment-prepare':p.add_argument('--experiment-dir',required=True)
+        p.add_argument('--catalog-dir');p.add_argument('--secrets-dir')
+        if name=='experiment-prepare':
+            p.add_argument('--experiment-dir',required=True);p.add_argument('--session')
 
 
 def command(args,lab):
@@ -341,11 +370,20 @@ def command(args,lab):
         atomic_bytes(root/'comparison.md',comparisons.markdown(report).encode())
         print(json.dumps({'comparison':str(root/'comparison.json'),'markdown':str(root/'comparison.md'),'trials':str(root/'trials.jsonl')}));return 0
     if args.op=='experiment-export':
-        print(json.dumps(export_ledger(args.experiment,lab),indent=2));return 0
+        print(json.dumps(export_ledger(args.experiment,lab,public=getattr(args,'public',False)),indent=2));return 0
     if args.op=='validate-experiment':
-        definition=validate(args.definition,lab,args.endpoint)
+        catalog=None
+        if read_json(args.definition).get('schema')==3:
+            from inference_catalog import Catalog
+            catalog=Catalog(lab.normalize_endpoint,args.catalog_dir,args.secrets_dir)
+        definition=validate(args.definition,lab,args.endpoint,catalog)
         print(json.dumps({'valid':True,'planned':len(definition['cases'])*len(definition['variants'])*definition['repetitions'],'profile':'builtin-only'}))
-    else:print(json.dumps(prepare(args.definition,args.experiment_dir,lab,args.endpoint),indent=2))
+    else:
+        catalog=None
+        if read_json(args.definition).get('schema')==3:
+            from inference_catalog import Catalog
+            catalog=Catalog(lab.normalize_endpoint,args.catalog_dir,args.secrets_dir)
+        print(json.dumps(prepare(args.definition,args.experiment_dir,lab,args.endpoint,getattr(args,'session',None),catalog),indent=2))
     return 0
 
 # One controller per experiment, independent of the global per-runtime admission lock.
@@ -419,6 +457,10 @@ def trial_args(root,metadata,cell,lab,session):
     if (root/'inputs/environment.json').exists():argv+=['--environment',str(root/'inputs/environment.json')]
     args=lab.parser().parse_args(argv);args.session=session
     args._experiment_root = str(root)
+    if metadata['schema']==3:
+        args.endpoint=None;args.catalog_dir=metadata['catalog_root'];args.secrets_dir=metadata['credential_store']
+        args._indexed_bindings=read_json(root/cell['inference_bindings']);args.inference_env=next(iter(args._indexed_bindings.values()))['id']
+        args._indexed_contract=metadata['indexed_execution']
     # Core run_suite still acquires the same global admission lease for every trial.
     return args
 
@@ -505,6 +547,11 @@ def execute(root,lab,session=None,runner=None,resume=False,retry_trial=None,clea
     root=Path(root).absolute()
     verify(root,lab) # Reject linked/invalid destinations before writing a controller lease.
     root=root.resolve()
+    metadata=read_json(root/'experiment.json')
+    if metadata['schema']==3 and metadata.get('mode')=='parallel':
+        if runner is not None or cleanup is not None:raise ExperimentError('Indexed parallel does not accept a runtime bypass')
+        import indexed_parallel
+        return indexed_parallel.execute(root,lab,session,resume,retry_trial)
     if read_json(root/'experiment.json')['schema']==2:
         if runner is not None or cleanup is not None:raise ExperimentError('Parallel executor does not accept a serial runner or cleanup bypass')
         import parallel_execution
@@ -528,7 +575,11 @@ def execute(root,lab,session=None,runner=None,resume=False,retry_trial=None,clea
             intents=attempt_intents(root,selected)
             if not intents or len(intents)>=metadata['policies']['max_attempts'] or sealed_result(root,intents[-1])['status']=='PASS':raise ExperimentError('Retry requires a failed/interrupted cell and remaining predeclared attempts')
         work=([selected] if selected else [])+([] if halted else pending)
+        indexed_authorities=None
         if runner is None:
+            if metadata['schema']==3:
+                import indexed_experiments
+                indexed_authorities=indexed_experiments.admit_work(root,metadata,work,lab,session)
             if metadata['execution']['platform']!='linux/'+lab.norm_arch(platform.machine()):raise ExperimentError('Experiment platform must be native; no emulation fallback')
             for cell in work:
                 if cell['endpoint_origin']=='saved_environment':
@@ -563,6 +614,7 @@ def execute(root,lab,session=None,runner=None,resume=False,retry_trial=None,clea
                 intent,path=reserve_attempt(root,metadata,cell,len(previous)+1,previous[-1]['attempt_id'] if previous else None)
                 state['active_attempt_id']=intent['attempt_id'];controls.atomic(root/'state.json',state)
                 args=trial_args(root,metadata,cell,lab,session)
+                if indexed_authorities:args._indexed_redaction_keys=indexed_authorities['keys']
                 with (root/'logs'/(intent['attempt_id']+'.txt')).open('w') as output,contextlib.redirect_stdout(output):
                     runner(args,initial_record=copy.deepcopy(intent['initial_record']))
                 result=sealed_result(root,intent)
@@ -702,8 +754,13 @@ def atomic_bytes(path,body):
     finally:temp.unlink(missing_ok=True)
 
 
-def export_ledger(root,lab):
+def export_ledger(root,lab,public=False):
     root=Path(root);rows=ledger_rows(root,lab)
+    if public:
+        if read_json(root/'experiment.json')['schema']!=3:raise ExperimentError('Public indexed export requires schema 3')
+        import indexed_reporting
+        rows=indexed_reporting.public_rows(rows,lambda row:read_json(root/row['inference_bindings']),lambda row:[task['name'] for task in read_json(root/row['plan'])['agents']])
     body=''.join(json.dumps(row,sort_keys=True,separators=(',',':'))+'\n' for row in rows).encode()
-    atomic_bytes(root/'trials.jsonl',body)
-    return {'path':str(root/'trials.jsonl'),'cells':len(rows),'sha256':hashlib.sha256(body).hexdigest()}
+    path=root/('public-trials.jsonl' if public else 'trials.jsonl')
+    atomic_bytes(path,body)
+    return {'path':str(path),'cells':len(rows),'sha256':hashlib.sha256(body).hexdigest()}

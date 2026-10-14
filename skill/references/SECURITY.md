@@ -263,3 +263,7 @@ first child starts. In-place evaluation of the skill repository therefore cannot
 modify the helper source used by later stages through a writable project alias.
 The runtime-snapshot receipt retains hashes; helper sources are never mounted
 writable. Low-level argv construction rejects an unisolated helper source.
+
+## Indexed inference opt-in
+
+Indexed catalogs and credential stores must remain owner-private outside the package, original projects and evidence/snapshot destinations. Every selected upstream key stays in the root/broker boundary; inactive stage/recovery tokens are rejected. Unknown upstream termination quarantines the global inference slot. Public indexed exports use an allowlist and collection-local opaque labels; see [INFERENCE-ENVIRONMENTS.md](INFERENCE-ENVIRONMENTS.md).

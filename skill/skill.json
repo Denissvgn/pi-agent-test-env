@@ -40,7 +40,7 @@
   "tools": [
     {
       "name": "env",
-      "description": "Saved model environment: new-session, status (gate), discover, save, confirm, check, clear",
+      "description": "Offline indexed catalog list/inspect/register/update/revoke and per-profile authorization, or legacy saved model environment commands",
       "command": "python3 scripts/pi_lab.py env status --session <SESSION>"
     },
     {
@@ -90,7 +90,7 @@
     },
     {
       "name": "validate-experiment",
-      "description": "Offline fixed cases/scorer/matrix validation",
+      "description": "Offline fixed cases/scorer/matrix validation: legacy schemas 1/2 or opt-in indexed schema 3",
       "command": "python3 scripts/pi_lab.py validate-experiment --definition <DEFINITION>"
     },
     {
@@ -100,7 +100,7 @@
     },
     {
       "name": "experiment-run",
-      "description": "Collect fresh serial trials with bounded scoring after eligible failures",
+      "description": "Collect frozen serial or explicitly opted-in parallel trials with bounded scoring and isolation",
       "command": "python3 scripts/pi_lab.py experiment-run --experiment <DIRECTORY> --session <SESSION>"
     },
     {
@@ -110,7 +110,7 @@
     },
     {
       "name": "experiment-export",
-      "description": "Deterministic complete trial records with missingness/retries",
+      "description": "Complete private trial ledger, or schema-3 --public allowlisted opaque export",
       "command": "python3 scripts/pi_lab.py experiment-export --experiment <DIRECTORY>"
     },
     {

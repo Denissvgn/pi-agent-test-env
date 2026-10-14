@@ -177,3 +177,7 @@ are synthetic. This does not qualify live WorkChord authorization, a real Pi
 invocation, Docker isolation or the intended campaign. Record separate native
 ARM64 image/model qualification and live application identity/effect receipts
 before claiming those outcomes.
+
+## Indexed inference opt-in
+
+Indexed admission rejects application references or values matching any selected inference authority. Store/env/none sources are explicit; ambient overrides do not replace store bindings. All selected inference references are stripped from host workers, and Pi receives only its scoped broker token. Legacy direct credential semantics remain available; see [INFERENCE-ENVIRONMENTS.md](INFERENCE-ENVIRONMENTS.md).

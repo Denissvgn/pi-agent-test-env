@@ -22,6 +22,12 @@ def handler(authority):
             except (BrokenPipeError,ConnectionResetError):pass
         def do_GET(self):
             config=authority.config()
+            if config.get('routing_fixture') and self.path.startswith(('/route-a/','/route-b/')):
+                route=self.path.split('/')[1];expected=config['route_keys'][route]
+                matched=self.headers.get('Authorization')=='Bearer '+expected
+                authority.note('route_observations',{'route':route,'key_matched':matched,'method':'GET'})
+                if not matched:return self.reply({'error':'unauthorized'},401)
+                return self.reply({'data':[{'id':'qualification-diagnostic','description':' '.join(config['route_keys'].values())+' '+ ' '.join(config.get('opaque_tokens',[]))}]})
             if self.path.startswith('/sentinel'):authority.note('sentinel_network_effect',True)
             if self.path=='/observer' and self.headers.get('X-Qualification-Observer')==config['observer_key']:
                 with authority.lock:return self.reply(dict(authority.data))
@@ -34,6 +40,14 @@ def handler(authority):
                 if not 0<size<=2*1024*1024:raise ValueError('bounded body')
                 body=json.loads(self.rfile.read(size))
             except (ValueError,OSError):return self.reply({'error':'invalid'},400)
+            if config.get('routing_fixture') and self.path.startswith(('/route-a/','/route-b/')):
+                route=self.path.split('/')[1];matched=self.headers.get('Authorization')=='Bearer '+config['route_keys'][route]
+                authority.note('route_observations',{'route':route,'key_matched':matched,'method':'POST'})
+                if not matched:return self.reply({'error':'unauthorized'},401)
+                time.sleep(.15)
+                raw=json.dumps({'reply':route,'echo':' '.join(config['route_keys'].values())+' '+ ' '.join(config.get('opaque_tokens',[]))}).encode()
+                self.send_response(200);self.send_header('Content-Type','application/json; boundary='+config['route_keys']['route-b'])
+                self.send_header('Content-Length',str(len(raw)+(1 if config.get('truncate_fixture') else 0)));self.end_headers();self.wfile.write(raw);self.wfile.flush();self.close_connection=True;return
             if self.path=='/effect':
                 actor=next((a for a in config['actors'] if a['key']==self.headers.get('X-Agent-Key')),None)
                 namespace=self.headers.get('X-Trial-ID','')
@@ -43,7 +57,7 @@ def handler(authority):
             if self.path!='/v1/chat/completions':
                 if self.path.startswith('/sentinel'):authority.note('sentinel_network_effect',True)
                 return self.reply({'error':'not found'},404)
-            if self.headers.get('Authorization')!='Bearer '+config['inference_key']:return self.reply({'error':'unauthorized'},401)
+            if self.headers.get('Authorization') not in ['Bearer '+key for key in config.get('inference_keys',[config['inference_key']])]:return self.reply({'error':'unauthorized'},401)
             if body.get('model')!='qualification-diagnostic':return self.reply({'error':'model'},400)
             authority.note('requests',{'stream':body.get('stream') is True,'max_tokens':body.get('max_tokens'),
                                       'reasoning_effort':body.get('reasoning_effort'),'completed_tools':sum(m.get('role')=='tool' for m in body.get('messages',[]))})
@@ -108,7 +122,7 @@ class Authority:
                 time.sleep(.01)
     def note(self,name,value):
         with self.lock:
-            if name in ('effects','requests'):self.data[name].append(value)
+            if name in ('effects','requests','route_observations'):self.data.setdefault(name,[]).append(value)
             else:self.data[name]=value
             temp=self.output.with_suffix('.pending');temp.write_text(json.dumps(self.data));temp.replace(self.output)
 

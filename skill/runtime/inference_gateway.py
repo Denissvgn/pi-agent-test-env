@@ -115,8 +115,9 @@ class Gate:
             self.events.append({'kind':kind,'queued':queued,'inflight':int(self.active is not None)})
             if len(self.events)>1024:del self.events[:512]
             if self.observer:self.observer({'inflight':int(self.active is not None),'pending':len(self.queue),'uncertain':self.uncertain,**self.metrics})
-    def acquire(self,client):
-        ticket=object();deadline=self.clock()+self.limits['queue_wait_seconds'];start=self.clock()
+    def acquire(self,client,queue_wait_seconds=None):
+        window=self.limits['queue_wait_seconds'] if queue_wait_seconds is None else queue_wait_seconds
+        ticket=object();deadline=self.clock()+window;start=self.clock()
         with self.condition:
             if self.uncertain or len(self.queue)>=self.limits['max_pending']:return None
             self.queue.append(ticket);self.note('queued',len(self.queue))
@@ -172,7 +173,10 @@ def validate_request(body,endpoint):
 
 
 class Scrubber:
-    def __init__(self,values):
+    def __init__(self,values,token_prefix=None):
+        import re
+        if token_prefix is not None and not re.fullmatch('[a-f0-9]{32}',token_prefix):raise ValueError('Invalid opaque token namespace')
+        self.tokens=re.compile(token_prefix.encode()+b'[a-f0-9]{32}') if token_prefix else None
         self.patterns=set()
         for value in values:
             if not value:continue
@@ -180,7 +184,7 @@ class Scrubber:
             for unused in range(3):
                 current={json.dumps(text,ensure_ascii=ascii_only)[1:-1] for text in current for ascii_only in (True,False)}
                 self.patterns.update(text.encode() for text in current)
-        self.patterns.discard(b'');self.carry=max(map(len,self.patterns),default=1)-1;self.pending=b''
+        self.patterns.discard(b'');self.carry=max([*(len(p) for p in self.patterns),64 if self.tokens else 1])-1;self.pending=b''
     def feed(self,data,final=False):
         self.pending+=data
         cut=len(self.pending) if final else max(0,len(self.pending)-self.carry)
@@ -190,12 +194,17 @@ class Scrubber:
             while position>=0:
                 if position<cut<position+len(pattern):cut=position
                 position=self.pending.find(pattern,position+1)
+        if self.tokens:
+            for match in self.tokens.finditer(self.pending):
+                if match.start()<cut<match.end():cut=match.start()
         output,self.pending=self.pending[:cut],self.pending[cut:]
+        if self.tokens:output=self.tokens.sub(b'[REDACTED]',output)
         for pattern in sorted(self.patterns,key=len,reverse=True):output=output.replace(pattern,b'[REDACTED]')
         return output
 
 
 def handler(config,gate):
+    def held_keys():return [config.get('upstream_key',''),*config.get('redaction_keys',[]),*[r['upstream_key'] for r in config.get('routes',{}).values()],*([] if config.get('token_prefix') else config['tokens'])]
     class Handler(BaseHTTPRequestHandler):
         protocol_version='HTTP/1.0'
         def log_message(self,*unused):pass
@@ -206,7 +215,22 @@ def handler(config,gate):
             except (BrokenPipeError,ConnectionResetError):pass
         def authorized(self):
             token=self.headers.get('Authorization','').removeprefix('Bearer ')
-            return token if token and token in config['tokens'] else None
+            if not token or token not in config['tokens']:return None
+            if config.get('active_tokens_file'):
+                import os,stat
+                try:
+                    fd=os.open(config['active_tokens_file'],os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+                    with os.fdopen(fd,'rb') as source:
+                        st=os.fstat(source.fileno())
+                        if not stat.S_ISREG(st.st_mode) or st.st_uid!=os.getuid() or st.st_nlink!=1 or st.st_mode&0o077 or st.st_size>1024*1024:return None
+                        state=json.load(source)
+                    if not isinstance(state,dict) or set(state)!={'tokens'} or not isinstance(state['tokens'],list) or len(state['tokens'])>2 or token not in state['tokens']:return None
+                except (OSError,ValueError,TypeError):return None
+            return token
+        def selected(self,token):
+            if 'routes' not in config:return config
+            binding=config['tokens'][token]
+            return config['routes'][binding['route']]
         def do_GET(self):
             if self.path=='/health':
                 with gate.condition:return self.reply(200,{'status':'ready','max_inflight':1,'inflight':int(gate.active is not None),'pending':len(gate.queue),'uncertain':gate.uncertain})
@@ -215,30 +239,35 @@ def handler(config,gate):
             return self.forward('GET',None)
         def do_POST(self):
             if self.path!='/v1/chat/completions':return self.reply(404,{'error':'route unavailable'})
-            if not self.authorized():return self.reply(401,{'error':'unauthorized'})
+            token=self.authorized()
+            if token is None:return self.reply(401,{'error':'unauthorized'})
             try:
                 if self.headers.get('Transfer-Encoding'):raise ValueError('Unsupported transfer encoding')
                 size=int(self.headers.get('Content-Length','0'))
                 if not 0<size<=MAX_BODY:raise ValueError('Bounded body required')
                 self.connection.settimeout(10);raw=self.rfile.read(size)
                 if len(raw)!=size:raise ValueError('Incomplete body')
-                validate_request(json.loads(raw),config['endpoint'])
+                validate_request(json.loads(raw),self.selected(token)['endpoint'])
             except (ValueError,OSError):return self.reply(400,{'error':'request outside frozen inference contract'})
             return self.forward('POST',raw)
         def forward(self,method,body):
-            grant=gate.acquire(self.connection)
+            token=self.authorized()
+            if token is None:return self.reply(401,{'error':'unauthorized'})
+            selected=self.selected(token);limits=selected.get('limits',config['limits'])
+            grant=gate.acquire(self.connection,limits['queue_wait_seconds'])
             if grant is None:return self.reply(429,{'error':'inference admission unavailable'})
             ticket,wait=grant;connection=None;upstream_socket=None;watchdog=None;sent=False;known=False;forwarded=False
-            deadline=time.monotonic()+config['limits']['request_timeout_seconds']
+            deadline=time.monotonic()+limits['request_timeout_seconds']
             try:
-                endpoint=config['endpoint'];route=urlsplit(endpoint['base_url'])
+                if self.authorized()!=token:return self.reply(401,{'error':'unauthorized'})
+                endpoint=selected['endpoint'];route=urlsplit(endpoint['base_url'])
                 if route.scheme not in ('http','https') or route.username or route.password:raise ValueError('Invalid upstream')
                 cls=http.client.HTTPSConnection if route.scheme=='https' else http.client.HTTPConnection
-                connection=cls(route.hostname,route.port,timeout=config['limits']['request_timeout_seconds'])
+                connection=cls(route.hostname,route.port,timeout=limits['request_timeout_seconds'])
                 connection.response_class=StrictResponse
                 connection._create_connection=lambda address,timeout,source_address: deadline_connection(address,deadline,source_address)
                 headers={'Content-Type':'application/json','Accept-Encoding':'identity'}
-                if config['upstream_key']:headers['Authorization']='Bearer '+config['upstream_key']
+                if selected['upstream_key']:headers['Authorization']='Bearer '+selected['upstream_key']
                 suffix='/models' if method=='GET' else '/chat/completions'
                 forwarded=True
                 remaining=deadline-time.monotonic()
@@ -262,14 +291,20 @@ def handler(config,gate):
                 if time.monotonic()>=deadline:raise TimeoutError('Forward deadline')
                 if method=='GET':
                     raw=b''.join(response_chunks(response,upstream_socket,deadline,MAX_BODY))
-                    models=json.loads(raw);selected=[m for m in models.get('data',[]) if m.get('id')==endpoint['model']]
+                    known=True # Complete HTTP EOF proves this discovery request stopped.
+                    models=json.loads(raw)
+                    if not isinstance(models,dict) or not isinstance(models.get('data'),list) or any(not isinstance(m,dict) for m in models['data']):raise ValueError('Malformed model listing')
+                    selected=[m for m in models['data'] if m.get('id')==endpoint['model']]
                     if response.status!=200 or len(selected)!=1:raise ValueError('Exact upstream model unavailable')
                     known=True
-                    safe=Scrubber([config['upstream_key'],*config['tokens']]).feed(json.dumps({'object':'list','data':selected}).encode(),True)
+                    safe=Scrubber(held_keys(),config.get('token_prefix')).feed(json.dumps({'object':'list','data':selected}).encode(),True)
                     return self.reply(200,json.loads(safe))
-                self.send_response(response.status);self.send_header('Content-Type',response.getheader('Content-Type','application/json'))
+                media=response.getheader('Content-Type','application/json').split(';',1)[0].strip().lower()
+                # Forward only canonical media types, never provider header values.
+                media=media if media in ('application/json','text/event-stream') else 'application/octet-stream'
+                self.send_response(response.status);self.send_header('Content-Type',media)
                 self.end_headers();sent=True;connected=True
-                scrubber=Scrubber([config['upstream_key'],*config['tokens']])
+                scrubber=Scrubber(held_keys(),config.get('token_prefix'))
                 for data in response_chunks(response,upstream_socket,deadline,MAX_REPLY):
                     safe=scrubber.feed(data)
                     if connected:

@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "runtime": {
+    "cpus": 1,
+    "memory": "1536m",
+    "pids_limit": 512,
+    "jobs": 1
+  },
+  "host_budget": {
+    "cpu_fraction": 0.5,
+    "memory_fraction": 0.5
+  }
+}

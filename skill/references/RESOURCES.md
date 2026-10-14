@@ -184,3 +184,7 @@ Primary references:
 Registry-aware admission also reports `host-registry-unsafe` with bounded guidance
 when ownership, daemon identity, writer absence or sensitive/inference cleanup
 cannot be reconciled. Do not delete the registry or bypass its host lease.
+
+## Indexed inference opt-in
+
+Indexed execution reserves the inference helper even for a single worker. `assets/resources/indexed-workers.json` selects 1 CPU, 1536 MiB and 512 PIDs per worker; the helper requires another 0.25 CPU, 128 MiB and 64 PIDs. Selected route queue plus upstream deadlines must fit every effective Pi-stage budget; see [INFERENCE-ENVIRONMENTS.md](INFERENCE-ENVIRONMENTS.md).

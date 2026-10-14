@@ -544,7 +544,11 @@ def expand_parameter(value: str) -> str:
 
 
 def load_endpoint(path: Path) -> dict:
-    c = json.loads(path.expanduser().read_text())
+    return normalize_endpoint(json.loads(path.expanduser().read_text()))
+
+
+def normalize_endpoint(value: dict) -> dict:
+    c = copy.deepcopy(value)
     required = {'base_url', 'model', 'context_window', 'max_tokens', 'api_key_env'}
     allowed = required | {'input', 'compat', 'reasoning','host_base_url','sampling','server_provenance'}
     if not isinstance(c, dict) or not required.issubset(c) or set(c) - allowed:
@@ -671,10 +675,20 @@ def safe_relative(value: str) -> str:
     return p.as_posix()
 
 
-def validate_plan(value: dict, base: Path, agent_profile=None) -> dict:
+def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=False) -> dict:
     agent_profile=agent_profile or agent_profiles.builtin()
     if not isinstance(value, dict):
         raise LabError('Plan must be a JSON object')
+    if type(value.get('schema')) is int and value['schema']==2:
+        import indexed_contract
+        if 'inference_bindings' not in value:raise indexed_contract.IndexedError('selection-conflict')
+        plain={k:copy.deepcopy(v) for k,v in value.items() if k!='inference_bindings'};plain['schema']=1
+        normalized=validate_plan(plain,base,agent_profile)
+        names=[t['name'] for t in normalized['agents']];mapping=value['inference_bindings']
+        if mapping=='external':
+            if not external_bindings:raise indexed_contract.IndexedError('selection-conflict')
+        else:mapping=indexed_contract.stage_map(mapping,names)
+        return {**normalized,'schema':2,'inference_bindings':mapping}
     if value.get('schema') != 1:
         raise LabError('Plan schema must be 1')
     if set(value) - {'schema', 'name', 'agents', 'setup', 'checks', 'protected_paths', 'required_paths'}:
@@ -935,9 +949,13 @@ def run_stage(args, image: str, runroot: Path, workspace: Path, label: str,
     if scorer_assets:
         argv[-2:-2]=['--mount',f"type=bind,src={scorer_assets['root']},dst=/opt/pi-scorer,readonly,bind-recursive=disabled"]
     desc = controls.create(runroot, workspace, label, operation[0], task, control, state, stage_id, name, getattr(args,'lock_file',default_lock_file()))
+    if operation[0]=='agent' and getattr(args,'_indexed_binding',None):
+        desc['inference_binding']=copy.deepcopy(args._indexed_binding)
+        controls.atomic(runroot/'stages'/stage_id/'descriptor.json',desc)
     credential_receipt = runroot / 'stages' / stage_id / 'application-credentials.json'
-    if application_secrets:
-        controls.atomic(credential_receipt, {'schema': 1, 'references': task['application_secrets'], 'status': 'pending'})
+    indexed_sensitive=operation[0]=='agent' and bool(getattr(args,'_indexed_session',None))
+    if application_secrets or indexed_sensitive:
+        controls.atomic(credential_receipt, {'schema': 1, 'references': task.get('application_secrets',{}), 'status': 'pending'})
     argv[-2:-2]=['--env',f"PI_LAB_RUN_ID={desc['run_id']}",'--env',f"PI_LAB_ATTEMPT_ID={desc['attempt_id']}"]
     with controls.lock(runroot):
         running = controls.transition(runroot, desc, 'running', started_at=now())
@@ -957,9 +975,10 @@ def run_stage(args, image: str, runroot: Path, workspace: Path, label: str,
         except (OSError,ValueError,controls.ControlError):
             result['observation_error']=True;result['exit_code']=2
         controls.transition(runroot, desc, 'stopping')
-        if application_secrets:
+        if application_secrets or indexed_sensitive:
+            if indexed_sensitive:redaction_secrets=[*redaction_secrets,*args._indexed_session.redaction]
             receipt = application_credentials.finish(runroot, desc, application_secrets, secret, result, redaction_secrets)
-            controls.atomic(credential_receipt, {**receipt, 'references': task['application_secrets']})
+            controls.atomic(credential_receipt, {**receipt, 'references': task.get('application_secrets',{})})
             result['application_credentials'] = receipt
             if receipt['status'] != 'removed' or receipt['workspace'] != 'clean':
                 result.update(exit_code=2, termination_reason='application_credential_cleanup')
@@ -979,6 +998,7 @@ def endpoint_secret(endpoint: dict, args) -> str:
     that lets the user type the key with hidden input. Prompting happens only when
     explicitly requested with --prompt-secret, so an unattended agent never hangs.
     """
+    if getattr(args,'_indexed_session',None):return args._indexed_session.token
     if getattr(args,'_parallel_session',None):return args._parallel_inference_key
     name = endpoint['api_key_env']
     store = getattr(args, 'secrets_dir', None)
@@ -1049,8 +1069,13 @@ def run_suite(args, smoke=False, initial_record=None):
             if registry is not None:
                 registry.runroot=attempt.root
                 registry.binding={k:attempt.record[k] for k in ('run_id','attempt_id','trial_id') if k in attempt.record}
+                if getattr(args,'inference_env',None) or getattr(args,'_indexed_plan_selection',False) or getattr(args,'_indexed_session',None):registry.binding['indexed_host_generation']=2
                 if private is None:registry.command=lambda argv:command(argv,timeout=15,required=False)
-            _execute_suite(args,attempt,smoke)
+            if (getattr(args,'inference_env',None) or getattr(args,'_indexed_plan_selection',False)) and not getattr(args,'_indexed_session',None):
+                import indexed_execution
+                with indexed_execution.admission(sys.modules[__name__],args,attempt,registry,smoke):
+                    _execute_suite(args,attempt,smoke)
+            else:_execute_suite(args,attempt,smoke)
     except KeyboardInterrupt:
         _observe_last_process(attempt)
         private=getattr(args,'_parallel_session',None)
@@ -1104,10 +1129,16 @@ def _execute_suite(args,attempt,smoke=False):
     args.frozen_agent_profile=agent_profiles.freeze(profile,runroot/'agent-profile')
     summary['agent_profile']={'id':profile['id'],'kind':profile['kind'],'sha256':agent_profiles.identity(profile),'requested':profile,'loading':'unverified'}
     summary['infrastructure']['phase']='endpoint'
-    endpoint = load_endpoint(resolve_endpoint_path(args))
+    indexed=getattr(args,'_indexed_session',None)
+    endpoint = copy.deepcopy(indexed.original) if indexed else load_endpoint(resolve_endpoint_path(args))
     upstream_endpoint=copy.deepcopy(endpoint)
     preflight_arguments=['preflight'];preflight_timeout=150
-    if getattr(args,'_parallel_session',None):
+    if indexed:
+        import indexed_contract
+        endpoint=indexed.endpoint();preflight=indexed_contract.preflight(indexed.binding['configuration']['request_limits'])
+        preflight_arguments+=['--request-timeout',str(preflight['request_timeout_seconds'])];preflight_timeout=preflight['container_timeout_seconds']
+        summary['inference_admission']={'contract':indexed_contract.EXECUTION,'max_inflight':1,'preflight':preflight,'upstream_keys_excluded':True,'contract_sha256':provenance.digest(indexed.contract),'bindings_sha256':provenance.digest(indexed.bindings)}
+    if getattr(args,'_parallel_session',None) and not indexed:
         endpoint=args._parallel_session.endpoint(endpoint)
         import experiments
         contract=experiments.read_json(Path(args._experiment_root)/'experiment.json')['concurrency']
@@ -1129,15 +1160,17 @@ def _execute_suite(args,attempt,smoke=False):
     stage_credentials = {}
     if not smoke and project is not None and args.plan:
         planpath = checked_path(Path(args.plan))
-        admitted_plan = validate_plan(json.loads(planpath.read_text()), planpath.parent, profile)
+        admitted_plan = validate_plan(json.loads(planpath.read_text()), planpath.parent, profile,external_bindings=bool(indexed and getattr(args,'_indexed_bindings',None)))
         secret_store_outside(project, args)
-        if getattr(args,'_parallel_session',None):
+        if indexed:stage_credentials=indexed.credentials
+        elif getattr(args,'_parallel_session',None):
             from parallel_dispatch import private_credentials
             stage_credentials=private_credentials(admitted_plan,args._parallel_session.bootstrap.get('credentials',{}))
         else:stage_credentials = application_credentials.resolve(admitted_plan, endpoint, secret,
             getattr(args, 'secrets_dir', None) or secret_store.default_store(), project, runroot, args.in_place,
             forbidden_roots=[ROOT, getattr(args, '_experiment_root', None)])
     redaction_secrets = [value for assigned in stage_credentials.values() for value in assigned.values()]
+    if indexed:redaction_secrets+=indexed.redaction
     summary['infrastructure']['phase']='host'
     summary['host'] = require_host(args)
     args.frozen_browser_security = browser_security.freeze(args, runroot / 'browser-security')
@@ -1155,6 +1188,8 @@ def _execute_suite(args,attempt,smoke=False):
         raise LabError(str(exc),'unsupported-pi-settings','Review PI-COMPATIBILITY.md; omit numeric reasoning budgets for this profile or qualify the explicitly selected release.') from exc
     try: agent_profiles.admit(profile, args.observed_pi_version)
     except ValueError as exc: raise LabError(str(exc), 'unsupported-agent-profile') from exc
+    if indexed:
+        for binding in indexed.bindings.values():pi_contract.model_configuration(binding['configuration']['endpoint'],args.observed_pi_version)
     summary['reasoning']=reasoning_receipt
     summary['provenance']=provenance.execution(upstream_endpoint,image,ROOT)
     attempt.persist()
@@ -1199,9 +1234,9 @@ def _execute_suite(args,attempt,smoke=False):
                 summary['copy'] = snapshot(project, workspace, args.exclude, args.max_project_mb)
                 summary['workspace_mode'] = 'isolated-copy'
         plan=agent_profiles.apply(plan,profile)
-        if stage_credentials:
+        if stage_credentials or indexed:
             values = [value for assigned in stage_credentials.values() for value in assigned.values()]
-            redactor = application_credentials.Redactor([secret, *values])
+            redactor = application_credentials.Redactor([secret, *values,*redaction_secrets])
             if redactor.contains(json.dumps(plan, ensure_ascii=False).encode()) or not application_credentials.workspace_inspected_clean(workspace, redactor):
                 shutil.rmtree(workspace)
                 raise LabError('Credential-bearing or uninspectable plan/snapshot; no worker dispatched', 'application-credentials')
@@ -1256,6 +1291,18 @@ def _execute_suite(args,attempt,smoke=False):
         summary['infrastructure'].update(status='ready',phase='agents')
         failed = False
         for i, task in enumerate(plan['agents']):
+            if indexed:endpoint,secret=indexed.stage(task['name'],args)
+            if indexed:pi_contract.model_configuration(endpoint,args.observed_pi_version)
+            if indexed and i>0:
+                import indexed_contract
+                limits=indexed_contract.preflight(indexed.binding['configuration']['request_limits'])
+                preflight=run_stage(args,image['id'],runroot,workspace,'preflight-'+str(i+1),
+                    ['preflight','--request-timeout',str(limits['request_timeout_seconds'])],endpoint=endpoint,secret=secret,
+                    timeout=limits['container_timeout_seconds'],redaction_secrets=redaction_secrets)
+                attempt.process(preflight)
+                if preflight['exit_code'] or preflight.get('cleanup_confirmed') is not True:raise LabError('Indexed stage preflight failed')
+            if indexed:
+                pi_contract.model_configuration(endpoint,args.observed_pi_version)
             label = f'agent-{i+1}-{task["name"]}'
             previous_invocation=summary['invocation']['status']
             summary['invocation']['attempted_stages']+=1
@@ -1276,7 +1323,8 @@ def _execute_suite(args,attempt,smoke=False):
             summary['agent_profile'].setdefault('observed_stages',[]).append({'name':task['name'],'segments':observations})
             if observations and all(s.get('loading')=='observed' for row in summary['agent_profile']['observed_stages'] for s in row['segments']):summary['agent_profile']['loading']='observed'
             summary['agents'].append({'name': task['name'], 'logs': label, 'process': r,
-                                      'invocation_verified': evidence['agent_invocation_verified'], 'errors': evidence['errors']})
+                                      'invocation_verified': evidence['agent_invocation_verified'], 'errors': evidence['errors'],
+                                      **({'inference_binding':copy.deepcopy(args._indexed_binding)} if indexed else {})})
             save(runroot / 'summary.json', summary)
             summary['invocation']['status']=evidence.get('invocation_status','verified' if evidence['agent_invocation_verified'] else 'invalid')
             if previous_invocation=='recovered' and evidence.get('completion_verified',evidence['agent_invocation_verified']):summary['invocation']['status']='recovered'
@@ -1370,7 +1418,8 @@ def score_artifacts(args,attempt,plan,image,workspace,receipts,post_cancel=False
 
 
 def preflight_only(args):
-    c = load_endpoint(resolve_endpoint_path(args))
+    indexed=getattr(args,'_indexed_session',None)
+    c = indexed.endpoint() if indexed else load_endpoint(resolve_endpoint_path(args))
     key = endpoint_secret(c, args)
     host = require_host(args)
     image = probe_image(args, args.image)
@@ -1384,8 +1433,13 @@ def preflight_only(args):
     runroot.mkdir(mode=0o700)
     workspace = runroot / 'workspace'
     workspace.mkdir()
-    result = run_stage(args, image['id'], runroot, workspace, 'preflight', ['preflight', '--chat'],
-                       endpoint=c, secret=key, timeout=160)
+    operation=['preflight','--chat'];timeout=160
+    if indexed:
+        import indexed_contract
+        limits=indexed_contract.preflight(indexed.binding['configuration']['request_limits'])
+        operation+=['--request-timeout',str(limits['request_timeout_seconds'])];timeout=limits['container_timeout_seconds']
+    result = run_stage(args, image['id'], runroot, workspace, 'preflight', operation,
+                       endpoint=c, secret=key, timeout=timeout,redaction_secrets=indexed.redaction if indexed else ())
     report = {'run_dir': str(runroot), 'host': host, 'image': image, 'endpoint': c,
               'key_source': getattr(args, 'secret_source', ''), 'process': result}
     if result['exit_code']:
@@ -1849,6 +1903,7 @@ def parser():
     profile=sub.add_parser('validate-agent-profile');profile.add_argument('--agent-profile',required=True)
     validate = sub.add_parser('validate-plan')
     validate.add_argument('--plan', required=True)
+    validate.add_argument('--external-inference-bindings',action='store_true',help='Offline schema-2 plan validation for experiment-owned maps')
     validate.add_argument('--agent-profile',help='Explicit reviewed custom-tool contract; validation does not load it')
 
     status_cmd = sub.add_parser('status', help='Inspect live or completed run status, heartbeat, and tool execution')
@@ -1925,6 +1980,7 @@ def parser():
     doc.add_argument('--software-webgl', action='store_true')
     doc.add_argument('--uid', type=int, default=os.getuid() if hasattr(os, 'getuid') else 1000)
     doc.add_argument('--gid', type=int, default=os.getgid() if hasattr(os, 'getgid') else 1000)
+    doc.add_argument('--inference-env');doc.add_argument('--catalog-dir')
 
     for name in ('ensure-image', 'preflight', 'smoke', 'run', 'browser-check'):
         q = sub.add_parser(name)
@@ -1965,6 +2021,8 @@ def parser():
             q.add_argument('--build-timeout', type=int, help='Image-build wall-time budget in seconds')
             q.add_argument('--buildkit-image', default='moby/buildkit:buildx-stable-1', help='Trusted BuildKit image; use a digest for reproducibility')
         if name in ('run', 'smoke', 'preflight'):
+            q.add_argument('--inference-env',help='Explicit confirmed named indexed inference environment')
+            q.add_argument('--catalog-dir',help='Owner-private indexed catalog override')
             q.add_argument('--endpoint', help='Explicit endpoint JSON; default is the saved, session-confirmed environment')
             q.add_argument('--session', help='Agent session id (or PI_LAB_SESSION) for the saved-environment gate')
             q.add_argument('--network', default='bridge')
@@ -1995,7 +2053,7 @@ def main(argv=None):
     if args.op == 'validate-plan':
         path = checked_path(Path(args.plan))
         profile=agent_profiles.load(args.agent_profile) if args.agent_profile else agent_profiles.builtin()
-        plan = validate_plan(json.loads(path.read_text()), path.parent,profile)
+        plan = validate_plan(json.loads(path.read_text()), path.parent,profile,external_bindings=args.external_inference_bindings)
         print(json.dumps({'valid': True, 'name': plan['name'], 'agents': len(plan['agents']),
                           'checks': len(plan['checks']), 'setup': len(plan['setup'])}, indent=2))
         return 0
@@ -2010,11 +2068,20 @@ def main(argv=None):
     if args.op == 'secrets':
         return cmd_secrets(args)
     if args.op == 'doctor':
+        if getattr(args,'inference_env',None):
+            import indexed_broker
+            return indexed_broker.doctor(args,sys.modules[__name__])
         return cmd_doctor(args)
     if args.op == 'env':
         return lab_env.run(args, lambda path: load_endpoint(checked_path(path)))
     if args.op in ('run','smoke'):
+        if args.op=='run' and args.plan:
+            raw=controls.read(args.plan)
+            if raw.get('schema')==2:args._indexed_plan_selection=not bool(getattr(args,'inference_env',None))
         return run_suite(args,smoke=args.op=='smoke')
+    if args.op=='preflight' and getattr(args,'inference_env',None):
+        import indexed_broker
+        return indexed_broker.preflight(args,sys.modules[__name__])
     requested_policy(args)  # Validate budgets before any Docker action.
     with admission_lock(args.lock_file, args.lock_wait_seconds):
         return dispatch(args)

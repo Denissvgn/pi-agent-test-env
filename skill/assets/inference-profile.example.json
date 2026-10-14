@@ -1,0 +1,14 @@
+{
+  "api": "openai-completions",
+  "adapter_contract": "chat-completions-v1",
+  "endpoint": {
+    "base_url": "http://inference.invalid/v1",
+    "model": "fixture-model",
+    "context_window": 32768,
+    "max_tokens": 4096,
+    "input": ["text"]
+  },
+  "credential": {"source": "store", "name": "INFERENCE_MODEL_KEY"},
+  "capacity_group": "shared-inference",
+  "request_limits": {"queue_wait_seconds": 180, "request_timeout_seconds": 180}
+}

@@ -288,3 +288,18 @@ fixtures and local services; it does not require a model server or establish liv
 Pi performance.
 
 MIT licensed. This is an independent project, not an official Pi or Docker release.
+
+## Indexed inference environments (experimental)
+
+Root can explicitly bind different credential sources, base URLs, models and
+settings to uniform runs or individual implementation/review stages. The opt-in
+catalog supports the reviewed Chat Completions API on Pi 0.87.1 and 1.2.0;
+additional API protocols need their own adapter qualification. Original inference
+keys stay in a bounded broker, with one global request slot, isolated worker
+snapshots and scoped stage/recovery tokens.
+
+Start with the [root workflow](skill/references/INFERENCE-ENVIRONMENTS.md) and
+[executable examples](skill/examples/indexed-inference/README.md). Native indexed
+qualification is pending; offline tests and historical parallel qualification
+have separate scopes. Legacy saved environments and experiment schemas 1/2 keep
+their existing behavior.

@@ -330,7 +330,7 @@ class AuthorityOwner:
               'application_actors':'disposable fixture only','original_model_store_unchanged':True})
 
 
-def definition(root,batch,manifest,authority):
+def definition(root,batch,manifest,authority,transform=None,prepare_callback=None):
     folder=root/'batches'/batch['id'];folder.mkdir(parents=True)
     kind=batch['kind'];release=batch['release'];endpoint=copy.deepcopy(authority.endpoint)
     if not batch['real_model']:
@@ -385,8 +385,9 @@ def definition(root,batch,manifest,authority):
     value={'schema':2,'name':batch['id'].replace('.','-'),'baseline':'baseline','repetitions':batch['repetitions'],
            'cases':cases,'variants':variants,'budgets':budget,'execution':execution,'concurrency':concurrency,
            'policies':{'primary_attempt':'first','assistance':'exclude','on_failure':'stop' if stop else 'continue','max_attempts':1}}
+    if transform:value=transform(value,folder)
     controls.atomic(folder/'definition.json',value)
-    prepared=experiments.prepare(folder/'definition.json',folder/'experiment',lab,folder/'endpoint.json')
+    prepared=(prepare_callback(folder) if prepare_callback else experiments.prepare(folder/'definition.json',folder/'experiment',lab,folder/'endpoint.json'))
     if prepared['planned']!=batch['cells']:raise RuntimeError('Prepared matrix differs from fixed cell count')
     return folder,Path(prepared['experiment'])
 
@@ -494,8 +495,8 @@ def validate_positive(exp,metadata,rows,invocation,batch):
             raise RuntimeError('Positive lane lacks attributable protected independent acceptance')
 
 
-def run_batch(root,batch,manifest,authority,collection_deadline=None):
-    folder,exp=definition(root,batch,manifest,authority);kind=batch['kind'];overlaps=[]
+def run_batch(root,batch,manifest,authority,collection_deadline=None,definition_builder=None,session=None):
+    folder,exp=(definition_builder or definition)(root,batch,manifest,authority);kind=batch['kind'];overlaps=[]
     before=len(authority.snapshot()['effects']);steers={};started=time.monotonic();crashed=False
     env=pi_release.checker_env({'PI_LAB_SECRETS_DIR':str(authority.store)})
     def remaining(maximum):
@@ -545,7 +546,7 @@ def run_batch(root,batch,manifest,authority,collection_deadline=None):
                                '--message','Finish this exact-session recovery task.','--interrupt'])
                 steers[desc['stage_id']]=json.loads(reply.stdout)
             observed['steers']=steers
-    result=invoke(root,batch['id'],['experiment-run','--experiment',str(exp)],remaining(3600),env,control)
+    result=invoke(root,batch['id'],['experiment-run','--experiment',str(exp),*(['--session',session] if session else [])],remaining(3600),env,control)
     if kind=='crash':
         # Child controllers retain custody while stopping; never bypass their lease.
         deadline=time.monotonic()+60
@@ -556,7 +557,7 @@ def run_batch(root,batch,manifest,authority,collection_deadline=None):
                 if exc.reason!='host-admission-busy' or time.monotonic()>=deadline:raise
                 time.sleep(.1)
         originals={p:p.read_bytes() for p in (exp/'runs').glob('*/result.json')}
-        result['resume']=invoke(root,batch['id']+'-resume',['experiment-resume','--experiment',str(exp)],remaining(240),env)
+        result['resume']=invoke(root,batch['id']+'-resume',['experiment-resume','--experiment',str(exp),*(['--session',session] if session else [])],remaining(240),env)
         if any(p.read_bytes()!=body for p,body in originals.items()):raise RuntimeError('Resume rewrote a sealed primary')
     metadata,matrix=experiments.verify(exp,lab);rows=experiments.ledger_rows(exp,lab)
     records=[a['result'] for row in rows for a in row['attempts']]

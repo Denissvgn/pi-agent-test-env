@@ -232,6 +232,19 @@ class GatewayTests(unittest.TestCase):
     def test_chunk_line_requires_actual_crlf(self):
         self.mode='chunk-bad-crlf';self.request();self.assert_quarantined()
 
+    def test_stage_authorities_are_active_only_for_the_current_grant(self):
+        import tempfile
+        import os
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'active.json';path.write_text(json.dumps({'tokens':[self.token]}));os.chmod(path,0o600)
+            self.config['active_tokens_file']=str(path)
+            other='synthetic-trial-b-0123456789'
+            self.assertEqual(self.request()[0],200);self.assertEqual(self.request(token=other)[0],401)
+            path.write_text(json.dumps({'tokens':[other]}))
+            self.assertEqual(self.request(token=self.token)[0],401);self.assertEqual(self.request(token=other)[0],200)
+            self.assertEqual(len(self.requests),2)
+            os.chmod(path,0o644);self.assertEqual(self.request(token=other)[0],401)
+
     def test_late_resolution_is_bounded_and_never_launches_upstream_http(self):
         original=socket.getaddrinfo;entered=threading.Event();release=threading.Event();resolved=threading.Event()
         def delayed(host,port,*args,**kwargs):

@@ -197,3 +197,7 @@ an ancestor, use `--top-level-dir ..` (relative to cwd) and normal package
 `__init__.py` files. Zero discovered tests, failed imports and assertions fail
 acceptance. The output retains `INDEPENDENT_TESTS_RUN=N` for legacy consumers;
 this legacy verifier does not claim structured scorer metrics.
+
+## Indexed inference opt-in
+
+For different implementation/review inference bindings, select standalone plan schema 2 or schema-3 variant-owned maps explicitly. Each stage starts a fresh Pi session; continuation retains that stage’s exact binding. Setup/scorers receive no inference assignment. See [INFERENCE-ENVIRONMENTS.md](INFERENCE-ENVIRONMENTS.md).
