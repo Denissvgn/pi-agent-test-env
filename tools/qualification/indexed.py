@@ -40,7 +40,8 @@ def launch_derivation(rows=None):
     browser adds a browser gate. Every additional role has a preflight. Fault
     continuations are counted from the full segment ceiling, including halted
     cells that normally stay pending. Serial indexed trials own one helper/network;
-    parallel batches share a helper and have a parent image-admission probe.
+    parallel batches share a helper. Every experiment execution also has a
+    parent image-admission probe before its trial loop.
     """
     infrastructure={'image_admission':4,'dom_image_probes':2,'dom_workers':2,'overlap_fifo_workers':3,'cancel_workers':2,'owner_loss_workers':2,'routing_authority':1,'routing_broker':1}
     totals={'infrastructure':{'containers':sum(infrastructure.values()),'networks':0},'A':{'containers':1,'networks':0},'B':{'containers':1,'networks':0}}
@@ -54,7 +55,11 @@ def launch_derivation(rows=None):
         setup=1 if row['kind'] in ('discovery','boundary') else 0
         containers=row['cells']*(4+setup+(stages-1)+(1 if row['kind']=='browser' else 0))+row['segments_ceiling']
         if parallel:containers+=2 # parent image probe and one broker
-        elif indexed:containers+=row['cells']
+        else:
+            if indexed:containers+=row['cells']
+            # Serial experiment execution also admits the image once before
+            # reserving trials; direct standalone invocations do not.
+            if row['lane'] not in ('indexed-single','legacy-saved','legacy-explicit','standalone-roles'):containers+=1
         if row['kind']=='crash':containers+=2 # independently admitted resume probe/broker
         networks=row['cells'] if indexed or parallel else 0
         totals[row['collection']]['containers']+=containers;totals[row['collection']]['networks']+=networks

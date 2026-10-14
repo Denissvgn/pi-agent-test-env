@@ -59,6 +59,47 @@ class IntentTests(unittest.TestCase):
         self.assertEqual(paths['b-0.87.1-credentials'],110)
         self.assertEqual(paths['b-0.87.1-crash'],24)
         self.assertEqual(paths['b-0.87.1-discovery'],26)
+        self.assertEqual(derivation['A']['containers'],527)
+        self.assertEqual(derivation['whole']['containers'],1437)
+        for release in ('0.87.1','1.2.0'):
+            self.assertEqual(paths['a-'+release+'-indexed-serial'],37)
+            self.assertEqual(paths['a-'+release+'-legacy-serial'],31)
+            self.assertEqual(paths['a-'+release+'-serial-roles'],49)
+    def test_real_serial_admission_dispatch_has_one_parent_probe_before_trials(self):
+        import contextlib,socket,subprocess,types,indexed_experiments
+        class BeforeTrial(RuntimeError):pass
+        for release in ('0.87.1','1.2.0'):
+            for lane,schema in (('indexed-serial',3),('legacy-serial',1),('serial-roles',3)):
+                with self.subTest(release=release,lane=lane),tempfile.TemporaryDirectory() as temp,contextlib.ExitStack() as stack:
+                    root=Path(temp).resolve();contract={'release':release};probes=[]
+                    metadata={'schema':schema,'mode':'serial','execution':{'platform':'linux/arm64','image':'synthetic-image'},'runner_content_sha256':'fixture-runner','release_contracts':{release:contract},'prepared_root':str(root),'policies':{'max_attempts':1,'on_failure':'stop'}}
+                    matrix={'cells':[{'trial_id':'fixture-trial','endpoint_origin':'explicit_endpoint','endpoint':'endpoint.json','agent_profile':'profile.json'}]}
+                    def stop(*args,**kwargs):raise BeforeTrial()
+                    fake=types.SimpleNamespace(ROOT=Path('/synthetic-root'),norm_arch=lambda value:'arm64',require_host=lambda args:None,
+                        probe_image=lambda args,image:(probes.append(image) or {'id':image}),admit_image=lambda receipt:contract,
+                        load_endpoint=lambda path:{'base_url':'http://synthetic.invalid/v1','model':'fixture-model'},
+                        pi_contract=types.SimpleNamespace(model_configuration=lambda *args:None),run_suite=stop)
+                    mocks=[patch.object(experiments,'verify',return_value=(metadata,matrix)),patch.object(experiments,'read_json',return_value=metadata),
+                        patch.object(experiments,'controller_lock',side_effect=lambda *args:contextlib.nullcontext()),patch.object(experiments,'attempt_intents',return_value=[]),
+                        patch.object(experiments,'controller_state',return_value={'status':'prepared'}),patch.object(experiments,'stop_from_history',return_value=False),
+                        patch.object(experiments.provenance,'execution',return_value={'runner_content_sha256':'fixture-runner'}),patch.object(experiments.release_contracts,'snapshot',return_value={release:contract}),
+                        patch.object(experiments,'trial_args',return_value=types.SimpleNamespace(lock_file=root/'unused.lock',lock_wait_seconds=0)),
+                        patch.object(experiments.resources,'admission_lock',side_effect=lambda *args:contextlib.nullcontext()),patch.object(experiments.agent_profiles,'load',return_value={}),patch.object(experiments.agent_profiles,'admit',return_value=None),
+                        patch.object(indexed_experiments,'admit_work',return_value=None),patch.object(experiments,'reserve_attempt',return_value=({'attempt_id':'fixture-attempt','initial_record':{}},root/'unused-intent.json')),
+                        patch.object(subprocess,'run',side_effect=AssertionError('No subprocess')),patch.object(subprocess,'Popen',side_effect=AssertionError('No subprocess')),
+                        patch.object(socket,'create_connection',side_effect=AssertionError('No network')),patch.object(secret_store,'default_store',side_effect=AssertionError('No operator store'))]
+                    for item in mocks:stack.enter_context(item)
+                    with self.assertRaises(BeforeTrial):experiments.execute(root,fake,'fixture-session')
+                    self.assertEqual(probes,['synthetic-image'])
+    def test_corrected_phase_and_whole_caps_still_charge_before_launch(self):
+        self.frozen();root=self.root/'intent';now=time.monotonic()
+        counts={p:{'containers':0,'networks':0,'segments':0} for p in ('infrastructure','A','B')}
+        counts['infrastructure']['containers']=17;counts['A']['containers']=526;counts['B']['containers']=893
+        indexed.controls.atomic(root/'budget.json',{'phase':'A','whole_deadline':now+100,'phase_deadline':now+50,'docker':'/synthetic/docker','counts':counts})
+        indexed_budget.charge(root,'A',['run','--platform','linux/arm64'])
+        with self.assertRaises(ValueError):indexed_budget.charge(root,'A',['run','--platform','linux/arm64'])
+        current=experiments.read_json(root/'budget.json');self.assertEqual(current['counts']['A']['containers'],527)
+        self.assertEqual(sum(x['containers'] for x in current['counts'].values()),1437)
     def test_freeze_is_offline_private_and_tamper_rejects(self):
         result,manifest=self.frozen();self.assertEqual(result['planned_cells'],220);self.assertEqual(len({c['id'] for c in manifest['cell_oracles']}),220)
         text=(self.root/'intent/manifest.json').read_text();self.assertNotIn('synthetic-qualification-a',text);self.assertNotIn('synthetic-qualification-b',text)
