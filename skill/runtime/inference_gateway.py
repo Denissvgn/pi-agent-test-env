@@ -174,11 +174,20 @@ def handler(config,gate):
                 self.end_headers();sent=True;connected=True;total=0
                 scrubber=Scrubber([config['upstream_key'],*config['tokens']])
                 while True:
+                    # read1 closes the response socket when Content-Length is
+                    # exhausted. Do not touch that closed socket before flushing
+                    # the scrubber tail; a premature declared-length EOF stays
+                    # uncertain rather than releasing the inference slot.
+                    if response.isclosed():
+                        if response.length not in (None,0):raise http.client.IncompleteRead(b'')
+                        known=True;break
                     remaining=deadline-time.monotonic()
                     if remaining<=0:raise TimeoutError('Forward deadline')
                     if upstream_socket:upstream_socket.settimeout(remaining)
                     data=response.read1(65536)
-                    if not data:known=True;break
+                    if not data:
+                        if response.length not in (None,0):raise http.client.IncompleteRead(b'')
+                        known=True;break
                     total+=len(data)
                     if total>MAX_REPLY:raise ValueError('Bounded response exceeded')
                     safe=scrubber.feed(data)

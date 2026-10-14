@@ -24,10 +24,17 @@ class GatewayTests(unittest.TestCase):
             def do_POST(self):
                 raw=self.rfile.read(int(self.headers['Content-Length']));body=json.loads(raw)
                 case.requests.append({'auth':self.headers.get('Authorization'),'body':body});case.forwarded.set()
-                self.send_response(503 if case.mode=='error' else 200);self.end_headers()
-                if case.mode=='hold':case.finish.wait(3)
                 content=case.upstream_key if case.mode=='echo' else 'scripted reply'
-                try:self.wfile.write(json.dumps({'content':content}).encode())
+                raw=json.dumps({'content':content}).encode()
+                if case.mode.startswith('length-'):
+                    raw=b'data: [DONE]\n\n' if case.mode!='length-long' else b'data: '+b'x'*65536+case.upstream_key.encode()+b'\n\ndata: [DONE]\n\n'
+                self.send_response(503 if case.mode=='error' else 200)
+                if case.mode.startswith('length-'):
+                    self.send_header('Content-Length',str(len(raw)+(5 if case.mode=='length-truncated' else 0)))
+                    self.send_header('Content-Type','text/event-stream')
+                self.end_headers()
+                if case.mode=='hold':case.finish.wait(3)
+                try:self.wfile.write(raw)
                 except BrokenPipeError:pass
         self.upstream=ThreadingHTTPServer(('127.0.0.1',0),Upstream)
         self.thread=threading.Thread(target=self.upstream.serve_forever,daemon=True);self.thread.start()
@@ -78,6 +85,19 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(len(self.requests),1)
     def test_503_is_forwarded_once_without_retry(self):
         self.mode='error';self.assertEqual(self.request()[0],503);self.assertEqual(len(self.requests),1)
+    def test_complete_content_length_replies_flush_tail_and_release_slot(self):
+        for mode in ('length-short','length-long'):
+            with self.subTest(mode=mode):
+                self.mode=mode;status,body=self.request()
+                expected=b'data: [DONE]\n\n' if mode=='length-short' else b'data: '+b'x'*65536+b'[REDACTED]\n\ndata: [DONE]\n\n'
+                self.assertEqual(status,200);self.assertEqual(body,expected)
+                self.assertFalse(self.gate.uncertain);self.assertIsNone(self.gate.active)
+        self.assertEqual(len(self.requests),2)
+    def test_truncated_content_length_reply_quarantines_inference(self):
+        self.mode='length-truncated';status,body=self.request()
+        self.assertEqual(status,200);self.assertTrue(self.gate.uncertain)
+        self.assertIsNotNone(self.gate.active)
+        self.assertEqual(self.request()[0],429);self.assertEqual(len(self.requests),1)
     def test_forwarded_disconnect_holds_slot_until_upstream_stops(self):
         self.mode='hold';client=socket.create_connection(('127.0.0.1',self.server.server_port))
         body=json.dumps({'model':'fixture-model','messages':[],'stream':True,'max_tokens':128}).encode()

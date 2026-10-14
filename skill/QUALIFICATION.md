@@ -12,7 +12,8 @@ participant segments: the gateway rejected the SDK's default `store: false`
 request field before model inference. No positive cell passed. Owned resources
 and private stores were independently confirmed cleaned. Offline tests cover
 both reviewed SDK payloads, storage opt-out admission and rejection of storage
-enablement; concurrent atomic registry replacement also has deterministic and
+enablement, plus complete/truncated HTTP response accounting and redaction;
+concurrent atomic registry replacement also has deterministic and
 live host-reader fixtures. A fresh approved run remains required for Pi/model
 qualification. No WorkChord workflow or real application-actor acceptance is
 claimed by this development status.
