@@ -102,7 +102,7 @@ class RoutedTests(unittest.TestCase):
         import os,tempfile
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as folder:
-            target=Path(folder)/'active.json';target.write_text(json.dumps({'tokens':['synthetic-token-a','synthetic-token-b']}));target.chmod(0o600)
+            target=Path(folder)/'active.json';target.write_text(json.dumps({'revision':1,'tokens':['synthetic-token-a','synthetic-token-b']}));target.chmod(0o600)
             self.config['active_tokens_file']=str(target);fstat=os.fstat;calls=[]
             def replace(fd):
                 if not calls:
@@ -114,11 +114,11 @@ class RoutedTests(unittest.TestCase):
         import os,tempfile
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as folder:
-            target=Path(folder)/'active.json';target.write_text(json.dumps({'tokens':['synthetic-token-a','synthetic-token-b']}));target.chmod(0o600)
+            target=Path(folder)/'active.json';target.write_text(json.dumps({'revision':1,'tokens':['synthetic-token-a','synthetic-token-b']}));target.chmod(0o600)
             self.config['active_tokens_file']=str(target);fstat=os.fstat;replaced=[]
             def replace(fd):
                 if not replaced:
-                    other=target.with_name('replacement.json');other.write_text(json.dumps({'tokens':['synthetic-token-b']}));other.chmod(0o600);os.replace(other,target);replaced.append(True)
+                    other=target.with_name('replacement.json');other.write_text(json.dumps({'revision':1,'tokens':['synthetic-token-b']}));other.chmod(0o600);os.replace(other,target);replaced.append(True)
                 return fstat(fd)
             with patch.object(os,'fstat',side_effect=replace):self.assertEqual(self.request('synthetic-token-a')[0],401)
             self.assertEqual(self.calls,[])
@@ -126,13 +126,68 @@ class RoutedTests(unittest.TestCase):
         import os,tempfile
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as folder:
-            target=Path(folder)/'active.json';target.write_text(json.dumps({'tokens':['synthetic-token-a']}));target.chmod(0o600)
+            target=Path(folder)/'active.json';target.write_text(json.dumps({'revision':1,'tokens':['synthetic-token-a']}));target.chmod(0o600)
             self.config['active_tokens_file']=str(target);fstat=os.fstat;calls=[]
             def always_replace(fd):
                 other=target.with_name('replacement.json');other.write_text(target.read_text());other.chmod(0o600);os.replace(other,target);calls.append(fd);return fstat(fd)
             with patch.object(os,'fstat',side_effect=always_replace):self.assertEqual(self.request('synthetic-token-a')[0],401)
             self.assertEqual(len(calls),3);self.assertEqual(self.calls,[])
             target.chmod(0o644);self.assertEqual(self.request('synthetic-token-a')[0],401);self.assertEqual(self.calls,[])
+
+    def test_monitored_snapshot_keeps_restoration_and_revocation_consistent(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            target=Path(folder)/'active.json';self.config['active_tokens_file']=str(target)
+            activation=gateway.Activation(self.config,self.gate)
+            self.proxy.RequestHandlerClass=gateway.handler(self.config,self.gate,activation)
+            def publish(revision,tokens):
+                target.write_text(json.dumps({'revision':revision,'tokens':tokens}));target.chmod(0o600);activation.refresh()
+            publish(1,['synthetic-token-a','synthetic-token-b'])
+            publish(2,['synthetic-token-b'])
+            publish(1,['synthetic-token-a','synthetic-token-b'])
+            self.assertEqual(self.request('synthetic-token-a')[0],401)
+            publish(3,['synthetic-token-a','synthetic-token-b'])
+            publish(2,['synthetic-token-b'])
+            self.assertEqual(self.request('synthetic-token-a')[0],200)
+            publish(4,[])
+            self.assertEqual(self.request('synthetic-token-a')[0],401)
+            self.assertEqual(self.request('synthetic-token-b')[0],401)
+            self.assertEqual(len(self.calls),1)
+
+
+class ActivationTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
+        self.path=Path(self.temp.name)/'active.json';self.observations=[]
+        self.gate=gateway.Gate({'max_inflight':1,'max_pending':4,'queue_wait_seconds':1},observer=self.observations.append)
+        self.activation=gateway.Activation({'active_tokens_file':str(self.path)},self.gate)
+    def write(self,revision,tokens):
+        self.path.write_text(json.dumps({'revision':revision,'tokens':tokens}));self.path.chmod(0o600)
+    def test_stale_visibility_cannot_roll_back_acknowledged_revocation_or_restore(self):
+        self.write(1,['a','b']);self.assertEqual(self.activation.refresh(),('a','b'))
+        self.write(2,['b']);self.assertEqual(self.activation.refresh(),('b',))
+        self.write(1,['a','b']);self.assertEqual(self.activation.refresh(),('b',))
+        self.assertEqual(self.observations[-1]['activation_revision'],2)
+        self.write(3,['a','b']);self.assertEqual(self.activation.refresh(),('a','b'))
+        self.write(2,['b']);self.activation.refresh()
+        self.assertEqual(self.activation.accepted(),('a','b'))
+        self.assertEqual(self.observations[-1]['activation_revision'],3)
+    def test_same_revision_changed_membership_is_denied_without_acknowledgement(self):
+        self.write(1,['b']);self.activation.refresh()
+        self.write(1,['a','b']);self.assertEqual(self.activation.refresh(),())
+        self.assertIsNone(self.observations[-1]['activation_revision'])
+        self.write(2,['a','b']);self.assertEqual(self.activation.refresh(),('a','b'))
+    def test_missing_insecure_and_invalid_revision_state_fail_closed(self):
+        self.write(1,['a']);self.activation.refresh();self.path.unlink()
+        self.assertEqual(self.activation.refresh(),());self.assertEqual(self.activation.accepted(),())
+        self.write(2,['a']);self.path.chmod(0o644);self.assertEqual(self.activation.refresh(),())
+        for revision,tokens in ((True,['a']),(-1,['a']),(2**31,['a']),(2,['a','a']),(2,['a','b','c'])):
+            self.write(revision,tokens);self.assertEqual(self.activation.refresh(),())
+        self.assertIsNone(self.observations[-1]['activation_revision'])
+    def test_private_acknowledgement_contains_no_capabilities(self):
+        self.write(1,['synthetic-scoped-capability']);self.activation.refresh()
+        self.assertNotIn('synthetic-scoped-capability',json.dumps(self.observations))
 
 
 if __name__=='__main__':unittest.main()

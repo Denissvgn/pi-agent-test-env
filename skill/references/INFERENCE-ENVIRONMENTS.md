@@ -64,6 +64,14 @@ Use a trusted native image and an explicit worker resource file that leaves room
 for the broker. It reserves 0.25 CPU, 128 MiB and 64 PIDs. Worker memory is not
 silently reduced to fit it. On Apple Silicon select and verify `linux/arm64`.
 
+Root waits for the broker to acknowledge each private activation revision before
+dispatching a stage or treating its capability as revoked. The broker installs
+validated capabilities in memory and ignores older filesystem views; revisions
+cannot restore revoked tokens. A bounded ten-second control wait consumes existing
+execution/collection time and performs no inference request or retry. Missing,
+insecure, conflicting or unacknowledged state blocks further admission and invokes
+the existing drain and physical cleanup checks.
+
 ```bash
 python3 "$SKILL_DIR/scripts/pi_lab.py" preflight --image "$IMAGE" --platform linux/arm64 \
   --resources "$RESOURCES" --inference-env builder-local --session "$SESSION"

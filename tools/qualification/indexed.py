@@ -342,6 +342,7 @@ def infrastructure_routes(root,manifest):
             pool=Allocator(CONCURRENCY['aggregate']);weight=__import__('parallel_contract').worker_weight(resources.validate_policy(WORKER))
             try:
                 with inference_broker.owner(lab,args,folder,registry,pool,weight,config,args.image,helper(2,True)['gateway']) as (broker,factory,cleanup):
+                    budget=experiments.read_json(root/'budget.json');broker['control_deadline']=min(budget['phase_deadline'],budget['whole_deadline'])
                     broker['activate'](tokens)
                     route=__import__('urllib.parse',fromlist=['urlsplit']).urlsplit(broker['host_base_url'])
                     def request(token,method='POST',extra=None):
@@ -388,8 +389,10 @@ def infrastructure_routes(root,manifest):
                     if len(observed)!=6 or not all(row['key_matched'] for row in observed):raise RuntimeError('Controlled route observer mismatch')
                     if {r['route'] for r in observed}!={'route-a','route-b'}:raise RuntimeError('Both controlled routes were not observed')
                     broker['activate'](tokens)
-                    authority.config['truncate_fixture']=True;authority.write()
-                    try:request(tokens[0])
+                    # Select the malformed fixture in this controlled request;
+                    # another host file replacement is not a delivery barrier.
+                    from parallel_service import TRUNCATION_MESSAGES
+                    try:request(tokens[0],extra={'messages':TRUNCATION_MESSAGES})
                     except (ValueError,http.client.HTTPException):
                         if http_observations[-1]['status']!=200:raise RuntimeError('Truncation fixture was rejected before forwarding')
                     else:

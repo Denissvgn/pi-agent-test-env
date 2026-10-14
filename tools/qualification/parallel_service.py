@@ -11,6 +11,8 @@ import time
 
 from service import sequence
 
+TRUNCATION_MESSAGES=[{'role':'user','content':'qualification:truncate'}]
+
 
 def handler(authority):
     class Handler(BaseHTTPRequestHandler):
@@ -47,7 +49,7 @@ def handler(authority):
                 time.sleep(.15)
                 raw=json.dumps({'reply':route,'echo':' '.join(config['route_keys'].values())+' '+ ' '.join(config.get('opaque_tokens',[]))}).encode()
                 self.send_response(200);self.send_header('Content-Type','application/json; boundary='+config['route_keys']['route-b'])
-                self.send_header('Content-Length',str(len(raw)+(1 if config.get('truncate_fixture') else 0)));self.end_headers();self.wfile.write(raw);self.wfile.flush();self.close_connection=True;return
+                self.send_header('Content-Length',str(len(raw)+(1 if body.get('messages')==TRUNCATION_MESSAGES else 0)));self.end_headers();self.wfile.write(raw);self.wfile.flush();self.close_connection=True;return
             if self.path=='/effect':
                 actor=next((a for a in config['actors'] if a['key']==self.headers.get('X-Agent-Key')),None)
                 namespace=self.headers.get('X-Trial-ID','')

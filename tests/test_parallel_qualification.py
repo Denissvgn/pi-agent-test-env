@@ -102,6 +102,24 @@ class ScriptedServiceTests(unittest.TestCase):
             delta=self.post(history);names.append(delta['tool_calls'][0]['function']['name']);history.append({'role':'tool','content':'scripted observed tool result'})
         self.assertEqual(names,['read','write','edit','write','bash','write','bash'])
         self.assertEqual(self.post(history)['content'],'SCRIPTED_FINISHED')
+    def test_truncation_is_selected_by_exact_controlled_request_without_file_update(self):
+        import http.client
+        self.config.update(routing_fixture=True,route_keys={'route-a':'synthetic-route-a','route-b':'synthetic-route-b'})
+        self.path.write_text(json.dumps(self.config));before=self.path.read_bytes()
+        def request(messages,key='synthetic-route-a'):
+            connection=http.client.HTTPConnection('127.0.0.1',self.server.server_port,timeout=2)
+            connection.request('POST','/route-a/v1/chat/completions',json.dumps({'messages':messages}),{'Authorization':'Bearer '+key})
+            reply=connection.getresponse()
+            try:return reply.status,reply.read()
+            finally:connection.close()
+        self.assertEqual(request([])[0],200)
+        self.assertEqual(request([{'role':'user','content':'qualification:truncate-extra'}])[0],200)
+        self.assertEqual(request(parallel_service.TRUNCATION_MESSAGES,'foreign')[0],401)
+        with self.assertRaises(http.client.IncompleteRead):request(parallel_service.TRUNCATION_MESSAGES)
+        self.assertEqual(self.path.read_bytes(),before)
+    def test_truncation_marker_does_not_change_generic_scripted_chat(self):
+        result=self.post(parallel_service.TRUNCATION_MESSAGES)
+        self.assertEqual(result['tool_calls'][0]['function']['name'],'read')
 
 import copy
 import uuid

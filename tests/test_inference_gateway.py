@@ -236,11 +236,11 @@ class GatewayTests(unittest.TestCase):
         import tempfile
         import os
         with tempfile.TemporaryDirectory() as folder:
-            path=Path(folder)/'active.json';path.write_text(json.dumps({'tokens':[self.token]}));os.chmod(path,0o600)
+            path=Path(folder)/'active.json';path.write_text(json.dumps({'revision':1,'tokens':[self.token]}));os.chmod(path,0o600)
             self.config['active_tokens_file']=str(path)
             other='synthetic-trial-b-0123456789'
             self.assertEqual(self.request()[0],200);self.assertEqual(self.request(token=other)[0],401)
-            path.write_text(json.dumps({'tokens':[other]}))
+            path.write_text(json.dumps({'revision':2,'tokens':[other]}))
             self.assertEqual(self.request(token=self.token)[0],401);self.assertEqual(self.request(token=other)[0],200)
             self.assertEqual(len(self.requests),2)
             os.chmod(path,0o644);self.assertEqual(self.request(token=other)[0],401)

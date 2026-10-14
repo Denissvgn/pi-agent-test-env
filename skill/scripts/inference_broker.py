@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import shutil
 import tempfile
+import threading
 import time
 from urllib.request import urlopen
 import uuid
@@ -30,7 +31,7 @@ def owner(lab,args,root,registry,pool,worker_resources,gateway_config,image_refe
         gateway_config['limits']=limits
         if gateway_config.get('active_tokens_file'):
             gateway_config['active_tokens_file']='/opt/pi-control/active-tokens.json'
-            controls.atomic(control/'active-tokens.json',{'tokens':[]})
+            controls.atomic(control/'active-tokens.json',{'revision':0,'tokens':[]})
         controls.atomic(control/'inference.json',gateway_config)
         image=lab.image_info(image_reference,args.platform)['id']
         argv=lab.docker_args(config,image,workspace,control,state,name,'bridge',helpers=lab.RUNTIME)
@@ -67,13 +68,40 @@ def owner(lab,args,root,registry,pool,worker_resources,gateway_config,image_refe
         inference={'worker_resources':worker_resources,'trial':lambda intent:{'base_url':'http://pi-inference:8080/v1',
                         'host_base_url':host+'/v1','token':next(token for token,binding in tokens.items() if binding==intent['trial_id'])}}
         inference['host_base_url']=host+'/v1';inference['base_url']='http://pi-inference:8080/v1'
+        activation_failed=False
         def admit():
             from indexed_contract import IndexedError
+            if activation_failed:raise IndexedError('inference-quarantined')
             try:observation=ownership_registry.read_private(record['gateway_state'])
             except (OSError,ValueError):raise IndexedError('inference-quarantined') from None
             if observation.get('launch_id')!=record['launch_id'] or observation.get('uncertain') is not False:raise IndexedError('inference-quarantined')
         inference['admit']=admit
-        inference['activate']=lambda tokens:controls.atomic(control/'active-tokens.json',{'tokens':list(tokens)})
+        activation_lock=threading.Lock();activation_revision=0
+        def activate(selected):
+            nonlocal activation_revision,activation_failed
+            from indexed_contract import IndexedError
+            with activation_lock:
+                if activation_failed:raise IndexedError('inference-quarantined')
+                selected=list(selected)
+                if len(selected)>2 or len(set(selected))!=len(selected) or any(token not in tokens for token in selected):raise IndexedError('selection-conflict')
+                activation_revision+=1
+                try:controls.atomic(control/'active-tokens.json',{'revision':activation_revision,'tokens':selected})
+                except (OSError,ValueError,controls.ControlError):
+                    activation_failed=True
+                    raise IndexedError('inference-quarantined') from None
+                deadline=min(time.monotonic()+10,inference.get('control_deadline',float('inf')))
+                while True:
+                    try:observation=ownership_registry.read_private(record['gateway_state'])
+                    except (OSError,ValueError):observation={}
+                    if observation.get('launch_id')!=record['launch_id'] or observation.get('uncertain') is not False:
+                        activation_failed=True
+                        raise IndexedError('inference-quarantined')
+                    if time.monotonic()>=deadline:
+                        activation_failed=True
+                        raise IndexedError('inference-quarantined')
+                    if type(observation.get('activation_revision')) is int and observation['activation_revision']==activation_revision:return
+                    time.sleep(.05)
+        inference['activate']=activate
         yield inference,network_factory,cleanup_network
     finally:
         # Confirm gateway absence before deleting its upstream secret and tokens.

@@ -133,7 +133,8 @@ def admission(lab,args,attempt,registry,smoke=False):
         args._indexed_session=context;context.stage(names[0],args)
         try:yield context
         finally:
-            inference['activate']([]);cleanup(network);args.network=old_network;args._indexed_session=None
+            try:inference['activate']([])
+            finally:cleanup(network);args.network=old_network;args._indexed_session=None
             records=[r for r in registry.load() if r.get('runroot')==str(attempt.root) and not r.get('gateway_state') and r.get('kind')!='network']
             physical=all(r['status'] in ('absent','released') for r in records)
             sensitive=all(controls.read(path).get('status')=='removed' for path in (attempt.root/'stages').glob('*/application-credentials.json'))

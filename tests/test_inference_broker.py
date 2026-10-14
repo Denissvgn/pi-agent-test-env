@@ -89,5 +89,60 @@ class BrokerTests(unittest.TestCase):
                     with self.assertRaises(ValueError) as blocked:inference['admit']()
                     self.assertEqual(blocked.exception.reason,'inference-quarantined')
 
+    def test_activation_waits_for_exact_owner_bound_container_revision(self):
+        self.payload['active_tokens_file']=True;seen=[]
+        original=inference_broker.ownership_registry.read_private
+        with patch.object(inference_broker,'urlopen',self.health):
+            with self.owner() as (inference,factory,cleanup):
+                def visibility(path):
+                    state=original(path);revision=json.loads((self.control/'active-tokens.json').read_text())['revision'];seen.append(revision)
+                    state['activation_revision']=revision if len(seen)>=3 else revision-1
+                    return state
+                with patch.object(inference_broker.ownership_registry,'read_private',side_effect=visibility):
+                    inference['activate'](['synthetic-surrogate'])
+                self.assertEqual(len(seen),3)
+                self.assertEqual(json.loads((self.control/'active-tokens.json').read_text())['revision'],1)
+                self.assertEqual(len([c for c in self.calls if c[:2]==['docker','run']]),1)
+
+    def test_activation_timeout_or_wrong_owner_cannot_authorize_dispatch(self):
+        self.payload['active_tokens_file']=True
+        with patch.object(inference_broker,'urlopen',self.health):
+            with self.owner() as (inference,factory,cleanup):
+                with patch.object(inference_broker.time,'monotonic',side_effect=[0,11]):
+                    with self.assertRaises(ValueError) as blocked:inference['activate'](['synthetic-surrogate'])
+                self.assertEqual(blocked.exception.reason,'inference-quarantined')
+                with self.assertRaises(ValueError):inference['admit']()
+                controls.atomic(self.control/'outbox/gateway-state.json',{'launch_id':'foreign','uncertain':False,'activation_revision':2})
+                with self.assertRaises(ValueError):inference['activate'](['synthetic-surrogate'])
+                controls.atomic(self.control/'outbox/gateway-state.json',{'launch_id':self.config['launch_id'],'inflight':0,'pending':0,'uncertain':False})
+
+    def test_activation_rejects_unknown_or_excess_capabilities_before_writing(self):
+        self.payload['active_tokens_file']=True
+        with patch.object(inference_broker,'urlopen',self.health):
+            with self.owner() as (inference,factory,cleanup):
+                before=(self.control/'active-tokens.json').read_bytes()
+                for tokens in (['foreign'],['synthetic-surrogate']*2,['a','b','c']):
+                    with self.assertRaises(ValueError):inference['activate'](tokens)
+                    self.assertEqual((self.control/'active-tokens.json').read_bytes(),before)
+
+    def test_activation_wrong_owner_blocks_even_an_exact_revision(self):
+        self.payload['active_tokens_file']=True
+        with patch.object(inference_broker,'urlopen',self.health):
+            with self.owner() as (inference,factory,cleanup):
+                controls.atomic(self.control/'outbox/gateway-state.json',{'launch_id':'foreign','inflight':0,'pending':0,'uncertain':False,'activation_revision':1})
+                with self.assertRaises(ValueError):inference['activate'](['synthetic-surrogate'])
+                controls.atomic(self.control/'outbox/gateway-state.json',{'launch_id':self.config['launch_id'],'inflight':0,'pending':0,'uncertain':False,'activation_revision':1})
+                with self.assertRaises(ValueError):inference['admit']()
+
+    def test_activation_clips_wait_to_collection_deadline_and_rejects_bool_ack(self):
+        self.payload['active_tokens_file']=True
+        with patch.object(inference_broker,'urlopen',self.health):
+            with self.owner() as (inference,factory,cleanup):
+                inference['control_deadline']=2
+                controls.atomic(self.control/'outbox/gateway-state.json',{'launch_id':self.config['launch_id'],'inflight':0,'pending':0,'uncertain':False,'activation_revision':True})
+                with patch.object(inference_broker.time,'monotonic',side_effect=[0,1,3]),patch.object(inference_broker.time,'sleep'):
+                    with self.assertRaises(ValueError):inference['activate'](['synthetic-surrogate'])
+                with self.assertRaises(ValueError):inference['admit']()
+
 
 if __name__=='__main__':unittest.main()

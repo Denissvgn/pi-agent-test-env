@@ -124,6 +124,7 @@ def execute(root,lab,session=None,resume=False,retry_trial=None):
                 private={'worker_resources':worker,'trial':first,'credentials':assigned,'authorities':authorities,
                     'admit':inference['admit'],'indexed':bootstrap,'stage_admission':stage,'stage_release':release,
                     'secret_variable_names':[b['configuration']['credential'].get('name') for b in entries.values() if b['configuration']['credential'].get('name')]}
+                inference['control_deadline']=__import__('time').monotonic()+metadata['concurrency']['collection_timeout_seconds']
                 result=parallel_engine.collect(root,metadata,matrix,work,lab,registry,pool,session,private,factory,cleanup)
                 if halted and result['status']=='completed':
                     state=experiments.controller_state(root);state['status']='halted';controls.atomic(root/'state.json',state)

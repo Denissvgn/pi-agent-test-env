@@ -203,7 +203,7 @@ class Scrubber:
         return output
 
 
-def active_tokens(path):
+def activation_state(path):
     """Bounded no-follow reads, reopening only a verified atomic replacement."""
     import os,stat
     for unused in range(3):
@@ -218,13 +218,47 @@ def active_tokens(path):
             raw=source.read(1024*1024+1)
             if len(raw)>1024*1024:raise ValueError('Activation state exceeds bound')
             state=json.loads(raw)
-            if not isinstance(state,dict) or set(state)!={'tokens'} or not isinstance(state['tokens'],list) or len(state['tokens'])>2 or any(not isinstance(token,str) for token in state['tokens']):
+            if not isinstance(state,dict) or set(state)!={'revision','tokens'} or type(state['revision']) is not int or not 0<=state['revision']<=2**31-1 or not isinstance(state['tokens'],list) or len(state['tokens'])>2 or any(not isinstance(token,str) for token in state['tokens']) or len(set(state['tokens']))!=len(state['tokens']):
                 raise ValueError('Invalid activation contract')
-            return state['tokens']
+            return state
     raise ValueError('Activation state changed during bounded observation')
 
 
-def handler(config,gate):
+def active_tokens(path):return activation_state(path)['tokens']
+
+
+class Activation:
+    """Acknowledge securely observed revisions; never authorize stale state."""
+    def __init__(self,config,gate):
+        self.config=config;self.gate=gate;self.lock=threading.Lock()
+        self.revision=-1;self.tokens=();self.valid=False
+    def refresh(self):
+        with self.lock:
+            before=(self.valid,self.revision,self.tokens)
+            try:
+                state=activation_state(self.config['active_tokens_file'])
+                revision=state['revision'];tokens=tuple(state['tokens'])
+                if revision==self.revision and tokens!=self.tokens:raise ValueError('Activation revision changed')
+                # A shared filesystem can present an older secure file after an
+                # accepted replacement. It cannot restore an earlier capability.
+                if revision>=self.revision:
+                    self.revision=revision;self.tokens=tokens;self.valid=True
+            except (OSError,ValueError,TypeError):self.valid=False
+            if before!=(self.valid,self.revision,self.tokens):
+                with self.gate.condition:
+                    self.gate.metrics['activation_revision']=self.revision if self.valid else None
+                    self.gate.note('activation_observed')
+            return self.tokens if self.valid else ()
+    def accepted(self):
+        with self.lock:return self.tokens if self.valid else ()
+    def watch(self,stop):
+        while not stop.is_set():
+            self.refresh();stop.wait(.05)
+
+
+def handler(config,gate,activation=None):
+    monitored=activation is not None
+    activation=activation or Activation(config,gate)
     def held_keys():return [config.get('upstream_key',''),*config.get('redaction_keys',[]),*[r['upstream_key'] for r in config.get('routes',{}).values()],*([] if config.get('token_prefix') else config['tokens'])]
     class Handler(BaseHTTPRequestHandler):
         protocol_version='HTTP/1.0'
@@ -238,9 +272,7 @@ def handler(config,gate):
             token=self.headers.get('Authorization','').removeprefix('Bearer ')
             if not token or token not in config['tokens']:return None
             if config.get('active_tokens_file'):
-                try:
-                    if token not in active_tokens(config['active_tokens_file']):return None
-                except (OSError,ValueError,TypeError):return None
+                if token not in (activation.accepted() if monitored else activation.refresh()):return None
             return token
         def selected(self,token):
             if 'routes' not in config:return config
@@ -365,5 +397,10 @@ def main(path):
         fd=os.open(temporary,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
         with os.fdopen(fd,'w') as output:json.dump({'launch_id':config['launch_id'],**value},output);output.flush();os.fsync(output.fileno())
         os.replace(temporary,target)
-    gate=Gate(limits,observer=observe);observe({'inflight':0,'pending':0,'uncertain':False});server=Server(('0.0.0.0',8080),handler(config,gate),limits['max_pending']+2)
-    server.serve_forever(poll_interval=.1)
+    gate=Gate(limits,observer=observe);observe({'inflight':0,'pending':0,'uncertain':False})
+    activation=Activation(config,gate);stop=threading.Event()
+    if config.get('active_tokens_file'):
+        activation.refresh();threading.Thread(target=activation.watch,args=(stop,),daemon=True).start()
+    server=Server(('0.0.0.0',8080),handler(config,gate,activation),limits['max_pending']+2)
+    try:server.serve_forever(poll_interval=.1)
+    finally:stop.set();server.server_close()
