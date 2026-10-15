@@ -255,3 +255,7 @@ is labeled accordingly; overlapping tools can overlap these intervals. Inference
 seconds remain null because the provider does not expose reliable inference
 timing. Budget counts carry known reported usage across segments; missing usage
 is explicit and is not a verified token ceiling.
+
+## Indexed inference opt-in
+
+Indexed environments support only the reviewed Chat Completions adapter on both exact releases. Each fresh stage admits its own frozen settings and retains environment/authority identity during continuation. Other API protocols need separate qualification; see [INFERENCE-ENVIRONMENTS.md](INFERENCE-ENVIRONMENTS.md).

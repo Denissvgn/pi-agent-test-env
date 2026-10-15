@@ -21,6 +21,7 @@ SOURCE_ROOT_FILES = ('README.md','CONTRIBUTING.md','LICENSE','.gitignore','.gita
 def source_files(repository=REPO):
     files = [repository/name for name in SOURCE_ROOT_FILES]
     files.append(repository/'docs/design/parallel-agents.md')
+    files.extend(repository/'docs/design'/name for name in ('indexed-inference-environments.md','indexed-inference-environments-implementation-plan.md'))
     files.extend(export_skill.file_list(repository/'skill'))
     files.extend(sorted((repository/'tests').glob('test_*.py')))
     if (repository/'tests/__init__.py').is_file(): files.append(repository/'tests/__init__.py')

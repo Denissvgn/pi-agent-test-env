@@ -1,6 +1,6 @@
 # pi-agent-test-env
 
-[![Version](https://img.shields.io/badge/version-4.4.0-blue)](skill/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.5.0-blue)](skill/CHANGELOG.md)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](skill/README.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-compatible-7B61FF)](skill/SKILL.md)
@@ -288,3 +288,21 @@ fixtures and local services; it does not require a model server or establish liv
 Pi performance.
 
 MIT licensed. This is an independent project, not an official Pi or Docker release.
+
+## Indexed inference environments (experimental)
+
+Root can explicitly bind different credential sources, base URLs, models and
+settings to uniform runs or individual implementation/review stages. The opt-in
+catalog supports the reviewed Chat Completions API on Pi 0.87.1 and 1.2.0;
+additional API protocols need their own adapter qualification. Original inference
+keys stay in a bounded broker, with one global request slot, isolated worker
+snapshots and scoped stage/recovery tokens.
+
+Start with the [root workflow](skill/references/INFERENCE-ENVIRONMENTS.md) and
+[executable examples](skill/examples/indexed-inference/README.md). Native indexed
+qualification passed on ARM64 for both reviewed Pi releases on 15 October 2026:
+220 cell oracles, including 156 real-model positive cells and 64 scripted fault
+oracles. The live profiles used two credential references on the same backend and
+model; distinct-backend/model/API-protocol acceptance remains unqualified. See
+[the recorded scope and limits](skill/QUALIFICATION.md). Legacy saved environments
+and experiment schemas 1/2 keep their existing behavior.

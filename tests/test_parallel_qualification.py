@@ -17,6 +17,94 @@ import secret_store
 
 
 class QualificationTests(unittest.TestCase):
+    def boundary_workspace(self,top):
+        import fixtures,service,subprocess,os,uuid
+        run=top/'run';workspace=run/'workspace';workspace.mkdir(parents=True)
+        project,path=fixtures.prepare(top/'subject','boundary','synthetic-nonce')
+        plan=experiments.read_json(path)
+        self.assertEqual(len(plan['setup']),1);self.assertEqual(len(plan['agents']),1)
+        setup=plan['setup'][0]['argv'];self.assertEqual(setup[:2],['python3','-c'])
+        subprocess.run([sys.executable,*setup[1:]],cwd=workspace,check=True,timeout=5)
+        calls=service.sequence('boundary')
+        self.assertEqual([c['name'] for c in calls],['read','write','edit','write','bash','write','bash'])
+        # Never execute the denied host/control operations on the test host.
+        self.assertEqual([c['arguments'].get('path') for c in calls[1:4]],
+            ['/etc/pi-qualification-denied','/etc/hostname','/workspace/escape/pi-qualification-denied'])
+        self.assertEqual(calls[4]['arguments']['command'],'printf BAD > /opt/pi-control/task.json')
+        temporary=top/'private-temp';temporary.mkdir()
+        return run,workspace,{'stage_id':str(uuid.uuid4()),'workspace':str(workspace.resolve())},calls[-1],temporary
+
+    def test_boundary_removes_only_its_owned_link_before_sensitive_cleanup(self):
+        import application_credentials as credentials,fixtures,os,shlex,subprocess
+        with tempfile.TemporaryDirectory() as folder:
+            top=Path(folder).resolve();run,workspace,desc,last,temporary=self.boundary_workspace(top)
+            redactor=credentials.Redactor(['synthetic-inference-authority'])
+            self.assertFalse(credentials.workspace_inspected_clean(workspace,redactor))
+            (workspace/'allowed.txt').write_text('OK')
+            oracle=fixtures.CHECK.replace("Path('/opt/pi-scorer/expected.json')",'Path('+repr(str(top/'subject/expected.json'))+')')
+            environment={k:v for k,v in os.environ.items() if not k.startswith('PI_APP_') and k!='PI_LAB_API_KEY'}
+            before=subprocess.run([sys.executable,'-c',oracle],cwd=workspace,env=environment,capture_output=True,timeout=5)
+            self.assertNotEqual(before.returncode,0)
+            command=shlex.split(last['arguments']['command']);self.assertEqual(command[:2],['python3','-c'])
+            reply=subprocess.run([sys.executable,*command[1:]],cwd=workspace,env={**os.environ,'TMPDIR':str(temporary)},capture_output=True,text=True,check=True,timeout=5)
+            self.assertEqual(reply.stdout.strip(),'PRIVATE_TEMP_OK')
+            self.assertEqual((temporary/'allowed').read_text(),'OK');self.assertFalse((workspace/'escape').is_symlink())
+            self.assertTrue(credentials.workspace_inspected_clean(workspace,redactor))
+            after=subprocess.run([sys.executable,'-c',oracle],cwd=workspace,env=environment,capture_output=True,timeout=5)
+            self.assertEqual(after.returncode,0,after.stderr)
+            receipt=credentials.finish(run,desc,{},'synthetic-inference-authority',{'cleanup_confirmed':True})
+            self.assertEqual(receipt,{'schema':1,'status':'removed','workspace':'clean'})
+            self.assertTrue(workspace.is_dir())
+
+    def test_boundary_cleanup_still_discards_remaining_aliases_and_contamination(self):
+        import application_credentials as credentials,os,shlex,subprocess
+        for fault in ('foreign-link','dangling-link','credential-copy'):
+            with self.subTest(fault=fault),tempfile.TemporaryDirectory() as folder:
+                top=Path(folder).resolve();run,workspace,desc,last,temporary=self.boundary_workspace(top)
+                sentinel=top/'sentinel';sentinel.write_text('protected-host-bytes')
+                if fault=='credential-copy':(workspace/'copy').write_text('synthetic-inference-authority')
+                else:(workspace/'other-alias').symlink_to(sentinel if fault=='foreign-link' else top/'missing')
+                command=shlex.split(last['arguments']['command'])
+                subprocess.run([sys.executable,*command[1:]],cwd=workspace,env={**os.environ,'TMPDIR':str(temporary)},capture_output=True,check=True,timeout=5)
+                receipt=credentials.finish(run,desc,{},'synthetic-inference-authority',{'cleanup_confirmed':True})
+                self.assertEqual(receipt,{'schema':1,'status':'removed','workspace':'discarded'})
+                self.assertFalse(workspace.exists());self.assertEqual(sentinel.read_text(),'protected-host-bytes')
+
+    def test_segment_inventory_counts_latest_alias_once_and_all_real_attempts(self):
+        import uuid
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);runs=root/'runs';runs.mkdir();created=[]
+            for unused in range(2):
+                run=runs/str(uuid.uuid4());segments=run/'stages'/str(uuid.uuid4())/'segments';segments.mkdir(parents=True)
+                (segments/(str(uuid.uuid4())+'.json')).write_text('{}');created.append(run)
+            (runs/'latest').symlink_to(created[-1])
+            self.assertEqual(qualification.count_segments(root),2)
+            self.assertEqual(qualification.canonical_runs(runs),sorted(created))
+    def test_segment_inventory_rejects_foreign_or_unexpected_aliases(self):
+        import uuid
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);runs=root/'runs';runs.mkdir();outside=root/str(uuid.uuid4());outside.mkdir()
+            (runs/'latest').symlink_to(outside)
+            with self.assertRaises(RuntimeError):qualification.count_segments(root)
+            (runs/'latest').unlink();(runs/str(uuid.uuid4())).symlink_to(outside)
+            with self.assertRaises(RuntimeError):qualification.count_segments(root)
+    def test_segment_inventory_rejects_linked_stages_and_segment_files(self):
+        import uuid
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);run=root/'runs'/str(uuid.uuid4());run.mkdir(parents=True);outside=root/'outside';outside.mkdir()
+            (run/'stages').symlink_to(outside)
+            with self.assertRaises(RuntimeError):qualification.count_segments(root)
+            (run/'stages').unlink();stage=run/'stages'/str(uuid.uuid4());stage.mkdir(parents=True)
+            segments=stage/'segments';segments.mkdir();target=outside/'record';target.write_text('{}')
+            (segments/(str(uuid.uuid4())+'.json')).symlink_to(target)
+            with self.assertRaises(RuntimeError):qualification.count_segments(root)
+
+    def test_segment_inventory_rejects_linked_experiment_ancestor(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);real=root/'real';real.mkdir();(real/'runs').mkdir();alias=root/'alias';alias.symlink_to(real)
+            with self.assertRaises(RuntimeError):qualification.count_segments(alias)
+            with self.assertRaises(RuntimeError):qualification.canonical_runs(alias/'runs')
+
     def test_fixed_matrix_contains_both_releases_three_positive_repetitions_and_eight_faults(self):
         rows=qualification.matrix();self.assertEqual(len(rows),24)
         self.assertEqual(sum(r['cells'] for r in rows),124);self.assertEqual(sum(r['segments_ceiling'] for r in rows),192)
@@ -102,6 +190,24 @@ class ScriptedServiceTests(unittest.TestCase):
             delta=self.post(history);names.append(delta['tool_calls'][0]['function']['name']);history.append({'role':'tool','content':'scripted observed tool result'})
         self.assertEqual(names,['read','write','edit','write','bash','write','bash'])
         self.assertEqual(self.post(history)['content'],'SCRIPTED_FINISHED')
+    def test_truncation_is_selected_by_exact_controlled_request_without_file_update(self):
+        import http.client
+        self.config.update(routing_fixture=True,route_keys={'route-a':'synthetic-route-a','route-b':'synthetic-route-b'})
+        self.path.write_text(json.dumps(self.config));before=self.path.read_bytes()
+        def request(messages,key='synthetic-route-a'):
+            connection=http.client.HTTPConnection('127.0.0.1',self.server.server_port,timeout=2)
+            connection.request('POST','/route-a/v1/chat/completions',json.dumps({'messages':messages}),{'Authorization':'Bearer '+key})
+            reply=connection.getresponse()
+            try:return reply.status,reply.read()
+            finally:connection.close()
+        self.assertEqual(request([])[0],200)
+        self.assertEqual(request([{'role':'user','content':'qualification:truncate-extra'}])[0],200)
+        self.assertEqual(request(parallel_service.TRUNCATION_MESSAGES,'foreign')[0],401)
+        with self.assertRaises(http.client.IncompleteRead):request(parallel_service.TRUNCATION_MESSAGES)
+        self.assertEqual(self.path.read_bytes(),before)
+    def test_truncation_marker_does_not_change_generic_scripted_chat(self):
+        result=self.post(parallel_service.TRUNCATION_MESSAGES)
+        self.assertEqual(result['tool_calls'][0]['function']['name'],'read')
 
 import copy
 import uuid

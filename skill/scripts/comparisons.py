@@ -38,6 +38,15 @@ def assessment(record,expected,configuration_digest):
     if expected.get('parallel_contract_sha256'):
         matched=matched and record.get('inference_admission',{}).get('contract_sha256')==expected['parallel_contract_sha256']
         matched=matched and record.get('inference_admission',{}).get('max_inflight')==1
+    if expected.get('indexed_bindings'):
+        matched=matched and record.get('inference_admission',{}).get('bindings_sha256')==expected['bindings_sha256']
+        agents=record.get('agents',[])
+        matched=matched and len(agents)==len(expected['indexed_bindings'])
+        for agent in agents:
+            binding=expected['indexed_bindings'].get(agent.get('name'))
+            segments=agent.get('process',{}).get('segments',[])
+            matched=matched and binding is not None and agent.get('inference_binding')==binding and bool(segments)
+            matched=matched and all(s.get('execution_identity',{}).get('inference_binding')==binding for s in segments)
     if expected.get('profile_explicit'):
         observations=record.get('agent_profile',{}).get('observed_stages',[])
         matched=matched and record.get('provenance',{}).get('agent_profile',{}).get('sha256')==expected['agent_profile_sha256']
@@ -162,7 +171,7 @@ def expected_contracts(root,metadata,rows,lab):
         path=Path(root)/row['plan']
         import agent_profiles
         profile=agent_profiles.load(Path(root)/row['agent_profile']) if row.get('agent_profile') else agent_profiles.builtin()
-        plan=lab.validate_plan(json.loads(path.read_text()),path.parent,profile)
+        plan=lab.validate_plan(json.loads(path.read_text()),path.parent,profile,external_bindings=metadata['schema']==3)
         contract=plan['checks'][0]['scorer'];hashes={x['target']:hashlib.sha256(Path(x['source']).read_bytes()).hexdigest() for x in contract['assets']}
         oracle={'scorer_id':contract['id'],'scorer_version':contract['version'],'scorer_sha256':hashlib.sha256(json.dumps(hashes,sort_keys=True).encode()).hexdigest(),'score_domain':contract['score_domain']}
         endpoint=lab.load_endpoint(Path(root)/row['endpoint'])
@@ -171,5 +180,10 @@ def expected_contracts(root,metadata,rows,lab):
                                   'plan_sha256':row['plan_sha256'],'runner_content_sha256':metadata['runner_content_sha256'],
                                   'image':metadata['execution']['image'],'platform':metadata['execution']['platform'],
                                   'profile_explicit':row.get('profile_explicit',False),'agent_profile_id':row.get('agent_profile_id','builtin'),'agent_profile_sha256':row.get('agent_profile_sha256')}
+        if metadata.get('schema')==3:
+            import indexed_reporting
+            bindings=json.loads((Path(root)/row['inference_bindings']).read_text())
+            expected[row['trial_id']].update(indexed_bindings={name:indexed_reporting.identity(binding) for name,binding in bindings.items()},
+                bindings_sha256=provenance.digest(bindings),parallel_contract_sha256=provenance.digest(metadata['indexed_execution']))
         if metadata.get('schema')==2:expected[row['trial_id']]['parallel_contract_sha256']=provenance.digest(metadata['concurrency'])
     return expected

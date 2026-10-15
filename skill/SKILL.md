@@ -3,8 +3,9 @@ name: pi-agent-test-env
 description: >-
   Evaluate local-model coding agents with frozen application cases, independent scorers,
   repeated trials and retained failure evidence, or delegate a bounded implementation task.
-  Run real Pi children in capability-checked Docker images against a user-selected
-  OpenAI-compatible Chat Completions endpoint. Use for application baselines, the optional
+  Run real Pi children in capability-checked Docker images against user-selected
+  OpenAI-compatible Chat Completions endpoints, including opt-in indexed per-stage
+  inference bindings. Use for application baselines, the optional
   reviewed fixture lookup integration, coding/review/tool-use acceptance and tested
   API/CLI/browser plans. Reuse the confirmed environment within a conversation, enforce
   CPU/memory/process/time/concurrency limits, and distinguish real invocations from fixtures.
@@ -13,7 +14,7 @@ description: >-
 
 # Local agent evaluation with Pi
 
-Package version: 4.4.0. Instructions are in English.
+Package version: 4.5.0. Instructions are in English.
 
 Exact reviewed Pi releases: 0.87.1 and 1.2.0. Use
 [PI-1.2.0.md](references/PI-1.2.0.md) for the newer contract and migration limits;
@@ -99,6 +100,15 @@ and the one-slot gateway; all stage, aggregate and collection ceilings stay froz
 Unknown server capacity never authorizes a second inference slot.
 
 ## 0. Environment gate (before image/model execution)
+
+For explicit named inference selection, read
+[INFERENCE-ENVIRONMENTS.md](references/INFERENCE-ENVIRONMENTS.md). Root lists the
+private catalog offline, selects the user's exact IDs/destinations, confirms every
+new configuration/authority once per session, qualifies the selected scope and
+freezes assignments before dispatch. `--inference-env ID` uses a broker and scoped
+tokens; children never receive the catalog or original upstream key. Legacy saved
+environment/`--endpoint` behavior below remains available. Catalog authorization
+is not live qualification, and another profile never authorizes automatic fallback.
 
 Keep one session ID for this conversation. If one is already confirmed, reuse it;
 do not create a new session or re-ask for the same key/settings on each task.

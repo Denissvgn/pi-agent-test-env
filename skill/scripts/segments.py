@@ -132,6 +132,7 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
     selected = release_contracts.identity(release)
     release_contracts.validate_binding(getattr(args, 'release_contract', selected), release)
     execution_identity = {'image_id': image, 'release_contract': selected}
+    if getattr(args,'_indexed_binding',None):execution_identity['inference_binding']=copy.deepcopy(args._indexed_binding)
     root=runroot/label;root.mkdir(parents=True,exist_ok=True)
     parent_records=runroot/'stages'/desc['stage_id']/'segments';parent_records.mkdir()
     session_id=str(uuid.uuid4());records=[];consumed=set();turns=0;tokens=0;known=True
@@ -140,6 +141,7 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
     cwd='/workspace'+('' if task.get('cwd','.')=='.' else '/'+task['cwd'])
     try:
         for ordinal in range(1,101):
+            if getattr(args,'_indexed_session',None):secret=args._indexed_session.continuation(renew=ordinal>1)
             segment_id=str(uuid.uuid4());logs=root/'segments'/segment_id
             control=Path(desc['control'])/'segments'/segment_id;control.mkdir(parents=True)
             state=activate(runroot,desc,segment_id,logs)
@@ -187,6 +189,7 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
                 controls.atomic(parent_records/(segment_id+'.json'),meta)
                 lab.save(root/'process.json',{**result,'segments':records+[meta]})
                 raise
+            if getattr(args,'_indexed_session',None) and result.get('cleanup_confirmed') is True:args._indexed_session.release_segment()
             ev=lab.analyze(logs/'stdout.jsonl',endpoint['model'],[],result['exit_code'],args.event_contract,release=getattr(args,'observed_pi_version',None),allowed_tools=task['tools'])
             if receipt:agent_profiles.staged(receipt)
             observation=agent_profiles.observed(logs/'stdout.jsonl',{**context,'asset_root':receipt['root']}) if receipt else {'loading':'unverified','errors':[]}

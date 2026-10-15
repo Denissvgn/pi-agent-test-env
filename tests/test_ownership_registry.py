@@ -30,6 +30,77 @@ class RegistryTests(unittest.TestCase):
         self.assertNotEqual(changed.generation,record['generation']);changed.reconcile()
         self.clean.assert_called_once_with(self.root/'run');self.assertEqual(changed.load()[0]['status'],'released')
 
+    def test_all_intent_types_reject_before_creation_at_capacity_but_cleanup_updates_work(self):
+        with mock.patch.object(registry,'MAX_RECORDS',1):
+            first,unused=self.intent()
+            for create in (self.intent,lambda:self.registry.network_intent('pi-network-fixture'),
+                           lambda:self.registry.builder_intent('fixture','sha256:'+'a'*64)):
+                with self.subTest(create=create),self.assertRaises(registry.RegistryCapacityError):create()
+                self.assertEqual(len(list(self.registry.root.iterdir())),1)
+            first['status']='absent';self.registry.write(first)
+            self.registry.release(first,True)
+            self.assertEqual(self.registry.load()[0]['status'],'released')
+            self.command.assert_not_called()
+
+    def test_capacity_check_exact_fit_invalid_reservations_and_excess_inventory(self):
+        import uuid
+        with mock.patch.object(registry,'MAX_RECORDS',2):
+            first,unused=self.intent()
+            self.assertEqual(self.registry.require_capacity(1),{'retained_records':1,'new_records_ceiling':1,'committed_records_limit':2})
+            for value in (2,True,-1,3,1.0):
+                with self.subTest(value=value),self.assertRaises(registry.RegistryCapacityError):self.registry.require_capacity(value)
+            self.intent()
+            self.assertEqual(self.registry.require_capacity(0)['retained_records'],2)
+            overflow={**first,'launch_id':str(uuid.uuid4())}
+            registry.controls.atomic(self.registry.root/(overflow['launch_id']+'.json'),overflow)
+            with self.assertRaises(registry.RegistryCapacityError):self.registry.load()
+
+    def test_secure_transients_do_not_consume_committed_capacity_or_allow_new_intents(self):
+        import uuid
+        with mock.patch.object(registry,'MAX_RECORDS',1):
+            record,unused=self.intent();temporary=self.registry.root/('.'+record['launch_id']+'.json-'+uuid.uuid4().hex)
+            temporary.write_text('{"partial":');temporary.chmod(0o600)
+            self.assertEqual(self.registry.load(observe=True),[record])
+            with self.assertRaises(registry.RegistryCapacityError):self.intent()
+            record['status']='absent';self.registry.write(record)
+            self.assertEqual(self.registry.load(observe=True)[0]['status'],'absent')
+            with self.assertRaises(registry.RegistryError):self.registry.load()
+            temporary.chmod(0o644)
+            with self.assertRaises(registry.RegistryError):self.registry.load(observe=True)
+
+    def test_transient_inventory_and_serialized_record_sizes_remain_bounded(self):
+        import uuid
+        record,unused=self.intent()
+        with mock.patch.object(registry,'MAX_TRANSIENT_RECORDS',1):
+            for number in range(2):
+                p=self.registry.root/('.'+record['launch_id']+'.json-'+uuid.uuid4().hex);p.write_text('{}');p.chmod(0o600)
+            with self.assertRaises(registry.RegistryError):self.registry.load(observe=True)
+        record['oversize']='x'*(1024*1024)
+        with self.assertRaises(registry.RegistryError):self.registry.write(record)
+        self.assertNotIn('oversize',registry.read_private(self.registry.root/(record['launch_id']+'.json')))
+
+    def test_concurrent_creates_cannot_overrun_the_last_slot(self):
+        import threading
+        barrier=threading.Barrier(2);created=[];rejected=[]
+        def create():
+            barrier.wait()
+            try:created.append(self.intent()[0])
+            except registry.RegistryCapacityError:rejected.append(True)
+        with mock.patch.object(registry,'MAX_RECORDS',1):
+            threads=[threading.Thread(target=create) for unused in range(2)]
+            for thread in threads:thread.start()
+            for thread in threads:thread.join(5);self.assertFalse(thread.is_alive())
+            self.assertEqual((len(created),len(rejected)),(1,1));self.assertEqual(len(self.registry.load()),1)
+
+    def test_capacity_diagnostic_never_exposes_raw_exception_data(self):
+        import resources
+        raw='synthetic-private-key https://private.invalid/secret'
+        value=resources.admission_diagnostic(registry.RegistryCapacityError(raw))
+        self.assertEqual(value['reason'],'host-registry-capacity')
+        self.assertNotIn(raw,json.dumps(value));self.assertNotIn('private.invalid',json.dumps(value))
+        class Spoof(registry.RegistryCapacityError):pass
+        self.assertIsNone(resources.admission_diagnostic(Spoof(raw)))
+
     def test_owner_pid_reuse_cannot_establish_or_prevent_cleanup(self):
         record,_=self.intent();record['owner_pid']=os.getpid();self.registry.write(record)
         self.command.side_effect=[self.reply(body=json.dumps(self.observed(record))),self.reply(),self.reply(1,error='No such container')]

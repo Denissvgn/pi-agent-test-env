@@ -16,6 +16,9 @@ import time
 from types import MappingProxyType
 
 ADMISSION_FAILURES = MappingProxyType({
+    'host-registry-capacity': (
+        'The bounded host launch registry has insufficient capacity',
+        'Keep dependent execution stopped. Preserve ownership and failure history; request reviewed registry maintenance or a bounded capacity change before fresh dispatch. Do not delete records or bypass the host lease.'),
     'host-registry-unsafe': (
         'Prior owned execution cannot be safely reconciled',
         'Keep dependent execution stopped. Inspect the owner-only launch registry and confirm owned writer absence and sensitive cleanup before requesting recovery; do not delete records or bypass the host lease.'),
@@ -53,6 +56,12 @@ class AdmissionError(ValueError):
 
 def admission_diagnostic(exc):
     """Do not classify arbitrary exception text, hashes or reason/remedy attributes."""
+    import indexed_contract
+    import ownership_registry
+    if type(exc) is ownership_registry.RegistryCapacityError:
+        return admission_diagnostic(AdmissionError('host-registry-capacity'))
+    selected=indexed_contract.diagnostic(exc)
+    if selected is not None:return selected
     if not isinstance(exc, AdmissionError):
         return None
     if type(exc) is not AdmissionError:
@@ -216,13 +225,15 @@ def admission_lock(path, wait_seconds=0):
                 registry.lease_fd=handle.fileno()
                 registry.reconcile()
             except (ownership_registry.RegistryError,OSError,ValueError) as exc:
-                raise AdmissionError('host-registry-unsafe',str(exc)) from None
+                code='host-registry-capacity' if type(exc) is ownership_registry.RegistryCapacityError else 'host-registry-unsafe'
+                raise AdmissionError(code,str(exc)) from None
             token=ownership_registry.CURRENT.set(registry)
             try:
                 yield registry
                 try:registry.close()
                 except (ownership_registry.RegistryError,OSError,ValueError) as exc:
-                    raise AdmissionError('host-registry-unsafe',str(exc)) from None
+                    code='host-registry-capacity' if type(exc) is ownership_registry.RegistryCapacityError else 'host-registry-unsafe'
+                    raise AdmissionError(code,str(exc)) from None
             finally:ownership_registry.CURRENT.reset(token)
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)

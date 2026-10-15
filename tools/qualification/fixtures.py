@@ -38,6 +38,7 @@ elif kind=='credentials':
     assert json.loads(Path('unassigned.json').read_text())=={'role':'unassigned','application_environment':False}
 elif kind=='boundary':
     assert Path('allowed.txt').read_text()=='OK'
+    assert not Path('escape').exists() and not Path('escape').is_symlink()
 elif kind=='sentinel':
     assert not Path('SENTINEL_EXECUTED').exists()
 elif kind=='recovery':

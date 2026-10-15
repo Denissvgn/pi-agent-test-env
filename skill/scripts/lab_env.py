@@ -370,6 +370,10 @@ def add_parser(sub) -> None:
     st.add_argument('--chat', action='store_true', help='Also run one tiny chat completion')
     cf = ops.add_parser('confirm', help='Record that the user approved the saved environment for this session')
     cf.add_argument('--session')
+    for command in (st,cf):
+        command.add_argument('--id',help='Explicit named indexed environment; uses offline per-profile state')
+        command.add_argument('--catalog-dir')
+        command.add_argument('--secrets-dir')
     ds = ops.add_parser('discover', help='List models and parameters offered by a server')
     ds.add_argument('--base-url', required=True)
     ds.add_argument('--api-key-env', default='PI_API_KEY')
@@ -394,10 +398,25 @@ def add_parser(sub) -> None:
     sv.add_argument('--no-verify', action='store_true', help='Do not run the live health check before saving')
     sv.add_argument('--session', help='Confirm for this session after saving (default: PI_LAB_SESSION if set)')
     ck = ops.add_parser('check', help='Live health check of the saved environment (models list + tiny chat)')
+    ck.add_argument('--id',help='Explicit indexed profile; bounded broker admission required')
+    ck.add_argument('--session');ck.add_argument('--catalog-dir');ck.add_argument('--secrets-dir')
+    ck.add_argument('--image');ck.add_argument('--resources');ck.add_argument('--platform',choices=['linux/arm64','linux/amd64'])
     ck.add_argument('--no-chat', action='store_true')
     cl = ops.add_parser('clear', help='Delete the saved environment')
     cl.add_argument('--session', help='Also forget this session confirmation')
     ops.add_parser('path', help='Print the saved endpoint file path')
+    listing=ops.add_parser('list',help='Offline metadata-only indexed environment list')
+    listing.add_argument('--json',action='store_true');listing.add_argument('--catalog-dir');listing.add_argument('--secrets-dir')
+    inspect=ops.add_parser('inspect',help='Offline indexed inspection; detailed configuration is private-only')
+    inspect.add_argument('--id');inspect.add_argument('--index',type=int);inspect.add_argument('--catalog-revision',type=int)
+    inspect.add_argument('--private',action='store_true');inspect.add_argument('--json',action='store_true')
+    inspect.add_argument('--catalog-dir');inspect.add_argument('--secrets-dir')
+    for name in ('register','update','revoke','delete'):
+        indexed=ops.add_parser(name,help='Explicit offline indexed catalog mutation')
+        indexed.add_argument('--id',required=True);indexed.add_argument('--catalog-dir');indexed.add_argument('--secrets-dir')
+        if name in ('register','update'):
+            indexed.add_argument('--config',required=True);indexed.add_argument('--default',action='store_true')
+        if name!='register':indexed.add_argument('--expected-revision',type=int,required=True)
 
 
 def run(args, validate_endpoint, store=None) -> int:
@@ -406,6 +425,9 @@ def run(args, validate_endpoint, store=None) -> int:
         print(json.dumps(value, indent=2))
 
     op = args.env_op
+    if op in ('list','inspect','register','update','revoke','delete') or getattr(args,'id',None) is not None:
+        import inference_catalog
+        return inference_catalog.command(args)
     try:
         if op == 'new-session':
             print(new_session_id())

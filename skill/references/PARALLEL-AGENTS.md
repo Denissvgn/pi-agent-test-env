@@ -155,3 +155,7 @@ termination cannot release the slot as known completion.
 This gateway does not constrain unrelated model-server clients or establish model
 throughput. Request bodies are bounded to 2 MiB, responses to 64 MiB, and helper
 threads are bounded by the inference queue limit.
+
+## Indexed inference opt-in
+
+Indexed heterogeneous collections require schema 3, `parallel-trials-v2` and host generation 2. The predecessor schema 2 remains homogeneous. Both use two worker slots and one inference slot. Keep older clients quiesced; see [INFERENCE-ENVIRONMENTS.md](INFERENCE-ENVIRONMENTS.md).

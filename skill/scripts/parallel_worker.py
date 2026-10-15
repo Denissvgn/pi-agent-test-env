@@ -21,6 +21,9 @@ def main():
     args.network=bootstrap['network'];args.host_gateway=True
     args._parallel_session=RemoteAdmission(channel,bootstrap,lambda argv:lab.command(argv,timeout=15,required=False))
     args._parallel_inference_key=bootstrap['inference']['token']
+    if bootstrap.get('indexed'):
+        from indexed_parallel import RemoteSession
+        args._indexed_session=RemoteSession(args._parallel_session,bootstrap)
     try:return lab.run_suite(args,initial_record=bootstrap['intent']['initial_record'])
     finally:
         channel.sock.close();os.close(lease_fd)

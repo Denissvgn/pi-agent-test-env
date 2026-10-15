@@ -1,0 +1,106 @@
+{
+  "schema": 2,
+  "name": "application-slug",
+  "required_paths": [
+    "services/api/SPEC.md",
+    "services/api/slug.py",
+    "services/api/tests/test_slug.py"
+  ],
+  "protected_paths": [
+    "services/api/SPEC.md",
+    "services/api/tests"
+  ],
+  "agents": [
+    {
+      "name": "implementer",
+      "cwd": "services/api",
+      "prompt": "Read SPEC.md and tests/test_slug.py with read. Implement slug.py without changing the specification or tests. Use bash to run python3 /opt/pi-lab/verify-unittest.py --start-dir tests. Report actual changes, tests, and limitations.",
+      "tools": [
+        "read",
+        "write",
+        "edit",
+        "bash"
+      ],
+      "require_tools": [
+        "read",
+        "bash"
+      ],
+      "access": "rw",
+      "timeout_seconds": 600,
+      "max_turns": 12,
+      "max_total_tokens": 128000
+    },
+    {
+      "name": "reviewer",
+      "cwd": "services/api",
+      "prompt": "Read SPEC.md, slug.py, and the acceptance tests independently. Report concrete discrepancies and edge cases with file/line references. The project is read-only; do not change files. Treat another agent's claim as unverified. State any limitations and whether acceptance criteria are covered.",
+      "tools": [
+        "read",
+        "grep",
+        "find",
+        "ls"
+      ],
+      "require_tools": [
+        "read"
+      ],
+      "access": "ro",
+      "timeout_seconds": 600,
+      "max_turns": 12,
+      "max_total_tokens": 128000
+    }
+  ],
+  "checks": [
+    {
+      "name": "external-oracle",
+      "cwd": "services/api",
+      "argv": [
+        "python3",
+        "/opt/pi-scorer/oracle.py"
+      ],
+      "network": "none",
+      "timeout_seconds": 30,
+      "scorer": {
+        "schema": 1,
+        "id": "ascii-slug-oracle",
+        "version": "1",
+        "assets": [
+          {
+            "source": "../application-baseline/oracle.py",
+            "target": "oracle.py"
+          },
+          {
+            "source": "../application-baseline/cases.json",
+            "target": "cases.json"
+          },
+          {
+            "source": "../application-baseline/subject_call.py",
+            "target": "subject_call.py"
+          }
+        ],
+        "score_domain": {
+          "min": 0,
+          "max": 1,
+          "direction": "higher",
+          "pass_threshold": 1
+        },
+        "required_assertions": [
+          "words",
+          "runs-edges",
+          "empty",
+          "ascii-digits",
+          "unicode-lower",
+          "types",
+          "idempotent",
+          "separators"
+        ],
+        "test_counts_required": true,
+        "zero_test_policy": "fail",
+        "all_skipped_policy": "fail"
+      }
+    }
+  ],
+  "inference_bindings": {
+    "implementer": "builder-local",
+    "reviewer": "reviewer-local"
+  }
+}

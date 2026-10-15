@@ -26,7 +26,9 @@ def sequence(mode):
             tool('write', {'path': '/workspace/escape/pi-qualification-denied', 'content': 'BAD'}),
             tool('bash', {'command': 'printf BAD > /opt/pi-control/task.json'}),
             tool('write', {'path': '/workspace/allowed.txt', 'content': 'OK'}),
-            tool('bash', {'command': "python3 -c \"import os;from pathlib import Path;p=Path(os.environ['TMPDIR'])/'allowed';p.write_text('OK');assert p.read_text()=='OK';print('PRIVATE_TEMP_OK')\""})]
+            # Remove only the owned escape fixture after the denied operations.
+            # Indexed sensitive cleanup must still reject any remaining alias.
+            tool('bash', {'command': "python3 -c \"import os;from pathlib import Path;p=Path(os.environ['TMPDIR'])/'allowed';p.write_text('OK');assert p.read_text()=='OK';Path('escape').unlink();print('PRIVATE_TEMP_OK')\""})]
     if mode == 'contamination':
         return [read, tool('bash', {'command': "python3 -c \"import os;open('leak.txt','w').write(os.environ['PI_APP_KEY'])\""})]
     if mode == 'timeout':

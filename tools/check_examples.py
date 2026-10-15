@@ -95,7 +95,7 @@ def collect(source):
     plans, profiles = [], []
     for path in sorted(source.rglob('*.plan.json')):
         profile = agent_profiles.load(source / 'assets/profiles/fixture-lookup/profile.json') if path.name == 'lookup.plan.json' else None
-        pi_lab.validate_plan(json.loads(path.read_text()), path.parent, agent_profile=profile)
+        pi_lab.validate_plan(json.loads(path.read_text()), path.parent, agent_profile=profile,external_bindings=path.name=='external.plan.json')
         plans.append(str(path.relative_to(source)))
     for relative in ('assets/profiles/builtin.json', 'assets/profiles/fixture-lookup/profile.json'):
         profile = agent_profiles.load(source / relative)
@@ -129,6 +129,21 @@ def collect(source):
                 path = Path(temporary) / filename; path.write_text(json.dumps(value))
                 experiments.validate(path, pi_lab, endpoint_path=endpoint)
                 definitions.append({'path': filename, 'planned_cells': len(value['cases']) * len(value['variants']) * value['repetitions']})
+
+    from inference_catalog import Catalog
+    with tempfile.TemporaryDirectory(prefix='pi-indexed-examples-') as temporary:
+        catalog=Catalog(pi_lab.normalize_endpoint,Path(temporary)/'catalog',Path(temporary)/'store')
+        for name in ('builder-local','reviewer-local'):
+            configuration=json.loads((source/'assets/inference-profile.example.json').read_text())
+            configuration['credential']={'source':'none'}
+            catalog.register(name,configuration);catalog.confirm(name,'fixture')
+        spec=importlib.util.spec_from_file_location('indexed_example',source/'examples/indexed-inference/configure.py')
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        for release in ('0.87.1','1.2.0'):
+            for name,value in module.definitions('sha256:'+'a'*64,release).items():
+                definition=Path(temporary)/(release+'-'+name);definition.write_text(json.dumps(value))
+                normalized=experiments.validate(definition,pi_lab,catalog=catalog)
+                definitions.append({'path':'indexed-'+release+'-'+name,'planned_cells':len(normalized['cases'])*len(normalized['variants'])*normalized['repetitions']})
 
     syntax = {'python': [], 'json': [], 'javascript': []}
     for path in sorted(source.rglob('*')):

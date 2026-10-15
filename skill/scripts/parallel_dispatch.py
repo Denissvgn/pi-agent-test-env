@@ -57,7 +57,10 @@ class RemoteAdmission:
             self.owner_lost=True
             if not cleanup:raise KeyboardInterrupt from None
             raise ParallelError('Owner lost during private cleanup confirmation') from None
-        if reply.get('op')!='ok':raise ParallelError('Private admission grant rejected')
+        if reply.get('op')!='ok':
+            import indexed_contract
+            if reply.get('reason') in indexed_contract.REASONS:raise indexed_contract.IndexedError(reply['reason'])
+            raise ParallelError('Private admission grant rejected')
         return reply
     @contextlib.contextmanager
     def admission(self,args,attempt):
@@ -91,11 +94,16 @@ class RemoteAdmission:
         return {**original,'base_url':route['base_url'],'host_base_url':route['host_base_url'],'api_key_env':'PI_PARALLEL_INFERENCE'}
 
 
+def worker_environment(bootstrap):
+    names=set(bootstrap.get('secret_variable_names',[]))
+    env={k:v for k,v in os.environ.items() if k not in names and not k.startswith('PI_APP_') and not k.endswith(('API_KEY','ACCESS_TOKEN','AUTH_TOKEN','PASSWORD','SECRET'))}
+    env['PYTHONDONTWRITEBYTECODE']='1'
+    return env
+
+
 def launch_worker(bootstrap,logfile,lease_fd):
     parent,child=socket.socketpair()
-    channel=Channel(parent)
-    env={k:v for k,v in os.environ.items() if not k.startswith('PI_APP_') and not k.endswith(('API_KEY','ACCESS_TOKEN','AUTH_TOKEN','PASSWORD','SECRET'))}
-    env['PYTHONDONTWRITEBYTECODE']='1'
+    channel=Channel(parent);env=worker_environment(bootstrap)
     try:
         process=subprocess.Popen([sys.executable,str(Path(__file__).with_name('parallel_worker.py')),str(child.fileno()),str(lease_fd)],
                                  pass_fds=(child.fileno(),lease_fd),env=env,stdout=logfile,stderr=logfile)
@@ -118,6 +126,12 @@ class Peer:
             self.allocator.consume(self.reservation.identity,message.get('capability',''),self.reservation.binding,self.reservation.resources)
             self.entered=True;return {'op':'ok'}
         if not self.entered:raise ParallelError('Trial has no consumed admission grant')
+        if operation=='indexed-stage':
+            if not hasattr(self,'indexed_stage') or set(message) not in ({'op','name'},{'op','name','renew'}):raise ParallelError('No indexed stage grant')
+            return {'op':'ok',**self.indexed_stage(message['name'],message.get('renew',False))}
+        if operation=='indexed-release':
+            if not hasattr(self,'indexed_release') or set(message)!={'op'}:raise ParallelError('No indexed release grant')
+            self.indexed_release();return {'op':'ok'}
         if operation=='daemon':
             if message.get('value')!=self.registry.daemon:raise ParallelError('Worker daemon differs from frozen grant')
             return {'op':'ok'}

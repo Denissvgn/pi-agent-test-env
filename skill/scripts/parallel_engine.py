@@ -46,6 +46,7 @@ def collect(root,metadata,matrix,work,lab,registry,pool,session,inference,networ
         while active or queued and not stopped:
             if clock()>=deadline:stop('interrupted')
             while queued and len(active)<contract['max_trials'] and not stopped:
+                if inference.get('admit'):inference['admit']()
                 cell=queued[0];identity=cell['trial_id']
                 binding={'generation':registry.generation,'trial_id':identity,'image':metadata['execution']['image'],
                          'release_contracts':metadata['release_contracts'],'daemon':getattr(registry,'daemon',None)}
@@ -66,8 +67,14 @@ def collect(root,metadata,matrix,work,lab,registry,pool,session,inference,networ
                 bootstrap={'experiment':str(root),'intent':intent,'session':session,'network':network,
                            'capability':reservation.capability,'inference':inference['trial'](intent),
                            'credentials':inference.get('credentials',{}).get(identity,{})}
+                if inference.get('indexed'):
+                    bootstrap['indexed']=inference['indexed'](cell,intent)
+                    bootstrap['secret_variable_names']=inference.get('secret_variable_names',[])
                 output=(root/'logs'/(intent['attempt_id']+'.txt')).open('w')
                 peer=Peer(bootstrap,registry,pool,reservation,metadata,runroot)
+                if inference.get('stage_admission'):
+                    peer.indexed_stage=lambda name,renew=False,identity=identity:inference['stage_admission'](identity,name,renew)
+                    peer.indexed_release=lambda identity=identity:inference['stage_release'](identity)
                 try:process,channel=spawn(bootstrap,output,registry.lease_fd)
                 except BaseException:output.close();raise
                 active[identity]={'intent':intent,'path':path,'process':process,'channel':channel,'peer':peer,'output':output,'network':network}
@@ -79,11 +86,17 @@ def collect(root,metadata,matrix,work,lab,registry,pool,session,inference,networ
                     try:message=channel.receive(.2)
                     except EOFError:message=None
                     if message is not None:
+                        rejected=False
                         try:reply=item['peer'].handle(message)
-                        except (ParallelError,ValueError,OSError):reply={'op':'rejected'};stop('blocked')
+                        except (ParallelError,ValueError,OSError) as exc:
+                            import indexed_contract
+                            diagnostic=indexed_contract.diagnostic(exc)
+                            reply={'op':'rejected',**({'reason':diagnostic['reason']} if diagnostic else {})};rejected=True
                         try:channel.send(reply)
                         except OSError:pass
+                        if rejected:stop('blocked')
                 if item['process'].poll() is None:continue
+                if inference.get('stage_release'):inference['stage_release'](identity)
                 try:
                     result=finalize(root,item['intent'],item['path'],lab)
                     known=experiments.cleanup_known(root,item['intent'],result)
@@ -119,6 +132,7 @@ def collect(root,metadata,matrix,work,lab,registry,pool,session,inference,networ
                         item['channel'].send(reply)
                     except (EOFError,OSError,ValueError):pass
                 if item['process'].poll() is None:continue
+                if inference.get('stage_release'):inference['stage_release'](identity)
                 try:
                     result=finalize(root,item['intent'],item['path'],lab)
                     physical=all(r['status']=='absent' for r in item['peer'].records) and item['peer'].active is None
@@ -136,7 +150,8 @@ def collect(root,metadata,matrix,work,lab,registry,pool,session,inference,networ
             registry.reconcile()
     except BaseException:
         stop('blocked')
-        for item in active.values():
+        for identity,item in active.items():
+            if inference.get('stage_release'):inference['stage_release'](identity)
             item['process'].kill();item['process'].wait(timeout=5);item['output'].close();item['channel'].sock.close()
         registry.reconcile()
         raise

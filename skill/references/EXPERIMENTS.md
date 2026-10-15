@@ -199,3 +199,7 @@ cutoff/resume demonstration. The candidate differs only in its predeclared promp
 instruction; it is not assumed to improve results. No integration profile is
 needed. Offline fixtures establish schema/reset/oracle behavior; real numbers
 require retained real execution and independent scoring evidence.
+
+## Indexed inference opt-in
+
+Schema 3 explicitly chooses indexed serial or parallel execution and freezes an exhaustive per-stage map. Use [INFERENCE-ENVIRONMENTS.md](INFERENCE-ENVIRONMENTS.md) for assignment ownership and public exports. Existing schemas 1/2 retain their meanings.
