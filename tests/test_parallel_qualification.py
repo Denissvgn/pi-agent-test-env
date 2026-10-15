@@ -17,6 +17,59 @@ import secret_store
 
 
 class QualificationTests(unittest.TestCase):
+    def boundary_workspace(self,top):
+        import fixtures,service,subprocess,os,uuid
+        run=top/'run';workspace=run/'workspace';workspace.mkdir(parents=True)
+        project,path=fixtures.prepare(top/'subject','boundary','synthetic-nonce')
+        plan=experiments.read_json(path)
+        self.assertEqual(len(plan['setup']),1);self.assertEqual(len(plan['agents']),1)
+        setup=plan['setup'][0]['argv'];self.assertEqual(setup[:2],['python3','-c'])
+        subprocess.run([sys.executable,*setup[1:]],cwd=workspace,check=True,timeout=5)
+        calls=service.sequence('boundary')
+        self.assertEqual([c['name'] for c in calls],['read','write','edit','write','bash','write','bash'])
+        # Never execute the denied host/control operations on the test host.
+        self.assertEqual([c['arguments'].get('path') for c in calls[1:4]],
+            ['/etc/pi-qualification-denied','/etc/hostname','/workspace/escape/pi-qualification-denied'])
+        self.assertEqual(calls[4]['arguments']['command'],'printf BAD > /opt/pi-control/task.json')
+        temporary=top/'private-temp';temporary.mkdir()
+        return run,workspace,{'stage_id':str(uuid.uuid4()),'workspace':str(workspace.resolve())},calls[-1],temporary
+
+    def test_boundary_removes_only_its_owned_link_before_sensitive_cleanup(self):
+        import application_credentials as credentials,fixtures,os,shlex,subprocess
+        with tempfile.TemporaryDirectory() as folder:
+            top=Path(folder).resolve();run,workspace,desc,last,temporary=self.boundary_workspace(top)
+            redactor=credentials.Redactor(['synthetic-inference-authority'])
+            self.assertFalse(credentials.workspace_inspected_clean(workspace,redactor))
+            (workspace/'allowed.txt').write_text('OK')
+            oracle=fixtures.CHECK.replace("Path('/opt/pi-scorer/expected.json')",'Path('+repr(str(top/'subject/expected.json'))+')')
+            environment={k:v for k,v in os.environ.items() if not k.startswith('PI_APP_') and k!='PI_LAB_API_KEY'}
+            before=subprocess.run([sys.executable,'-c',oracle],cwd=workspace,env=environment,capture_output=True,timeout=5)
+            self.assertNotEqual(before.returncode,0)
+            command=shlex.split(last['arguments']['command']);self.assertEqual(command[:2],['python3','-c'])
+            reply=subprocess.run([sys.executable,*command[1:]],cwd=workspace,env={**os.environ,'TMPDIR':str(temporary)},capture_output=True,text=True,check=True,timeout=5)
+            self.assertEqual(reply.stdout.strip(),'PRIVATE_TEMP_OK')
+            self.assertEqual((temporary/'allowed').read_text(),'OK');self.assertFalse((workspace/'escape').is_symlink())
+            self.assertTrue(credentials.workspace_inspected_clean(workspace,redactor))
+            after=subprocess.run([sys.executable,'-c',oracle],cwd=workspace,env=environment,capture_output=True,timeout=5)
+            self.assertEqual(after.returncode,0,after.stderr)
+            receipt=credentials.finish(run,desc,{},'synthetic-inference-authority',{'cleanup_confirmed':True})
+            self.assertEqual(receipt,{'schema':1,'status':'removed','workspace':'clean'})
+            self.assertTrue(workspace.is_dir())
+
+    def test_boundary_cleanup_still_discards_remaining_aliases_and_contamination(self):
+        import application_credentials as credentials,os,shlex,subprocess
+        for fault in ('foreign-link','dangling-link','credential-copy'):
+            with self.subTest(fault=fault),tempfile.TemporaryDirectory() as folder:
+                top=Path(folder).resolve();run,workspace,desc,last,temporary=self.boundary_workspace(top)
+                sentinel=top/'sentinel';sentinel.write_text('protected-host-bytes')
+                if fault=='credential-copy':(workspace/'copy').write_text('synthetic-inference-authority')
+                else:(workspace/'other-alias').symlink_to(sentinel if fault=='foreign-link' else top/'missing')
+                command=shlex.split(last['arguments']['command'])
+                subprocess.run([sys.executable,*command[1:]],cwd=workspace,env={**os.environ,'TMPDIR':str(temporary)},capture_output=True,check=True,timeout=5)
+                receipt=credentials.finish(run,desc,{},'synthetic-inference-authority',{'cleanup_confirmed':True})
+                self.assertEqual(receipt,{'schema':1,'status':'removed','workspace':'discarded'})
+                self.assertFalse(workspace.exists());self.assertEqual(sentinel.read_text(),'protected-host-bytes')
+
     def test_segment_inventory_counts_latest_alias_once_and_all_real_attempts(self):
         import uuid
         with tempfile.TemporaryDirectory() as temp:
