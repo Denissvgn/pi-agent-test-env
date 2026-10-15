@@ -1,5 +1,23 @@
 # Changelog
 
+## 4.5.0
+
+- Add opt-in indexed inference environments with explicit credential sources,
+  exact-authority confirmation, revocation and frozen per-stage assignments.
+- Keep upstream credentials outside indexed Pi workers through a bounded broker
+  with scoped capabilities, all-selected-key redaction, isolated snapshots and
+  networks, one cooperating inference slot and durable uncertainty quarantine.
+- Integrate discovery, selection, confirmation, qualification and recovery into
+  the installed skill, with single/serial/parallel and role-map examples and
+  allowlisted public exports. Preserve legacy schemas and Pi 0.87.1/1.2.0 support.
+- Reject ownership intents before registry capacity exhaustion, preserve cleanup
+  updates and retained history, and check campaign headroom before dispatch.
+- Qualify the recorded executor on native ARM64 across both Pi releases: all
+  220 cell oracles passed, with 292 actual Pi segments, 36 inspected coding
+  pipelines and confirmed physical/private cleanup. Live profiles used two
+  credential references on the same backend/model; broader compatibility and
+  WorkChord acceptance remain separate claims.
+
 ## 4.4.0
 
 - Add explicit schema-2 two-trial scheduling with weighted reservations, private

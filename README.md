@@ -1,6 +1,6 @@
 # pi-agent-test-env
 
-[![Version](https://img.shields.io/badge/version-4.4.0-blue)](skill/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.5.0-blue)](skill/CHANGELOG.md)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](skill/README.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-compatible-7B61FF)](skill/SKILL.md)

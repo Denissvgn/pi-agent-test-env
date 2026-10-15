@@ -1,6 +1,6 @@
 # Qualification and support
 
-## Experimental indexed inference scope
+## Experimental 4.5.0 indexed inference scope
 
 On 15 October 2026, a fresh frozen native ARM64 campaign at executable head
 `a81eec954245db962110dc4277502e6d7b25fa66` passed all 220 planned cell oracles for
@@ -50,8 +50,8 @@ code on the host. Reviewer prose included advisory inaccuracies and is not appro
 or a measurement of model-review quality; generated fixture code was not promoted.
 
 These measurements retain their original executable, harness and frozen inputs.
-The later documentation and manifest update changes package identity while
-preserving tested executable and fixture bytes. Offline regressions and extracted
+The later 4.5.0 version metadata, documentation and manifest update changes
+package identity while preserving tested executable and fixture bytes. Offline regressions and extracted
 package checks remain separate evidence. See
 [INFERENCE-ENVIRONMENTS.md](references/INFERENCE-ENVIRONMENTS.md) for selection,
 authorization, private/public outputs and recovery boundaries.
