@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import stat
 import subprocess
+import threading
 import uuid
 
 import stage_control as controls
@@ -18,10 +19,16 @@ CURRENT=contextvars.ContextVar('pi_owned_admission',default=None)
 SCHEMA=1
 LABEL='org.pi-agent-test-env.launch'
 REGISTRY_LABEL='org.pi-agent-test-env.registry'
+MAX_RECORDS=8192
+MAX_TRANSIENT_RECORDS=32
 
 
 class RegistryError(ValueError):
     reason='host-registry-unsafe'
+
+
+class RegistryCapacityError(RegistryError):
+    reason='host-registry-capacity'
 
 
 def private_directory(path):
@@ -75,19 +82,29 @@ class Registry:
         self.root=private_directory(path);self.command=command
         self.generation=str(uuid.uuid4());self.registry_id=hashlib.sha256(str(self.root).encode()).hexdigest()
         self.recover_sensitive=recover_sensitive;self.runroot=None;self.binding={};self.daemon=None
+        self._write_lock=threading.RLock()
+
+    def _paths(self,observe=False):
+        paths=[];transient=0
+        with os.scandir(self.root) as entries:
+            for entry in entries:
+                path=self.root/entry.name
+                if observe and re.fullmatch(r'\.[a-f0-9-]{36}\.json-[a-f0-9]{32}',path.name):
+                    # An observation sees only committed records. Admission remains
+                    # strict: an abandoned temporary entry still blocks dispatch.
+                    try:read_private(path,decode=False)
+                    except FileNotFoundError:pass # atomic replace consumed this temporary name
+                    transient+=1
+                    if transient>MAX_TRANSIENT_RECORDS:raise RegistryError('Registry transient inventory exceeds its bounded limit')
+                    continue
+                if not re.fullmatch(r'[a-f0-9-]{36}\.json',path.name):raise RegistryError('Unknown registry entry')
+                paths.append(path)
+                if len(paths)>MAX_RECORDS:raise RegistryCapacityError('Registry committed inventory exceeds its bounded limit')
+        return paths
 
     def load(self,observe=False):
         records=[]
-        paths=list(self.root.iterdir())
-        if len(paths)>4096:raise RegistryError('Registry inventory exceeds its bounded limit')
-        for path in paths:
-            if observe and re.fullmatch(r'\.[a-f0-9-]{36}\.json-[a-f0-9]{32}',path.name):
-                # An observation sees only committed records. Admission remains
-                # strict: an abandoned temporary entry still blocks dispatch.
-                try:read_private(path,decode=False)
-                except FileNotFoundError:pass # atomic replace consumed this temporary name
-                continue
-            if not re.fullmatch(r'[a-f0-9-]{36}\.json',path.name):raise RegistryError('Unknown registry entry')
+        for path in self._paths(observe):
             record=read_private(path)
             if (not isinstance(record,dict) or type(record.get('schema')) is not int or record.get('schema') not in (1,2)
                 or not controls.valid_id(record.get('launch_id')) or path.stem!=record['launch_id']
@@ -104,11 +121,26 @@ class Registry:
             records.append(record)
         return records
 
+    def require_capacity(self,additional):
+        if type(additional) is not int or not 0<=additional<=MAX_RECORDS:
+            raise RegistryCapacityError('Invalid registry reservation')
+        count=len(self.load())
+        if count+additional>MAX_RECORDS:raise RegistryCapacityError('Insufficient registry headroom before dispatch')
+        return {'retained_records':count,'new_records_ceiling':additional,'committed_records_limit':MAX_RECORDS}
+
     def write(self,record):
-        controls.atomic(self.root/(record['launch_id']+'.json'),record)
-        fd=os.open(self.root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
-        try:os.fsync(fd)
-        finally:os.close(fd)
+        if not controls.valid_id(record.get('launch_id')):raise RegistryError('Invalid launch identity')
+        if len((json.dumps(record,ensure_ascii=False,indent=2)+'\n').encode())>1024*1024:
+            raise RegistryError('Registry record exceeds its bounded limit')
+        with self._write_lock:
+            path=self.root/(record['launch_id']+'.json')
+            try:read_private(path,decode=False)
+            except FileNotFoundError:
+                if len(self._paths(observe=True))>=MAX_RECORDS:raise RegistryCapacityError('Registry capacity exhausted before intent creation')
+            controls.atomic(path,record)
+            fd=os.open(self.root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+            try:os.fsync(fd)
+            finally:os.close(fd)
 
     def reconcile(self):
         pending=[r for r in self.load() if r['status']!='released']

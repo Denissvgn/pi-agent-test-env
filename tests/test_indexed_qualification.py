@@ -65,6 +65,43 @@ class IntentTests(unittest.TestCase):
             self.assertEqual(paths['a-'+release+'-indexed-serial'],37)
             self.assertEqual(paths['a-'+release+'-legacy-serial'],31)
             self.assertEqual(paths['a-'+release+'-serial-roles'],49)
+
+    def test_registry_headroom_rejection_precedes_all_native_or_model_work(self):
+        import contextlib,types
+        unused,manifest=self.frozen();root=self.root/'intent'
+        capacity=indexed.predecessor.ownership_registry.RegistryCapacityError('synthetic capacity refusal')
+        from unittest.mock import Mock
+        fake=types.SimpleNamespace(load=lambda:[],require_capacity=Mock(side_effect=capacity),close=Mock())
+        @contextlib.contextmanager
+        def lease(*args,**kwargs):yield fake
+        with patch.dict(os.environ),patch.object(indexed.shutil,'which',return_value='/synthetic/docker'),patch.object(indexed.resources,'admission_lock',lease),patch.object(indexed.predecessor,'registry_records',return_value=[]),patch.object(indexed.lab,'command',side_effect=AssertionError('No Docker/model calls')),patch.object(indexed.pi_release,'native',side_effect=AssertionError('No native gate')):
+            with self.assertRaises(type(capacity)):indexed.infrastructure(root)
+        fake.require_capacity.assert_called_once_with(1437+196)
+        state=experiments.read_json(root/'state.json');self.assertEqual(state['phase'],'blocked')
+        budget=experiments.read_json(root/'budget.json');self.assertTrue(all(not any(value.values()) for value in budget['counts'].values()))
+        self.assertFalse((root/'live-health.json').exists());self.assertFalse((root/'core-0.87.1.json').exists())
+
+    def test_predecessor_format_oracle_uses_paired_bounded_witnesses_not_large_inventory(self):
+        import contextlib,types,legacy_registry_v1
+        ownership=indexed.predecessor.ownership_registry
+        registry=ownership.Registry(self.root/'large-registry')
+        record=registry.network_intent('synthetic-network');record.update(schema=2,binding={'indexed_host_generation':2});registry.write(record)
+        # The parent inventory is deliberately too large for the predecessor;
+        # only bounded shadow records may be fed to its format oracle.
+        fake=types.SimpleNamespace(root=registry.root,load=lambda:[record]*4097)
+        @contextlib.contextmanager
+        def lease(*args,**kwargs):yield fake
+        old_load=legacy_registry_v1.Registry.load;seen=[]
+        def checked_load(old,*args,**kwargs):
+            self.assertNotEqual(old.root,registry.root);self.assertEqual(len(list(old.root.iterdir())),1)
+            seen.append(old.root.name);return old_load(old,*args,**kwargs)
+        folder=self.root/'old-client-gate';folder.mkdir()
+        with patch.object(indexed.resources,'admission_lock',lease),patch.object(legacy_registry_v1.Registry,'load',checked_load),patch.object(indexed.predecessor,'command',side_effect=AssertionError('No Docker dispatch')):
+            indexed.infrastructure_old_client(folder)
+        self.assertEqual(seen,['1','2'])
+        receipt=experiments.read_json(folder/'older-client-negative.json')
+        self.assertTrue(receipt['schema1_positive_control']);self.assertEqual(receipt['bounded_records_per_witness'],1)
+        self.assertEqual(registry.load(),[record])
     def test_real_serial_admission_dispatch_has_one_parent_probe_before_trials(self):
         import contextlib,socket,subprocess,types,indexed_experiments
         class BeforeTrial(RuntimeError):pass

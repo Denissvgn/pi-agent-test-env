@@ -185,6 +185,16 @@ Registry-aware admission also reports `host-registry-unsafe` with bounded guidan
 when ownership, daemon identity, writer absence or sensitive/inference cleanup
 cannot be reconciled. Do not delete the registry or bypass its host lease.
 
+`host-registry-capacity` means the finite ownership inventory cannot admit another
+intent or the planned collection's headroom. The registry retains at most 8192
+committed records; observation separately bounds 32 secure atomic temporary files.
+New container, network and builder intents reject before creation at capacity;
+existing-record cleanup updates remain possible. Records are not automatically
+deleted or archived, since abandoned-attempt reconciliation can require released
+ownership history. Request reviewed maintenance or a separately reviewed bounded
+capacity change; never delete records or select another lock to continue. This
+host metadata bound does not increase Docker worker or inference concurrency.
+
 ## Indexed inference opt-in
 
 Indexed execution reserves the inference helper even for a single worker. `assets/resources/indexed-workers.json` selects 1 CPU, 1536 MiB and 512 PIDs per worker; the helper requires another 0.25 CPU, 128 MiB and 64 PIDs. Selected route queue plus upstream deadlines must fit every effective Pi-stage budget; see [INFERENCE-ENVIRONMENTS.md](INFERENCE-ENVIRONMENTS.md).

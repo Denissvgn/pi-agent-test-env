@@ -74,6 +74,17 @@ class AdmissionDiagnosticsTests(unittest.TestCase):
                 else:Path(args.lock_file).symlink_to(target);reason='admission-lock-insecure'
                 self.rejected(args,reason);self.assertEqual(target.read_text(),CANARY)
 
+    def test_registry_capacity_is_sealed_before_dispatch_on_both_release_routes(self):
+        import ownership_registry
+        for release in ('0.87.1','1.2.0'):
+            for op in ('run','smoke'):
+                with self.subTest(release=release,op=op),tempfile.TemporaryDirectory() as td:
+                    args=self.args(Path(td),op);args.observed_pi_version=release
+                    error=ownership_registry.RegistryCapacityError(PRIVATE_URL)
+                    with mock.patch.object(ownership_registry.Registry,'reconcile',side_effect=error):
+                        result=self.rejected(args,'host-registry-capacity')
+                    self.assertEqual(result['infrastructure']['error_digest'],hashlib.sha256(PRIVATE_URL.encode()).hexdigest())
+
     def test_raw_details_only_survive_as_hash_and_sealed_accounting_cannot_change(self):
         for code in resources.ADMISSION_FAILURES:
             with self.subTest(code=code),tempfile.TemporaryDirectory() as td:

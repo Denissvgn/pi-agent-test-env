@@ -120,6 +120,9 @@ def freeze(root,profiles_file,images_file,session):
             'scope':raw['scope'],'deployment_limits':raw['deployment_limits'],'worker_resources':WORKER,'concurrency':CONCURRENCY,
             'batches':rows,'planned_cells':220,'segments_ceiling':312,'expected_segments':292,'expected_real_segments':240,'expected_scripted_segments':52,
             'launch_derivation':launch_derivation(rows),'docker_launches_ceiling':launch_derivation(rows)['whole']['containers'],
+            'registry_capacity':{'committed_records_limit':predecessor.ownership_registry.MAX_RECORDS,
+                'transient_records_limit':predecessor.ownership_registry.MAX_TRANSIENT_RECORDS,
+                'new_records_ceiling':sum(launch_derivation(rows)['whole'][key] for key in ('containers','networks'))},
             'infrastructure_seconds_ceiling':1200,'infrastructure_active_seconds':960,'A_seconds':10800,'B_seconds':14400,
             'cleanup_seconds_ceiling':240,'whole_seconds':26880,'automatic_retries':0,
             'standalone_invocation_seconds':1800,'batch_invocation_seconds':3600,'resume_invocation_seconds':240,
@@ -139,6 +142,10 @@ def verify(root):
     root=Path(root).resolve();manifest=experiments.read_json(root/'manifest.json');integrity=experiments.read_json(root/'integrity.json')
     if integrity['manifest_sha256']!=hashlib.sha256((root/'manifest.json').read_bytes()).hexdigest() or integrity['worker_sha256']!=hashlib.sha256((root/'worker.json').read_bytes()).hexdigest():raise ValueError('Frozen intent changed')
     if manifest['source']!=pi_release.source_identity() or manifest['batches']!=matrix() or manifest['launch_derivation']!=launch_derivation():raise ValueError('Frozen source or matrix changed')
+    expected_capacity={'committed_records_limit':predecessor.ownership_registry.MAX_RECORDS,
+        'transient_records_limit':predecessor.ownership_registry.MAX_TRANSIENT_RECORDS,
+        'new_records_ceiling':sum(launch_derivation()['whole'][key] for key in ('containers','networks'))}
+    if manifest.get('registry_capacity')!=expected_capacity:raise ValueError('Frozen registry capacity changed')
     if original_inventory(manifest)!=manifest['original_store_inventory']:raise ValueError('Operator credential store changed')
     if manifest['worker_resources']!=WORKER or manifest['concurrency']!=CONCURRENCY:raise ValueError('Frozen limits changed')
     return root,manifest,experiments.read_json(root/'state.json')
@@ -427,12 +434,27 @@ def infrastructure_old_client(root):
     import legacy_registry_v1
     with resources.admission_lock(lab.default_lock_file()) as registry:
         registry.command=lambda argv:predecessor.command(argv,required=False)
-        if not any(r['schema']==2 for r in registry.load()):raise RuntimeError('No generation-2 registry witness')
-        old=legacy_registry_v1.Registry(registry.root,command=lambda argv:(_ for _ in ()).throw(AssertionError('Predecessor must reject before Docker')))
-        try:old.load()
-        except legacy_registry_v1.RegistryError:
-            controls.atomic(root/'older-client-negative.json',{'passed':True,'new_registry_rejected_before_dispatch':True,'pi_segments':0,'predecessor_contract':'released generation-1 reader'})
-        else:raise RuntimeError('Unqualified older host reader accepted indexed generation')
+        record=next((r for r in registry.load() if r['schema']==2),None)
+        if record is None:raise RuntimeError('No generation-2 registry witness')
+        # Isolate the format predicate from the predecessor's smaller inventory
+        # bound. These metadata-only witnesses can never dispatch Docker.
+        witness_root=Path(root)/'older-client-witness';witness_root.mkdir(mode=0o700)
+        def no_dispatch(argv):raise AssertionError('Predecessor witness cannot dispatch')
+        for schema in (1,2):
+            current=predecessor.ownership_registry.Registry(witness_root/str(schema),command=no_dispatch)
+            witness={**copy.deepcopy(record),'schema':schema,'registry':current.registry_id};current.write(witness)
+            if current.load()!=[witness]:raise RuntimeError('Current reader rejected bounded format witness')
+            old=legacy_registry_v1.Registry(current.root,command=no_dispatch)
+            if schema==1:
+                if old.load()!=[witness]:raise RuntimeError('Predecessor positive control rejected')
+            else:
+                try:old.load()
+                except legacy_registry_v1.RegistryError:pass
+                else:raise RuntimeError('Unqualified older host reader accepted indexed generation')
+        controls.atomic(Path(root)/'older-client-negative.json',{'passed':True,'new_registry_rejected_before_dispatch':True,
+            'schema1_positive_control':True,'bounded_records_per_witness':1,'schema2_source':'actual generation-2 registry record',
+            'witness_changes':'registry location identity and paired schema field only','pi_segments':0,
+            'predecessor_contract':'released generation-1 reader'})
 
 
 def begin_cleanup(root,manifest):
@@ -484,11 +506,14 @@ def infrastructure(root):
     if state['phase']!='frozen':raise ValueError('Infrastructure cannot repeat')
     state['phase']='infrastructure';controls.atomic(root/'state.json',state)
     enter_phase(root,manifest,'infrastructure',960,first=True)
-    controls.atomic(root/'registry-baseline.json',{'launch_ids':[r['launch_id'] for r in predecessor.registry_records()]})
     import lab_env
     endpoint=manifest['profiles']['a']['configuration']['endpoint']
-    lab_env.save_environment(endpoint);lab_env.confirm_session(manifest['session'],lab_env.fingerprint_of(endpoint))
     try:
+        with resources.admission_lock(lab.default_lock_file(),120) as registry:
+            controls.atomic(root/'registry-baseline.json',{'launch_ids':[r['launch_id'] for r in registry.load()]})
+            headroom=registry.require_capacity(manifest['registry_capacity']['new_records_ceiling'])
+            controls.atomic(root/'registry-capacity.json',headroom)
+        lab_env.save_environment(endpoint);lab_env.confirm_session(manifest['session'],lab_env.fingerprint_of(endpoint))
         host=pi_release.native()
         __import__('parallel_contract').admit_capacity(predecessor.CONCURRENCY,resources.validate_policy(WORKER),host)
         for name in manifest['images']:
@@ -510,7 +535,12 @@ def infrastructure(root):
     except BaseException as exc:state.update(phase='blocked',reason=type(exc).__name__);raise
     finally:
         begin_cleanup(root,manifest)
-        try:state['infrastructure_cleanup']=verify_cleanup(root,manifest,None)
+        try:
+            if (root/'registry-baseline.json').exists():state['infrastructure_cleanup']=verify_cleanup(root,manifest,None)
+            else:
+                counts=experiments.read_json(root/'budget.json')['counts']
+                if any(sum(value.get(key,0) for key in ('containers','networks','segments')) for value in counts.values()):raise RuntimeError('Missing baseline after dispatch')
+                state['infrastructure_cleanup']={'no_owned_dispatch':True,'registry_admission_failed':True}
         except BaseException as exc:state.update(phase='blocked',cleanup_error=type(exc).__name__)
         controls.atomic(root/'state.json',state)
     if state['phase']!='infrastructure_qualified':raise RuntimeError('Infrastructure cleanup incomplete')
