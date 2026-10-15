@@ -3,7 +3,7 @@ name: pi-agent-test-env
 description: >-
   Evaluate local-model coding agents with frozen application cases, independent scorers,
   repeated trials and retained failure evidence, or delegate a bounded implementation task.
-  Run real Pi children in capability-checked Docker images against a user-selected
+  Run real Pi children in capability-checked Docker images against user-selected
   OpenAI-compatible Chat Completions endpoints, including opt-in indexed per-stage
   inference bindings. Use for application baselines, the optional
   reviewed fixture lookup integration, coding/review/tool-use acceptance and tested

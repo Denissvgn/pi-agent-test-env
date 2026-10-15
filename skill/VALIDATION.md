@@ -25,6 +25,15 @@ with bundled, hash-locked dependencies outside the skill.
 
 ## Live evidence
 
+On 15 October 2026, the indexed inference campaign passed 220 frozen cell oracles
+on native ARM64 for Pi 0.87.1 and 1.2.0: 156 real-model positives and 64 scripted
+fault oracles, with 292 actual Pi segments (240 real-model/52 scripted). All 36
+coding pipelines were independently inspected and owned physical/private cleanup
+and selected-key scans passed. Live profiles used the same retained backend/model
+with separate credential references; broader backend/model/API claims remain
+unqualified. [QUALIFICATION.md](QUALIFICATION.md) records budgets, source identity,
+legacy compatibility, evidence distinctions and limits.
+
 Native ARM64 core executor, application comparison and fixture integration checks
 were observed on 7 October 2026 with Pi 0.87.1 and exact recorded image/model
 configurations. Model failures, partial artifacts and explicit recovery remain

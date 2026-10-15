@@ -1,5 +1,61 @@
 # Qualification and support
 
+## Experimental indexed inference scope
+
+On 15 October 2026, a fresh frozen native ARM64 campaign at executable head
+`a81eec954245db962110dc4277502e6d7b25fa66` passed all 220 planned cell oracles for
+Pi 0.87.1 and 1.2.0. Its 156 real-model positive cells passed; 64 scripted fault
+oracles established the expected stop, recovery and pending-cell behavior. Actual
+Pi execution comprised 292 process segments: 240 real-model and 52 explicitly
+scripted segments. No automatic campaign retry occurred. Earlier failed or
+interrupted attempts retain their own identities, outcomes and unrun cells.
+
+Collection A covered indexed single/serial selection, per-stage role assignments
+and legacy saved/explicit endpoints, serial experiments and homogeneous parallel
+execution. Collection B covered indexed parallel coding/review, built-in and
+reviewed fixture lookup, scoped disposable application credentials and sandboxed
+browser tasks, followed by all eight fault lanes on each release. Four exact
+ARM64 image admissions, two sandboxed DOM gates, token-bound routing/redaction,
+revocation, one-slot quarantine, physical overlap and bounded admission passed.
+The predecessor-format oracle used paired one-record witnesses: schema 1 was
+accepted and schema 2 rejected independently of the predecessor's inventory cap.
+
+The two live profiles used separate explicit store references against the same
+retained backend and model. Controlled routing fixtures separately observed
+distinct routes and authorities. These observations qualify the implemented
+Chat Completions adapter within the recorded scope; they do not establish real
+distinct-backend/model/API-protocol compatibility, provider/account independence,
+server-wide concurrency, performance improvements or live WorkChord acceptance.
+
+The aggregate Docker ceiling was 2.5 CPUs, 3328 MiB RAM and 1152 PIDs, with equal
+memory+swap: two workers at 1 CPU/1536 MiB/512 PIDs each, plus broker and disposable
+authority at 0.25 CPU/128 MiB/64 PIDs each. All routes shared one cooperating
+inference slot. Positive stages retained 12 turns, 600 seconds and 128,000 total
+reported tokens; reply cap was 8192, queue/upstream deadlines 180/180 seconds and
+preflight request/container ceilings 360/390 seconds. Infrastructure allowed
+16 active plus 4 cleanup minutes; collections A/B allowed 3/4 hours, cleanup
+4 minutes after each, and the whole ceiling was 7 hours 28 minutes. The retained
+model deployment was unchanged and its CPU/GPU/RAM limits remain unknown. Older
+host clients were kept quiesced. The finite 8192-record host metadata contract and
+conservative campaign headroom were checked before dispatch; history was retained.
+
+The campaign charged 1341 container launches and 180 network creations, below
+the frozen 1437/196 ceilings. All 1518 registered resources (1338 containers and
+180 networks), three disposable authorities and private stores were independently
+confirmed absent. Retained evidence had zero selected-key matches and original
+credential-store metadata was unchanged. All 36 coding implementations and
+reviewer reports were independently read with exact hashes and protected inputs
+unchanged. Root also read every distinct implementation without executing generated
+code on the host. Reviewer prose included advisory inaccuracies and is not approval
+or a measurement of model-review quality; generated fixture code was not promoted.
+
+These measurements retain their original executable, harness and frozen inputs.
+The later documentation and manifest update changes package identity while
+preserving tested executable and fixture bytes. Offline regressions and extracted
+package checks remain separate evidence. See
+[INFERENCE-ENVIRONMENTS.md](references/INFERENCE-ENVIRONMENTS.md) for selection,
+authorization, private/public outputs and recovery boundaries.
+
 ## Experimental 4.4.0 parallel scope
 
 On 14 October 2026, a fresh frozen native ARM64 collection passed all 124

@@ -300,6 +300,9 @@ snapshots and scoped stage/recovery tokens.
 
 Start with the [root workflow](skill/references/INFERENCE-ENVIRONMENTS.md) and
 [executable examples](skill/examples/indexed-inference/README.md). Native indexed
-qualification is pending; offline tests and historical parallel qualification
-have separate scopes. Legacy saved environments and experiment schemas 1/2 keep
-their existing behavior.
+qualification passed on ARM64 for both reviewed Pi releases on 15 October 2026:
+220 cell oracles, including 156 real-model positive cells and 64 scripted fault
+oracles. The live profiles used two credential references on the same backend and
+model; distinct-backend/model/API-protocol acceptance remains unqualified. See
+[the recorded scope and limits](skill/QUALIFICATION.md). Legacy saved environments
+and experiment schemas 1/2 keep their existing behavior.
