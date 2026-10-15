@@ -74,7 +74,7 @@ def execute(root,lab,session=None,resume=False,retry_trial=None):
             contract.secret_free(list(entries.values()),keys.values())
             actor_values={}
             for cell in work:
-                planpath=root/cell['plan'];plan=lab.validate_plan(experiments.read_json(planpath),planpath.parent,external_bindings=True)
+                plan=indexed_experiments.frozen_plan(root,cell,lab)
                 indexed_experiments.check_deadlines(plan,bindings[cell['trial_id']],metadata['indexed_execution'])
                 unused,unused_keys,assigned[cell['trial_id']]=indexed_execution.resolve(catalog,bindings[cell['trial_id']],session,plan,root/cell['source'],root/'runs',lab)
                 authorities[cell['trial_id']]=sorted({v for t in plan['agents'] for v in t.get('application_secrets',{}).values()})

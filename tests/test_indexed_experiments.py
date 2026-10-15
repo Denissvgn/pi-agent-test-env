@@ -28,6 +28,45 @@ class IndexedSetup(ExperimentFixture):
 
 
 class IndexedFixture(IndexedSetup):
+    def test_frozen_fixture_profile_reaches_serial_parallel_admission_on_both_releases(self):
+        import contextlib,json,shutil,types
+        from unittest.mock import patch
+        import indexed_parallel,release_contracts
+        class ProbeBoundary(Exception):pass
+        @contextlib.contextmanager
+        def lease(*args,**kwargs):yield types.SimpleNamespace(binding={},generation='synthetic-generation',load=lambda:[])
+        for release in ('0.87.1','1.2.0'):
+            for mode in ('serial','parallel'):
+                for resume in (False,True):
+                    with self.subTest(release=release,mode=mode,resume=resume):
+                        fixture=IndexedSetup();fixture.setUp()
+                        try:
+                            directory=fixture.root/'profile';shutil.copytree(lab.ROOT/'assets/profiles/fixture-lookup',directory)
+                            profile=experiments.read_json(directory/'profile.json');profile['components']=[release_contracts.contract(release)['fixture_component']]
+                            (directory/'profile.json').write_text(json.dumps(profile))
+                            for variant in fixture.definition['variants']:variant['agent_profile']='profile/profile.json'
+                            if mode=='parallel':
+                                concurrency=selected();concurrency['gateway']['queue_wait_seconds']=180;concurrency.update(scheduler='parallel-trials-v2',host_generation=2)
+                                fixture.definition.update(mode=mode,concurrency=concurrency);fixture.definition['indexed_execution']['max_workers']=2
+                            fixture.write('experiment.json',fixture.definition);root=fixture.root/'prepared'
+                            indexed_experiments.prepare(fixture.root/'experiment.json',root,lab,'fixture',fixture.catalog)
+                            metadata,matrix=experiments.verify(root,lab);cell=matrix['cells'][0]
+                            plan=indexed_experiments.frozen_plan(root,cell,lab)
+                            self.assertIn('fixture_lookup',plan['agents'][0]['tools']);self.assertIn('fixture_lookup',plan['agents'][0]['require_tools'])
+                            if resume:experiments.reserve_attempt(root,metadata,cell)
+                            with patch.object(experiments.resources,'admission_lock',lease),patch.object(lab,'require_host',return_value={}),patch.object(lab,'command',side_effect=AssertionError('No native commands')) as commands,patch.object(indexed_parallel.indexed_execution,'capacity',return_value=(metadata['indexed_execution'],{'cpu_millis':1000,'memory_mib':128,'pids_limit':64})),patch.object(lab,'probe_image',side_effect=ProbeBoundary()) as probes:
+                                with self.assertRaises(ProbeBoundary):experiments.execute(root,lab,'fixture',resume=resume)
+                                self.assertEqual(probes.call_count,1);self.assertEqual(commands.call_count,0)
+                            if resume:
+                                intent=experiments.attempt_intents(root,cell)[0];self.assertTrue((root/'runs'/intent['run_id']/'result.json').is_file())
+                            # A normalized fixture plan cannot be admitted with a
+                            # builtin profile, even outside the integrity gate.
+                            plain=fixture.write('builtin.json',__import__('agent_profiles').builtin())
+                            with self.assertRaises(lab.LabError):indexed_experiments.frozen_plan(root,{**cell,'agent_profile':str(plain)},lab)
+                            frozen_profile=root/cell['agent_profile'];frozen_profile.chmod(0o600);frozen_profile.write_text(json.dumps(__import__('agent_profiles').builtin()))
+                            with patch.object(lab,'probe_image',side_effect=AssertionError('No probe')),patch.object(lab,'command',side_effect=AssertionError('No command')):
+                                with self.assertRaises(ValueError):experiments.execute(root,lab,'fixture',resume=resume)
+                        finally:fixture.doCleanups()
     def test_serial_variants_freeze_exact_bindings_and_old_schema_does_not_change(self):
         prepared=experiments.prepare(self.root/'experiment.json',self.root/'indexed',lab,session='fixture',catalog=self.catalog)
         metadata,matrix=experiments.verify(self.root/'indexed',lab)

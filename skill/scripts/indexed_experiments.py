@@ -13,6 +13,13 @@ PARALLEL_ENABLED=True
 STAGE_MAPS_ENABLED=True
 
 
+def frozen_plan(root,cell,lab):
+    """Validate effective frozen tools with the exact selected child profile."""
+    import agent_profiles,experiments
+    root=Path(root);path=root/cell['plan'];profile=agent_profiles.load(root/cell['agent_profile'])
+    return lab.validate_plan(experiments.read_json(path),path.parent,profile,external_bindings=True)
+
+
 def check_deadlines(plan,bindings,helper):
     for task in plan['agents']:
         limits=bindings[task['name']]['configuration']['request_limits']
@@ -187,7 +194,7 @@ def admit_work(root,metadata,cells,lab,session):
     keys={name:catalog.admit(binding,session) for name,binding in selected.items()}
     contract.secret_free(list(selected.values()),keys.values())
     for cell in cells:
-        planpath=root/cell['plan'];plan=lab.validate_plan(experiments.read_json(planpath),planpath.parent,external_bindings=True)
+        plan=frozen_plan(root,cell,lab)
         check_deadlines(plan,experiments.read_json(root/cell['inference_bindings']),metadata['indexed_execution'])
         for name,binding in selected.items():
             application_credentials.resolve(plan,binding['configuration']['endpoint'],keys[name],catalog.store,
