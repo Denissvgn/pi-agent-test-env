@@ -49,8 +49,13 @@ def input_path(base,value):
 
 def budget(value):
     fields={'timeout_seconds':3600,'max_turns':100,'max_total_tokens':10000000}
-    object_fields(value,fields,fields)
+    native={'max_tool_calls','reporting_reserve_calls','reporting_reserve_seconds'}
+    object_fields(value,set(fields)|native,fields)
     if any(type(value[k]) is not int or not 0<value[k]<=cap for k,cap in fields.items()):raise ExperimentError('Finite positive stage budgets required')
+    if native & set(value):
+        import native_budget_controls
+        try: native_budget_controls.validate_budget(value)
+        except ValueError as exc: raise ExperimentError(str(exc)) from None
     return dict(value)
 
 
@@ -74,8 +79,11 @@ def scorer_identity(plan):
     return identities
 
 
-def validate(path,lab,endpoint_path=None,catalog=None):
+def validate(path,lab,endpoint_path=None,catalog=None,*,secrets_dir=None):
     path=Path(path).absolute();value=read_json(path);base=path.parent
+    if value.get('document_type')=='application_experiment_source':
+        import application_experiments
+        return application_experiments.validate(path,lab,endpoint_path,catalog,secrets_dir=secrets_dir)
     if value.get('schema')==3:
         if endpoint_path is not None:raise ExperimentError('Indexed experiment cannot accept an endpoint override')
         import indexed_experiments
@@ -118,6 +126,8 @@ def validate(path,lab,endpoint_path=None,catalog=None):
         planpath=input_path(base,case['plan']);plan=lab.validate_plan(read_json(planpath),planpath.parent)
         limits=budget(case.get('budgets',default_budget))
         for agent in plan['agents']:agent.update(limits)
+        if 'max_tool_calls' in limits:
+            plan=lab.validate_plan(plan,planpath.parent)
         for section in ('setup','checks'):
             for stage in plan[section]:
                 if stage['network']!='none':raise ExperimentError('Application MVP setup/scorers require network none')
@@ -163,7 +173,10 @@ def plan_path_map(experiment_id,pairs):
     return paths
 
 
-def prepare(path,destination,lab,endpoint_path=None,session=None,catalog=None):
+def prepare(path,destination,lab,endpoint_path=None,session=None,catalog=None,*,secrets_dir=None):
+    if read_json(path).get('document_type')=='application_experiment_source':
+        import application_experiments
+        return application_experiments.prepare(path,destination,lab,endpoint_path,session,catalog,secrets_dir=secrets_dir)
     if read_json(path).get('schema')==3:
         if endpoint_path is not None:raise ExperimentError('Indexed experiment cannot accept an endpoint override')
         import indexed_experiments
@@ -297,6 +310,9 @@ def verify_plan_ownership(root,metadata,matrix,manifest,lab):
 def verify(root,lab):
     root=Path(root).absolute()
     if root.is_symlink() or not root.is_dir():raise ExperimentError('Expected parent-held experiment directory')
+    if read_json(root/'experiment.json').get('document_type')=='application_experiment':
+        import application_experiments
+        return application_experiments.verify(root,lab)
     manifest=read_json(root/'integrity.json')
     if provenance.digest(manifest['files'])!=manifest['fingerprint']:raise ExperimentError('Invalid experiment integrity fingerprint')
     for name,expected in manifest['files'].items():
@@ -376,14 +392,15 @@ def command(args,lab):
         if read_json(args.definition).get('schema')==3:
             from inference_catalog import Catalog
             catalog=Catalog(lab.normalize_endpoint,args.catalog_dir,args.secrets_dir)
-        definition=validate(args.definition,lab,args.endpoint,catalog)
-        print(json.dumps({'valid':True,'planned':len(definition['cases'])*len(definition['variants'])*definition['repetitions'],'profile':'builtin-only'}))
+        definition=validate(args.definition,lab,args.endpoint,catalog,secrets_dir=getattr(args,'secrets_dir',None))
+        profile='application-client' if read_json(args.definition).get('document_type')=='application_experiment_source' else 'builtin-only'
+        print(json.dumps({'valid':True,'planned':len(definition['cases'])*len(definition['variants'])*definition['repetitions'],'profile':profile}))
     else:
         catalog=None
         if read_json(args.definition).get('schema')==3:
             from inference_catalog import Catalog
             catalog=Catalog(lab.normalize_endpoint,args.catalog_dir,args.secrets_dir)
-        print(json.dumps(prepare(args.definition,args.experiment_dir,lab,args.endpoint,getattr(args,'session',None),catalog),indent=2))
+        print(json.dumps(prepare(args.definition,args.experiment_dir,lab,args.endpoint,getattr(args,'session',None),catalog,secrets_dir=getattr(args,'secrets_dir',None)),indent=2))
     return 0
 
 # One controller per experiment, independent of the global per-runtime admission lock.
@@ -448,6 +465,9 @@ def reserve_attempt(root,metadata,cell,index=1,previous=None):
 
 
 def trial_args(root,metadata,cell,lab,session):
+    if metadata.get('document_type')=='application_experiment':
+        import application_experiments
+        return application_experiments.trial_args(root,metadata,cell,lab,session)
     root=Path(root)
     argv=['run','--project',str(root/cell['source']),'--plan',str(root/cell['plan']),
           '--endpoint',str(root/cell['endpoint']),'--agent-profile',str(root/cell['agent_profile']),'--results-dir',str(root/'runs'),
@@ -548,6 +568,10 @@ def execute(root,lab,session=None,runner=None,resume=False,retry_trial=None,clea
     verify(root,lab) # Reject linked/invalid destinations before writing a controller lease.
     root=root.resolve()
     metadata=read_json(root/'experiment.json')
+    if metadata.get('document_type')=='application_experiment' and (metadata['schema']==2 or metadata.get('mode')=='parallel'):
+        if runner is not None or cleanup is not None:raise ExperimentError('Application parallel execution does not accept a serial runtime bypass')
+        import application_parallel_execution
+        return application_parallel_execution.execute(root,lab,session,resume,retry_trial)
     if metadata['schema']==3 and metadata.get('mode')=='parallel':
         if runner is not None or cleanup is not None:raise ExperimentError('Indexed parallel does not accept a runtime bypass')
         import indexed_parallel
@@ -577,7 +601,10 @@ def execute(root,lab,session=None,runner=None,resume=False,retry_trial=None,clea
         work=([selected] if selected else [])+([] if halted else pending)
         indexed_authorities=None
         if runner is None:
-            if metadata['schema']==3:
+            if metadata.get('document_type')=='application_experiment':
+                import application_experiments
+                indexed_authorities=application_experiments.admit_work(root,metadata,work,lab,session)
+            elif metadata['schema']==3:
                 import indexed_experiments
                 indexed_authorities=indexed_experiments.admit_work(root,metadata,work,lab,session)
             if metadata['execution']['platform']!='linux/'+lab.norm_arch(platform.machine()):raise ExperimentError('Experiment platform must be native; no emulation fallback')
@@ -615,6 +642,8 @@ def execute(root,lab,session=None,runner=None,resume=False,retry_trial=None,clea
                 state['active_attempt_id']=intent['attempt_id'];controls.atomic(root/'state.json',state)
                 args=trial_args(root,metadata,cell,lab,session)
                 if indexed_authorities:args._indexed_redaction_keys=indexed_authorities['keys']
+                if metadata.get('document_type')=='application_experiment' and indexed_authorities:
+                    args._application_parent_values=indexed_authorities['redaction_values']
                 with (root/'logs'/(intent['attempt_id']+'.txt')).open('w') as output,contextlib.redirect_stdout(output):
                     runner(args,initial_record=copy.deepcopy(intent['initial_record']))
                 result=sealed_result(root,intent)
@@ -759,7 +788,23 @@ def export_ledger(root,lab,public=False):
     if public:
         if read_json(root/'experiment.json')['schema']!=3:raise ExperimentError('Public indexed export requires schema 3')
         import indexed_reporting
-        rows=indexed_reporting.public_rows(rows,lambda row:read_json(root/row['inference_bindings']),lambda row:[task['name'] for task in read_json(root/row['plan'])['agents']])
+        native_fields={'max_tool_calls','reporting_reserve_calls','reporting_reserve_seconds'}
+        def frozen_stages(row):
+            value=read_json(root/row['plan'])
+            if value.get('document_type')=='application_execution_plan':
+                import application_contracts
+                return application_contracts.validate_ir(value)['stages'],True
+            return value['agents'],False
+        def names(row):
+            stages,application=frozen_stages(row)
+            return [task['id'] if application else task['name'] for task in stages]
+        def native_required(row):
+            stages,application=frozen_stages(row)
+            return names(row) if application else [task['name'] for task in stages if native_fields.intersection(task)]
+        def application_required(row):
+            return names(row) if frozen_stages(row)[1] else None
+        rows=indexed_reporting.public_rows(rows,lambda row:read_json(root/row['inference_bindings']),
+            names,required_native_stages=native_required,required_application_stages=application_required)
     body=''.join(json.dumps(row,sort_keys=True,separators=(',',':'))+'\n' for row in rows).encode()
     path=root/('public-trials.jsonl' if public else 'trials.jsonl')
     atomic_bytes(path,body)

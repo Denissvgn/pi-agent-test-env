@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "participant": {"application_id": "diagnostic-app", "tenant_id": "team-1", "actor_id": "actor-alice", "role": "participant"},
+  "records": [{"id": "r1", "text": "First record"}, {"id": "r2", "text": "Second record"}, {"id": "r3", "text": "Third record"}],
+  "snapshot_id": "records-snapshot-1",
+  "summary_path": "outputs/summary.md",
+  "report_path": "outputs/completion.json",
+  "artifact_id": "summary",
+  "target_id": "team-summary",
+  "publication_requirement_id": "summary-publication",
+  "content": "# Team summary\n\n- r1: First record\n- r2: Second record\n- r3: Third record\n"
+}

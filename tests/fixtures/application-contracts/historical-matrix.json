@@ -1,0 +1,107 @@
+{
+  "schema": 1,
+  "document_type": "trial_matrix",
+  "experiment_id": "86bc1cef-0005-4407-8813-6f943f3bfca5",
+  "cells": [
+    {
+      "trial_id": "c629b75f-6854-505f-8e56-61d9d91388b0",
+      "case_id": "06b6482f-24c8-5547-9e34-fa69203814c8",
+      "variant_id": "a232faa2-38e1-5eb1-a0d8-72fe75f2d330",
+      "case": "lookup",
+      "variant": "builtin",
+      "repetition": 0,
+      "configuration_digest": "819d4178870163ca87ac33475061e5932f692ead4b0ec9e62d406eb850686d55",
+      "source": "inputs/sources/lookup",
+      "plan": "inputs/plans/lookup--builtin.json",
+      "endpoint": "inputs/endpoints/builtin.json",
+      "endpoint_origin": "saved_environment",
+      "scorer_identity": "3ffff53aa609596c7906b2e46729f3d3e8e2ea489b4bc50c2f341d33a617204c",
+      "agent_profile": "inputs/profiles/builtin/profile.json",
+      "agent_profile_id": "builtin",
+      "agent_profile_sha256": "9e75b6c3a46d2445ff2c857e76c290758dff3d8d00e488b50e44f677b0e49fb2",
+      "profile_explicit": true,
+      "budgets": {
+        "timeout_seconds": 90,
+        "max_turns": 12,
+        "max_total_tokens": 60000
+      },
+      "initial_status": "planned",
+      "plan_sha256": "a1de3e006b4c08456bc9816ce4861b7c6aa67a04f954556555d3cc5635a77d88"
+    },
+    {
+      "trial_id": "fa4d462e-f3e1-55df-b585-5ddf5a0f58fe",
+      "case_id": "06b6482f-24c8-5547-9e34-fa69203814c8",
+      "variant_id": "a232faa2-38e1-5eb1-a0d8-72fe75f2d330",
+      "case": "lookup",
+      "variant": "builtin",
+      "repetition": 1,
+      "configuration_digest": "819d4178870163ca87ac33475061e5932f692ead4b0ec9e62d406eb850686d55",
+      "source": "inputs/sources/lookup",
+      "plan": "inputs/plans/lookup--builtin.json",
+      "endpoint": "inputs/endpoints/builtin.json",
+      "endpoint_origin": "saved_environment",
+      "scorer_identity": "3ffff53aa609596c7906b2e46729f3d3e8e2ea489b4bc50c2f341d33a617204c",
+      "agent_profile": "inputs/profiles/builtin/profile.json",
+      "agent_profile_id": "builtin",
+      "agent_profile_sha256": "9e75b6c3a46d2445ff2c857e76c290758dff3d8d00e488b50e44f677b0e49fb2",
+      "profile_explicit": true,
+      "budgets": {
+        "timeout_seconds": 90,
+        "max_turns": 12,
+        "max_total_tokens": 60000
+      },
+      "initial_status": "planned",
+      "plan_sha256": "a1de3e006b4c08456bc9816ce4861b7c6aa67a04f954556555d3cc5635a77d88"
+    },
+    {
+      "trial_id": "918630b3-a962-5f87-941a-04463b2c4f4b",
+      "case_id": "06b6482f-24c8-5547-9e34-fa69203814c8",
+      "variant_id": "218f1283-16ed-5eca-9d74-483357ace4e9",
+      "case": "lookup",
+      "variant": "fixture",
+      "repetition": 0,
+      "configuration_digest": "64a60c2eb954be5c37f56fb675e12e5c22a8af3e336b86c15d15b585e675e6ce",
+      "source": "inputs/sources/lookup",
+      "plan": "inputs/plans/lookup--fixture.json",
+      "endpoint": "inputs/endpoints/fixture.json",
+      "endpoint_origin": "saved_environment",
+      "scorer_identity": "3ffff53aa609596c7906b2e46729f3d3e8e2ea489b4bc50c2f341d33a617204c",
+      "agent_profile": "inputs/profiles/fixture/profile.json",
+      "agent_profile_id": "fixture-lookup",
+      "agent_profile_sha256": "25844908209cdb8b9d4edaa9ed94c4c84d3b9e96411094d50a746a8b35ed7d29",
+      "profile_explicit": true,
+      "budgets": {
+        "timeout_seconds": 90,
+        "max_turns": 12,
+        "max_total_tokens": 60000
+      },
+      "initial_status": "planned",
+      "plan_sha256": "505338e8d5a38a0df59b9a3c01eb6a4f88c27201c2870ebd6665a8cc9e9f788e"
+    },
+    {
+      "trial_id": "9e3503be-8dcd-5748-a4e5-e8a38238c68f",
+      "case_id": "06b6482f-24c8-5547-9e34-fa69203814c8",
+      "variant_id": "218f1283-16ed-5eca-9d74-483357ace4e9",
+      "case": "lookup",
+      "variant": "fixture",
+      "repetition": 1,
+      "configuration_digest": "64a60c2eb954be5c37f56fb675e12e5c22a8af3e336b86c15d15b585e675e6ce",
+      "source": "inputs/sources/lookup",
+      "plan": "inputs/plans/lookup--fixture.json",
+      "endpoint": "inputs/endpoints/fixture.json",
+      "endpoint_origin": "saved_environment",
+      "scorer_identity": "3ffff53aa609596c7906b2e46729f3d3e8e2ea489b4bc50c2f341d33a617204c",
+      "agent_profile": "inputs/profiles/fixture/profile.json",
+      "agent_profile_id": "fixture-lookup",
+      "agent_profile_sha256": "25844908209cdb8b9d4edaa9ed94c4c84d3b9e96411094d50a746a8b35ed7d29",
+      "profile_explicit": true,
+      "budgets": {
+        "timeout_seconds": 90,
+        "max_turns": 12,
+        "max_total_tokens": 60000
+      },
+      "initial_status": "planned",
+      "plan_sha256": "505338e8d5a38a0df59b9a3c01eb6a4f88c27201c2870ebd6665a8cc9e9f788e"
+    }
+  ]
+}

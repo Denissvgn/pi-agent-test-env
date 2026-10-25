@@ -16,6 +16,11 @@ from check_package import export_skill
 
 REPO = Path(__file__).resolve().parents[1]
 SOURCE_ROOT_FILES = ('README.md','CONTRIBUTING.md','LICENSE','.gitignore','.gitattributes')
+APPLICATION_TEST_FIXTURES = (
+    'README.md', 'positive.json', 'completion.json', 'native-tools.json', 'legacy-baseline.json',
+    'historical-experiment.json', 'historical-matrix.json', 'historical-result.json',
+    'historical-browser-source-identities.json',
+)
 
 
 def source_files(repository=REPO):
@@ -24,6 +29,8 @@ def source_files(repository=REPO):
     files.extend(repository/'docs/design'/name for name in ('indexed-inference-environments.md','indexed-inference-environments-implementation-plan.md'))
     files.extend(export_skill.file_list(repository/'skill'))
     files.extend(sorted((repository/'tests').glob('test_*.py')))
+    files.extend(repository/'tests/fixtures/application-contracts'/name
+                 for name in APPLICATION_TEST_FIXTURES)
     if (repository/'tests/__init__.py').is_file(): files.append(repository/'tests/__init__.py')
     files.extend(repository/'tools'/name for name in ('build_release.py','verify_release.py','check_package.py','check_examples.py'))
     files.extend(sorted((repository/'tools/qualification').glob('*.py')))

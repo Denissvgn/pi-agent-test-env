@@ -1,0 +1,466 @@
+{
+  "schema": 1,
+  "document_type": "application_plan_source",
+  "name": "authenticated-application-api",
+  "runtime": {
+    "pi_release": null,
+    "image_id": null,
+    "platform": "linux/arm64",
+    "container_profile": "core",
+    "resources": {
+      "schema": 1,
+      "runtime": {
+        "cpus": 1,
+        "memory": "1g",
+        "pids_limit": 256,
+        "jobs": 1
+      },
+      "build": {
+        "cpus": 1,
+        "memory": "1g",
+        "max_parallelism": 1,
+        "timeout_seconds": 2400
+      },
+      "host_budget": {
+        "cpu_fraction": 0.5,
+        "memory_fraction": 0.5
+      }
+    },
+    "inference_owner": "compiler_input",
+    "browser_sandbox_policy": null
+  },
+  "application": {
+    "id": "diagnostic-app",
+    "origins": {
+      "fixture": {
+        "url": null,
+        "diagnostic_fixture": true,
+        "allowed_addresses": []
+      }
+    },
+    "credentials": {
+      "persona": null
+    },
+    "operations": [
+      {
+        "transport": "api",
+        "credential_alias": "persona",
+        "origin": "fixture",
+        "path_params_schema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
+        "query_schema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
+        "body_schema": {
+          "type": "null"
+        },
+        "response_schema": {
+          "type": "object",
+          "properties": {
+            "application_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "tenant_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "actor_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "role": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "application_id",
+            "tenant_id",
+            "actor_id",
+            "role"
+          ],
+          "additionalProperties": false
+        },
+        "pagination": null,
+        "publication": null,
+        "id": "identity",
+        "effect": "identity",
+        "method": "GET",
+        "path_template": "/identity",
+        "max_request_seconds": 15,
+        "max_result_bytes": 8192,
+        "result_fields": [
+          "/application_id",
+          "/tenant_id",
+          "/actor_id",
+          "/role"
+        ],
+        "response_media_type": "application/json",
+        "wire_body_schema": {
+          "type": "null"
+        }
+      },
+      {
+        "transport": "api",
+        "credential_alias": "persona",
+        "origin": "fixture",
+        "path_params_schema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
+        "query_schema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
+        "body_schema": {
+          "type": "null"
+        },
+        "response_schema": {
+          "type": "object",
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 1024
+                  }
+                },
+                "required": [
+                  "id",
+                  "text"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 100
+            },
+            "next_cursor": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 256
+            },
+            "snapshot_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "items",
+            "next_cursor",
+            "snapshot_id"
+          ],
+          "additionalProperties": false
+        },
+        "pagination": {
+          "cursor_field": "next_cursor",
+          "items_field": "items",
+          "snapshot_field": "snapshot_id",
+          "max_pages": 2,
+          "max_items": 3,
+          "max_response_bytes": 1048576,
+          "max_total_bytes": 8388608,
+          "timeout_seconds": 120,
+          "request_cursor": {
+            "location": "query",
+            "name": "cursor",
+            "encoding": "opaque_string"
+          }
+        },
+        "publication": null,
+        "id": "list-records",
+        "effect": "read",
+        "method": "GET",
+        "path_template": "/records",
+        "max_request_seconds": 15,
+        "max_result_bytes": 8192,
+        "result_fields": [
+          "/items",
+          "/snapshot_id"
+        ],
+        "response_media_type": "application/json",
+        "wire_body_schema": {
+          "type": "null"
+        }
+      },
+      {
+        "transport": "api",
+        "credential_alias": "persona",
+        "origin": "fixture",
+        "path_params_schema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
+        "query_schema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
+        "body_schema": {
+          "type": "object",
+          "properties": {
+            "target_id": {
+              "type": "string",
+              "enum": [
+                "team-summary"
+              ]
+            },
+            "artifact_id": {
+              "type": "string",
+              "enum": [
+                "summary"
+              ]
+            },
+            "artifact_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$",
+              "minLength": 64,
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "target_id",
+            "artifact_id",
+            "artifact_sha256"
+          ],
+          "additionalProperties": false
+        },
+        "response_schema": {
+          "type": "object",
+          "properties": {
+            "publication_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "published"
+              ]
+            },
+            "actor_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "target_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "artifact_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$",
+              "minLength": 64,
+              "maxLength": 64
+            }
+          },
+          "required": [
+            "publication_id",
+            "state",
+            "actor_id",
+            "target_id",
+            "artifact_sha256"
+          ],
+          "additionalProperties": false
+        },
+        "pagination": null,
+        "publication": {
+          "id": "summary-publication",
+          "artifact_id": "summary",
+          "target_id": "team-summary",
+          "required_state": "published",
+          "payload_source": "declared_artifact"
+        },
+        "id": "publish-summary",
+        "effect": "publication",
+        "method": "POST",
+        "path_template": "/publications",
+        "max_request_seconds": 15,
+        "max_result_bytes": 8192,
+        "result_fields": [
+          "/publication_id",
+          "/state",
+          "/actor_id",
+          "/target_id",
+          "/artifact_sha256"
+        ],
+        "response_media_type": "application/json",
+        "wire_body_schema": {
+          "type": "object",
+          "properties": {
+            "target_id": {
+              "type": "string",
+              "enum": [
+                "team-summary"
+              ]
+            },
+            "artifact_id": {
+              "type": "string",
+              "enum": [
+                "summary"
+              ]
+            },
+            "artifact_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$",
+              "minLength": 64,
+              "maxLength": 64
+            },
+            "content": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          },
+          "required": [
+            "target_id",
+            "artifact_id",
+            "artifact_sha256",
+            "content"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "browser_targets": [],
+    "limits": {
+      "max_evidence_bytes": 33554432,
+      "max_receipts": 500
+    }
+  },
+  "stages": [
+    {
+      "id": "participant",
+      "depends_on": [],
+      "participant": {
+        "application_id": "diagnostic-app",
+        "tenant_id": "team-1",
+        "actor_id": "actor-alice",
+        "role": "participant"
+      },
+      "credential_aliases": [
+        "persona"
+      ],
+      "profile": "application-client",
+      "prompt": "Explicitly verify the assigned identity. Read all two pages, write the three-record summary, publish summary once, then write the completion manifest. Use only declared operations and never disclose credentials.",
+      "operations": [
+        "identity",
+        "list-records",
+        "publish-summary"
+      ],
+      "browser_targets": [],
+      "limits": {
+        "timeout_seconds": 300,
+        "max_turns": 16,
+        "max_total_tokens": 64000,
+        "max_tool_calls": 32,
+        "reporting_reserve_calls": 6,
+        "reporting_reserve_seconds": 30
+      },
+      "completion": {
+        "id": "participant-report",
+        "participant": {
+          "application_id": "diagnostic-app",
+          "tenant_id": "team-1",
+          "actor_id": "actor-alice",
+          "role": "participant"
+        },
+        "report_path": "outputs/completion.json",
+        "artifacts": [
+          {
+            "id": "summary",
+            "path": "outputs/summary.md",
+            "media_type": "text/markdown",
+            "max_bytes": 4096
+          }
+        ],
+        "pagination": [
+          {
+            "operation_id": "list-records",
+            "require_exhausted": true
+          }
+        ],
+        "publications": [
+          {
+            "id": "summary-publication",
+            "operation_id": "publish-summary",
+            "artifact_id": "summary",
+            "target_id": "team-summary",
+            "required_state": "published"
+          }
+        ]
+      },
+      "input_artifacts": []
+    }
+  ],
+  "checks": [
+    {
+      "id": "content-summary",
+      "argv": [
+        "python3",
+        "/opt/pi-scorer/content_scorer.py"
+      ],
+      "timeout_seconds": 30,
+      "network": "none",
+      "cwd": ".",
+      "scorer": {
+        "schema": 1,
+        "id": "authenticated-summary-content",
+        "version": "1",
+        "assets": [
+          {
+            "source": "content_scorer.py",
+            "target": "content_scorer.py"
+          },
+          {
+            "source": "expected.json",
+            "target": "expected.json"
+          }
+        ],
+        "score_domain": {
+          "min": 0,
+          "max": 1,
+          "direction": "higher",
+          "pass_threshold": 1
+        },
+        "required_assertions": [
+          "content"
+        ],
+        "test_counts_required": true,
+        "zero_test_policy": "fail",
+        "all_skipped_policy": "fail"
+      }
+    }
+  ]
+}

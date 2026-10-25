@@ -17,6 +17,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit, urlunsplit
@@ -163,6 +164,46 @@ def confirm_session(session: str, fingerprint: str) -> dict:
     record = {'session': session, 'confirmed_fingerprint': fingerprint, 'confirmed_at': int(time.time())}
     purge_old_sessions()
     _write_json(session_path(session), record)
+    return record
+
+
+def confirm_session_once(session: str, fingerprint: str) -> dict:
+    """Record a fresh explicit confirmation without TTL maintenance or replacement.
+
+    Consent and endpoint selection remain the caller's responsibility. Ordinary
+    confirmation retains its existing behavior. This path is useful for bounded
+    controlled environments that must preserve all other session evidence.
+    """
+    session = resolve_session(session)
+    if type(fingerprint) is not str or re.fullmatch(r'env:[a-f0-9]{12}', fingerprint) is None:
+        raise EnvError('Invalid confirmation fingerprint', 'broken', 'confirmation-invalid')
+    record = {'session': session, 'confirmed_fingerprint': fingerprint, 'confirmed_at': int(time.time())}
+    path = session_path(session).absolute()
+    if '..' in path.parts:
+        raise EnvError('Invalid confirmation directory', 'broken', 'confirmation-invalid')
+    parent = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for component in path.parent.parts[1:]:
+            try:
+                child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+            except FileNotFoundError:
+                os.mkdir(component, 0o700, dir_fd=parent)
+                child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+            os.close(parent); parent = child
+            if os.fstat(parent).st_uid not in (0, os.getuid()):
+                raise EnvError('Unowned confirmation directory', 'broken', 'confirmation-invalid')
+        info = os.fstat(parent)
+        if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+            raise EnvError('Insecure confirmation directory', 'broken', 'confirmation-invalid')
+        try:
+            fd = os.open(path.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+        except FileExistsError:
+            raise EnvError('Confirmation already exists', 'broken', 'confirmation-conflict') from None
+        with os.fdopen(fd, 'w', encoding='utf-8') as stream:
+            json.dump(record, stream, indent=2); stream.write('\n'); stream.flush(); os.fsync(stream.fileno())
+        os.fsync(parent)
+    finally:
+        os.close(parent)
     return record
 
 

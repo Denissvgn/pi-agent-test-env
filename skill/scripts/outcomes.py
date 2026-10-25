@@ -29,7 +29,35 @@ def initial():
 def status(record):
     if record['termination']['reason']=='cancelled':return 'INTERRUPTED',2
     if record['infrastructure']['status']!='ready' and record['invocation']['status']=='not_started':return 'BLOCKED',2
-    gates=(record['infrastructure']['status']=='ready' and record['termination']['reason']=='completed'
+    native_ok=True
+    import native_budget_reporting
+    declared=record.get('native_tool_budgets')
+    try:
+        required=[]
+        if declared is not None:
+            if (type(declared) is not dict or set(declared)!={'schema','scope','stages'}
+                    or type(declared['schema']) is not int or declared['schema']!=1
+                    or declared['scope']!=native_budget_reporting.SCOPE
+                    or type(declared['stages']) is not list or not 1<=len(declared['stages'])<=8):raise ValueError()
+            required=[stage['stage'] for stage in declared['stages']]
+        native=native_budget_reporting.record_projection(record,required_stages=required)
+        if native is not None:
+            native_ok=all(stage['accounting']=='available' and stage['error'] is None for stage in native['stages'])
+        if declared is not None and native!=declared:native_ok=False
+    except (KeyError,ValueError,TypeError):native_ok=False
+    application_ok=True
+    if 'application_execution' in record or 'application_completion' in record:
+        import application_completion
+        try:
+            marker=record.get('application_execution')
+            if (type(marker) is not dict or set(marker)!={'schema','plan_sha256','required_stages'}
+                    or type(marker['schema']) is not int or marker['schema']!=1):raise ValueError()
+            import application_contracts
+            application_contracts.sha256(marker['plan_sha256'],'/application_execution/plan_sha256')
+            application_contracts.unique_strings(marker['required_stages'],'/application_execution/required_stages',8,1)
+            application_ok=application_completion.gate(record.get('application_completion'),required_stages=marker['required_stages'])
+        except (ValueError,TypeError,KeyError):application_ok=False
+    gates=(native_ok and application_ok and record['infrastructure']['status']=='ready' and record['termination']['reason']=='completed'
            and record['invocation']['status'] in ('verified','recovered')
            and record['scoring']['status']=='completed' and record['task_result']['status']=='pass'
            and record['protected_inputs']['status']=='unchanged')

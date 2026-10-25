@@ -162,7 +162,7 @@ def case_maps(value,cases):
 
 
 def helper_contract(value):
-    fields(value,('contract','host_generation','max_workers','aggregate','gateway'))
+    fields(value,('contract','host_generation','max_workers','aggregate','gateway'),('native_budget',))
     if value['contract']!=EXECUTION or type(value['host_generation']) is not int or value['host_generation']!=HOST_GENERATION:
         raise IndexedError()
     integer(value['max_workers'],1,2)
@@ -170,9 +170,18 @@ def helper_contract(value):
     candidate={'scheduler':parallel_contract.VERSION,'host_generation':1,'registry_aware_cohort':True,
         'max_trials':2,'max_stages':2,'max_pending':16,'queue_wait_seconds':3600,'collection_timeout_seconds':14400,
         'aggregate':value['aggregate'],'gateway':value['gateway']}
+    if 'native_budget' in value:candidate['native_budget']=copy.deepcopy(value['native_budget'])
     try:parallel_contract.validate(candidate)
     except ValueError:raise IndexedError() from None
     return copy.deepcopy(value)
+
+
+def native_helper_contract(resources=None):
+    """Explicit new opt-in; callers must freeze it before dispatch."""
+    from parallel_contract import NATIVE_HELPER_RESOURCES,native_resources
+    try:selected=native_resources(NATIVE_HELPER_RESOURCES if resources is None else resources)
+    except ValueError:raise IndexedError('selection-conflict') from None
+    return {'schema':1,'helpers_per_trial':1,'resources':selected}
 
 
 def preflight(value):

@@ -20,6 +20,24 @@ def finalize(root,intent,path,lab):
     return result
 
 
+def retain_uncertain_dependents(peer,pool):
+    if peer.native_budget is not None or getattr(peer.registry,'_native_budget_cohort',None) is not None:
+        pool.dependent_cleanup_confirmed=False
+        pool.stop()
+
+
+def release_trial(item,identity,physical,known,network_cleanup,pool):
+    """A removed helper cannot substitute for the child's private purge proof."""
+    peer=item['peer']
+    native=peer.native_budget is not None or getattr(peer.registry,'_native_budget_cohort',None) is not None
+    if native and (physical is not True or known is not True):
+        retain_uncertain_dependents(peer,pool)
+        pool.release(identity,False,False)
+        return False
+    network_cleanup(item['network'])
+    return pool.release(identity,physical,known)
+
+
 def collect(root,metadata,matrix,work,lab,registry,pool,session,inference,network_factory,network_cleanup,
             spawn=launch_worker,clock=time.monotonic):
     root=Path(root);contract=metadata['concurrency']
@@ -42,6 +60,12 @@ def collect(root,metadata,matrix,work,lab,registry,pool,session,inference,networ
         for item in active.values():
             try:item['channel'].send({'op':'cancel'})
             except OSError:pass
+    def finalize_native_peers():
+        failed=False
+        for item in active.values():
+            try:item['peer'].finalize_native_budget(stop_worker=True)
+            except (OSError,ValueError):failed=True
+        if failed:raise ParallelError('Native cohort cleanup remains blocked; unrelated owned cleanup was attempted')
     try:
         while active or queued and not stopped:
             if clock()>=deadline:stop('interrupted')
@@ -96,19 +120,20 @@ def collect(root,metadata,matrix,work,lab,registry,pool,session,inference,networ
                         except OSError:pass
                         if rejected:stop('blocked')
                 if item['process'].poll() is None:continue
-                if inference.get('stage_release'):inference['stage_release'](identity)
                 try:
+                    item['peer'].finalize_native_budget(stop_worker=True)
+                    if inference.get('stage_release'):inference['stage_release'](identity)
                     result=finalize(root,item['intent'],item['path'],lab)
                     known=experiments.cleanup_known(root,item['intent'],result)
                     physical=all(r['status']=='absent' for r in item['peer'].records) and item['peer'].active is None
-                    network_cleanup(item['network'])
-                    if not pool.release(identity,physical,known):stop('blocked')
+                    if not release_trial(item,identity,physical,known,network_cleanup,pool):stop('blocked')
                     else:
                         for record in item['peer'].records:registry.release(record,True)
                     completed+=1
                     if result['status']=='INTERRUPTED':stop('interrupted')
                     elif result['status']!='PASS' and metadata['policies']['on_failure']=='stop':stop('halted')
                 except (ParallelError,ValueError,OSError):
+                    retain_uncertain_dependents(item['peer'],pool)
                     stop('blocked')
                 finally:
                     item['output'].close();channel.sock.close();state['active_attempts'].pop(item['intent']['attempt_id'],None)
@@ -117,8 +142,10 @@ def collect(root,metadata,matrix,work,lab,registry,pool,session,inference,networ
                 for item in active.values():
                     item['process'].kill()
                     item['process'].wait(timeout=5)
+                    retain_uncertain_dependents(item['peer'],pool)
                 # Crash reconciliation will independently match/stop every writer.
-                registry.reconcile()
+                finalize_native_peers()
+                if getattr(pool,'dependent_cleanup_confirmed',True) is True:registry.reconcile()
             if active or queued and not stopped:time.sleep(.02)
     except KeyboardInterrupt:
         stop('interrupted')
@@ -132,28 +159,35 @@ def collect(root,metadata,matrix,work,lab,registry,pool,session,inference,networ
                         item['channel'].send(reply)
                     except (EOFError,OSError,ValueError):pass
                 if item['process'].poll() is None:continue
-                if inference.get('stage_release'):inference['stage_release'](identity)
                 try:
+                    item['peer'].finalize_native_budget(stop_worker=True)
+                    if inference.get('stage_release'):inference['stage_release'](identity)
                     result=finalize(root,item['intent'],item['path'],lab)
                     physical=all(r['status']=='absent' for r in item['peer'].records) and item['peer'].active is None
                     known=experiments.cleanup_known(root,item['intent'],result)
-                    network_cleanup(item['network'])
-                    if pool.release(identity,physical,known):
+                    if release_trial(item,identity,physical,known,network_cleanup,pool):
                         for record in item['peer'].records:registry.release(record,True)
                     completed+=1;state['active_attempts'].pop(item['intent']['attempt_id'],None)
-                except (ValueError,OSError):state['status']='blocked'
+                except (ValueError,OSError):
+                    retain_uncertain_dependents(item['peer'],pool);state['status']='blocked'
                 finally:item['output'].close();item['channel'].sock.close();del active[identity]
             if active:time.sleep(.02)
         if active:
             for item in active.values():
                 item['process'].kill();item['process'].wait(timeout=5);item['output'].close();item['channel'].sock.close()
-            registry.reconcile()
+                retain_uncertain_dependents(item['peer'],pool)
+            finalize_native_peers()
+            if getattr(pool,'dependent_cleanup_confirmed',True) is True:registry.reconcile()
     except BaseException:
         stop('blocked')
         for identity,item in active.items():
-            if inference.get('stage_release'):inference['stage_release'](identity)
+            retain_uncertain_dependents(item['peer'],pool)
+            if inference.get('stage_release'):
+                try:inference['stage_release'](identity)
+                except (ValueError,OSError):pass
             item['process'].kill();item['process'].wait(timeout=5);item['output'].close();item['channel'].sock.close()
-        registry.reconcile()
+        finalize_native_peers()
+        if getattr(pool,'dependent_cleanup_confirmed',True) is True:registry.reconcile()
         raise
     if not stopped:state['status']='completed'
     persist()

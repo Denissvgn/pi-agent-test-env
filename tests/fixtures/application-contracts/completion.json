@@ -1,0 +1,376 @@
+{
+  "binding": {
+    "run_id": "11111111-1111-4111-8111-111111111111",
+    "trial_id": null,
+    "attempt_id": "22222222-2222-4222-8222-222222222222",
+    "stage_id": "33333333-3333-4333-8333-333333333333",
+    "segment_id": "44444444-4444-4444-8444-444444444444",
+    "session_id": "55555555-5555-4555-8555-555555555555",
+    "plan_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "profile_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "release_contract_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "report_contract_sha256": "757d135de78c2c075f5bfbbe03e6a25c115f12612fbae00501aebb2854119eb3",
+    "pi_release": "1.2.0"
+  },
+  "stored_evidence": {
+    "evidence/0001/response.txt": "{\"actor_id\": \"actor-alice\", \"application_id\": \"diagnostic-app\", \"role\": \"participant\", \"tenant_id\": \"team-1\"}",
+    "evidence/0001/request.txt": "GET /identity\nX-Agent-Key: [REDACTED]\nContent-Type: application/json\n\n",
+    "evidence/0002/response.txt": "{\"items\": [{\"id\": \"r1\", \"text\": \"First record\"}, {\"id\": \"r2\", \"text\": \"Second record\"}], \"next_cursor\": \"upstream-page-2\", \"snapshot_id\": \"snapshot-1\"}",
+    "evidence/0002/request.txt": "GET /records\nX-Agent-Key: [REDACTED]\nContent-Type: application/json\n\n",
+    "evidence/0003/response.txt": "{\"items\": [{\"id\": \"r3\", \"text\": \"Third record\"}], \"next_cursor\": null, \"snapshot_id\": \"snapshot-1\"}",
+    "evidence/0003/request.txt": "GET /records?cursor=upstream-page-2\nX-Agent-Key: [REDACTED]\nContent-Type: application/json\n\n",
+    "evidence/0004/response.txt": "{\"actor_id\": \"actor-alice\", \"artifact_sha256\": \"755452d7796776ec15cf93323cfa00b216ce8794a61dd1361948df79dac80a33\", \"publication_id\": \"publication-1\", \"state\": \"published\", \"target_id\": \"team-summary\"}",
+    "evidence/0004/request.txt": "POST /publications\nX-Agent-Key: [REDACTED]\nContent-Type: application/json\n\n{\"artifact_id\":\"summary\",\"artifact_sha256\":\"755452d7796776ec15cf93323cfa00b216ce8794a61dd1361948df79dac80a33\",\"content\":\"# Team summary\\n\\n- r1: First record\\n- r2: Second record\\n- r3: Third record\\n\",\"target_id\":\"team-summary\"}"
+  },
+  "stored_artifacts": {
+    "outputs/summary.md": "# Team summary\n\n- r1: First record\n- r2: Second record\n- r3: Third record\n"
+  },
+  "receipts": [
+    {
+      "schema": 1,
+      "document_type": "application_operation_receipt",
+      "receipt_id": "receipt-1",
+      "operation_instance_id": "operation-1",
+      "native_call_id": "call-1",
+      "sequence": 1,
+      "binding": {
+        "run_id": "11111111-1111-4111-8111-111111111111",
+        "trial_id": null,
+        "attempt_id": "22222222-2222-4222-8222-222222222222",
+        "stage_id": "33333333-3333-4333-8333-333333333333",
+        "segment_id": "44444444-4444-4444-8444-444444444444",
+        "session_id": "55555555-5555-4555-8555-555555555555",
+        "plan_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "profile_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "release_contract_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "report_contract_sha256": "757d135de78c2c075f5bfbbe03e6a25c115f12612fbae00501aebb2854119eb3",
+        "pi_release": "1.2.0"
+      },
+      "participant": {
+        "application_id": "diagnostic-app",
+        "tenant_id": "team-1",
+        "actor_id": "actor-alice",
+        "role": "participant"
+      },
+      "operation_id": "identity",
+      "effect": "identity",
+      "request": {
+        "method": "GET",
+        "origin_id": "fixture",
+        "path": "/identity",
+        "credential_alias": "persona"
+      },
+      "evidence": [
+        {
+          "kind": "request",
+          "path": "evidence/0001/request.txt",
+          "sha256": "2ab79a0da8589db5160f68512b2ab1bb69238c83fd6b3ef909878bf3d4eb6550",
+          "bytes": 70,
+          "redactions": [
+            "authentication_value"
+          ]
+        },
+        {
+          "kind": "response",
+          "path": "evidence/0001/response.txt",
+          "sha256": "e142da2270dd115bb0e91ec766d708cafa8c31945bd38fb62897157dd81cc4f5",
+          "bytes": 109,
+          "redactions": []
+        }
+      ],
+      "started_at": "2026-10-17T10:00:01Z",
+      "ended_at": "2026-10-17T10:00:01Z",
+      "outcome": "succeeded",
+      "reason": null,
+      "http_status": 200,
+      "pagination": null,
+      "publication": null,
+      "transport": "api",
+      "action_id": null
+    },
+    {
+      "schema": 1,
+      "document_type": "application_operation_receipt",
+      "receipt_id": "receipt-2",
+      "operation_instance_id": "operation-2",
+      "native_call_id": "call-2",
+      "sequence": 2,
+      "binding": {
+        "run_id": "11111111-1111-4111-8111-111111111111",
+        "trial_id": null,
+        "attempt_id": "22222222-2222-4222-8222-222222222222",
+        "stage_id": "33333333-3333-4333-8333-333333333333",
+        "segment_id": "44444444-4444-4444-8444-444444444444",
+        "session_id": "55555555-5555-4555-8555-555555555555",
+        "plan_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "profile_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "release_contract_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "report_contract_sha256": "757d135de78c2c075f5bfbbe03e6a25c115f12612fbae00501aebb2854119eb3",
+        "pi_release": "1.2.0"
+      },
+      "participant": {
+        "application_id": "diagnostic-app",
+        "tenant_id": "team-1",
+        "actor_id": "actor-alice",
+        "role": "participant"
+      },
+      "operation_id": "list-records",
+      "effect": "read",
+      "request": {
+        "method": "GET",
+        "origin_id": "fixture",
+        "path": "/records",
+        "credential_alias": "persona"
+      },
+      "evidence": [
+        {
+          "kind": "request",
+          "path": "evidence/0002/request.txt",
+          "sha256": "52d88aaff8fa8a7ca7c3b5b7b209a0af7bbd1fc4ba43c1e20c0afea57ca02c09",
+          "bytes": 69,
+          "redactions": [
+            "authentication_value"
+          ]
+        },
+        {
+          "kind": "response",
+          "path": "evidence/0002/response.txt",
+          "sha256": "e39071c5723fe2ec5a28f8703ab8b087e4f562b26bca72720fb1018958cb14bd",
+          "bytes": 151,
+          "redactions": []
+        }
+      ],
+      "started_at": "2026-10-17T10:00:02Z",
+      "ended_at": "2026-10-17T10:00:02Z",
+      "outcome": "succeeded",
+      "reason": null,
+      "http_status": 200,
+      "pagination": {
+        "chain_id": "records-chain-1",
+        "snapshot_id": "snapshot-1",
+        "page": 1,
+        "items": 2,
+        "total_items": 2,
+        "state": "more",
+        "reason": null,
+        "predecessor_receipt_id": null
+      },
+      "publication": null,
+      "transport": "api",
+      "action_id": null
+    },
+    {
+      "schema": 1,
+      "document_type": "application_operation_receipt",
+      "receipt_id": "receipt-3",
+      "operation_instance_id": "operation-3",
+      "native_call_id": "call-3",
+      "sequence": 3,
+      "binding": {
+        "run_id": "11111111-1111-4111-8111-111111111111",
+        "trial_id": null,
+        "attempt_id": "22222222-2222-4222-8222-222222222222",
+        "stage_id": "33333333-3333-4333-8333-333333333333",
+        "segment_id": "44444444-4444-4444-8444-444444444444",
+        "session_id": "55555555-5555-4555-8555-555555555555",
+        "plan_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "profile_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "release_contract_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "report_contract_sha256": "757d135de78c2c075f5bfbbe03e6a25c115f12612fbae00501aebb2854119eb3",
+        "pi_release": "1.2.0"
+      },
+      "participant": {
+        "application_id": "diagnostic-app",
+        "tenant_id": "team-1",
+        "actor_id": "actor-alice",
+        "role": "participant"
+      },
+      "operation_id": "list-records",
+      "effect": "read",
+      "request": {
+        "method": "GET",
+        "origin_id": "fixture",
+        "path": "/records",
+        "credential_alias": "persona"
+      },
+      "evidence": [
+        {
+          "kind": "request",
+          "path": "evidence/0003/request.txt",
+          "sha256": "6c31d7beff00ff06c4293be9341af7fab352577afd01fff0cac75007627e255f",
+          "bytes": 92,
+          "redactions": [
+            "authentication_value"
+          ]
+        },
+        {
+          "kind": "response",
+          "path": "evidence/0003/response.txt",
+          "sha256": "d566d26dde81a292bed6b925eafa7745b387d5c7b6b11f4ddc1abbd552fb1337",
+          "bytes": 99,
+          "redactions": []
+        }
+      ],
+      "started_at": "2026-10-17T10:00:03Z",
+      "ended_at": "2026-10-17T10:00:03Z",
+      "outcome": "succeeded",
+      "reason": null,
+      "http_status": 200,
+      "pagination": {
+        "chain_id": "records-chain-1",
+        "snapshot_id": "snapshot-1",
+        "page": 2,
+        "items": 1,
+        "total_items": 3,
+        "state": "exhausted",
+        "reason": null,
+        "predecessor_receipt_id": "receipt-2"
+      },
+      "publication": null,
+      "transport": "api",
+      "action_id": null
+    },
+    {
+      "schema": 1,
+      "document_type": "application_operation_receipt",
+      "receipt_id": "receipt-4",
+      "operation_instance_id": "operation-4",
+      "native_call_id": "call-4",
+      "sequence": 4,
+      "binding": {
+        "run_id": "11111111-1111-4111-8111-111111111111",
+        "trial_id": null,
+        "attempt_id": "22222222-2222-4222-8222-222222222222",
+        "stage_id": "33333333-3333-4333-8333-333333333333",
+        "segment_id": "44444444-4444-4444-8444-444444444444",
+        "session_id": "55555555-5555-4555-8555-555555555555",
+        "plan_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "profile_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "release_contract_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "report_contract_sha256": "757d135de78c2c075f5bfbbe03e6a25c115f12612fbae00501aebb2854119eb3",
+        "pi_release": "1.2.0"
+      },
+      "participant": {
+        "application_id": "diagnostic-app",
+        "tenant_id": "team-1",
+        "actor_id": "actor-alice",
+        "role": "participant"
+      },
+      "operation_id": "publish-summary",
+      "effect": "publication",
+      "request": {
+        "method": "POST",
+        "origin_id": "fixture",
+        "path": "/publications",
+        "credential_alias": "persona"
+      },
+      "evidence": [
+        {
+          "kind": "request",
+          "path": "evidence/0004/request.txt",
+          "sha256": "a93bc6a2cfee5eacb73d8c32f10c4d393dce242551c0b4ab708c2dd3da8eaef4",
+          "bytes": 304,
+          "redactions": [
+            "authentication_value"
+          ]
+        },
+        {
+          "kind": "response",
+          "path": "evidence/0004/response.txt",
+          "sha256": "83d9da6eff0068964ef225fce0af0bff2ed105b7111db91c8e93d59a91beaa5f",
+          "bytes": 200,
+          "redactions": []
+        }
+      ],
+      "started_at": "2026-10-17T10:00:04Z",
+      "ended_at": "2026-10-17T10:00:04Z",
+      "outcome": "succeeded",
+      "reason": null,
+      "http_status": 200,
+      "pagination": null,
+      "publication": {
+        "id": "summary-publication",
+        "publication_id": "publication-1",
+        "artifact_id": "summary",
+        "artifact_sha256": "755452d7796776ec15cf93323cfa00b216ce8794a61dd1361948df79dac80a33",
+        "target_id": "team-summary",
+        "state": "published"
+      },
+      "transport": "api",
+      "action_id": null
+    }
+  ],
+  "report": {
+    "schema": 1,
+    "document_type": "application_completion_report",
+    "contract_id": "participant-report",
+    "participant": {
+      "application_id": "diagnostic-app",
+      "tenant_id": "team-1",
+      "actor_id": "actor-alice",
+      "role": "participant"
+    },
+    "artifacts": [
+      {
+        "id": "summary",
+        "path": "outputs/summary.md",
+        "sha256": "755452d7796776ec15cf93323cfa00b216ce8794a61dd1361948df79dac80a33",
+        "bytes": 74
+      }
+    ],
+    "pagination": {
+      "list-records": [
+        "receipt-2",
+        "receipt-3"
+      ]
+    },
+    "publications": [
+      {
+        "id": "summary-publication",
+        "receipt_id": "receipt-4"
+      }
+    ],
+    "unresolved": []
+  },
+  "expected_completion": {
+    "schema": 1,
+    "document_type": "application_completion_result",
+    "contract_id": "participant-report",
+    "status": "complete",
+    "diagnostics": [],
+    "diagnostics_truncated": false
+  },
+  "completion": {
+    "id": "participant-report",
+    "participant": {
+      "application_id": "diagnostic-app",
+      "tenant_id": "team-1",
+      "actor_id": "actor-alice",
+      "role": "participant"
+    },
+    "report_path": "outputs/completion.json",
+    "artifacts": [
+      {
+        "id": "summary",
+        "path": "outputs/summary.md",
+        "media_type": "text/markdown",
+        "max_bytes": 4096
+      }
+    ],
+    "pagination": [
+      {
+        "operation_id": "list-records",
+        "require_exhausted": true
+      }
+    ],
+    "publications": [
+      {
+        "id": "summary-publication",
+        "operation_id": "publish-summary",
+        "artifact_id": "summary",
+        "target_id": "team-summary",
+        "required_state": "published"
+      }
+    ]
+  }
+}

@@ -1,0 +1,106 @@
+[
+  {
+    "name": "app_api",
+    "description": "Perform one explicitly granted API operation.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "operation_id": {
+          "type": "string",
+          "enum": [
+            "identity",
+            "list-records",
+            "publish-summary"
+          ]
+        },
+        "path_params": {
+          "type": "object"
+        },
+        "query": {
+          "type": "object"
+        },
+        "body": {},
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 4096
+        }
+      },
+      "required": [
+        "operation_id",
+        "path_params",
+        "query",
+        "body",
+        "cursor"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "artifact_read",
+    "description": "Read one declared artifact.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "artifact_id": {
+          "type": "string",
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "artifact_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "artifact_write",
+    "description": "Write UTF-8 text for one declared artifact.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "artifact_id": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "content": {
+          "type": "string",
+          "maxLength": 262144
+        }
+      },
+      "required": [
+        "artifact_id",
+        "content"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "report_write",
+    "description": "Write the completion manifest exactly as supplied.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "report": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "report"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "budget_status",
+    "description": "Return post-charge trusted remaining budgets.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  }
+]

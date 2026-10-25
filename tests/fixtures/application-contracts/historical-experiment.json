@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "document_type": "experiment",
+  "experiment_id": "86bc1cef-0005-4407-8813-6f943f3bfca5",
+  "name": "fixture-integration",
+  "baseline": "builtin",
+  "repetitions": 2,
+  "policies": {
+    "primary_attempt": "first",
+    "assistance": "exclude",
+    "on_failure": "continue",
+    "max_attempts": 1
+  },
+  "execution": {
+    "image": "sha256:bf8a368f1aa8030f7cf111fa15b7e406a1234e5cd322a16b601d9046dd5d30d1",
+    "platform": "linux/arm64",
+    "network": "bridge"
+  },
+  "profile": "explicit-agent-profiles",
+  "created_at": "2026-10-07T20:54:54.174057+00:00",
+  "source_receipts": {
+    "lookup": {
+      "source_sha256": "be9e6bfd3ebabc088600812f7be0b4ad53d07c13710d978ba6c0f9e4e82d49dd",
+      "snapshot_sha256": "be9e6bfd3ebabc088600812f7be0b4ad53d07c13710d978ba6c0f9e4e82d49dd",
+      "copy": {
+        "copied_bytes": 389,
+        "skipped": []
+      }
+    }
+  },
+  "runner_content_sha256": "a65371b83154a5e45e7b26233dd66c260a2e26df0ce8829e7d2c3fd03737a6d3",
+  "prepared_root": "/Users/bramen/Projects/pi-agentic-development/reports/wave-5/live-integration-qualified"
+}

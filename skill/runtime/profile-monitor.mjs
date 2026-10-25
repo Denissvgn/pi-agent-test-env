@@ -20,7 +20,9 @@ export default function (pi) {
     const registered = pi.getAllTools().map(t => t.name).sort();
     if (JSON.stringify(active) !== JSON.stringify(context.allowed_tools)) throw new Error('Unexpected active tool set');
     if (context.profile.kind === 'builtin' && registered.includes('fixture_lookup')) throw new Error('Custom tool registered in built-in baseline');
-    if (!context.profile.tools.every(t => registered.includes(t))) throw new Error('Declared tool missing');
+    if (context.profile.kind === 'application-client') {
+      if (JSON.stringify(registered) !== JSON.stringify(context.allowed_tools)) throw new Error('Unexpected registered tool set');
+    } else if (!context.profile.tools.every(t => registered.includes(t))) throw new Error('Declared tool missing');
     pi.appendEntry('pi_lab_profile', { schema: 1, ...Object.fromEntries(['run_id','attempt_id','stage_id','segment_id','profile_sha256'].map(k => [k, context[k]])),
       active_tools: active, registered_tools: registered, assets_sha256: assets });
   });

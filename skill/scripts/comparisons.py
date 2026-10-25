@@ -6,6 +6,8 @@ import math
 from pathlib import Path
 import statistics
 
+import native_budget_reporting
+import indexed_reporting
 import provenance
 
 
@@ -75,6 +77,15 @@ def summarize_group(rows,expected):
                         'score':record.get('task_result',{}).get('score') if a['scorable'] else None,**a,
                         'attempts':[{'attempt_id':x['attempt_id'],'attempt_index':x['attempt_index'],'retry_of_attempt_id':x['retry_of_attempt_id'],
                                      'result_path':x.get('evidence_path',x['result_path']),'status':x['result'].get('status') if x['result'] else 'incomplete'} for x in attempts]})
+        reporting=expected[row['trial_id']]
+        for source,target in [(record,details[-1]),*[(attempt.get('result'),details[-1]['attempts'][number]) for number,attempt in enumerate(attempts)]]:
+            budget=native_budget_reporting.record_projection(source,stage_names=reporting.get('native_budget_stage_names'),
+                required_stages=reporting.get('native_budget_required_stages',()))
+            if budget is not None:target['native_tool_budgets']=budget
+            completion=indexed_reporting.application_projection(source,
+                stage_names=reporting.get('application_stage_names'),
+                required_stages=reporting.get('application_required_stages'))
+            if completion is not None:target['application_completion']=completion
     counts={'planned':len(rows),'started':sum(bool(row['attempts']) for row in rows),
             'completed':sum(a['completed'] for _,_,a in primary),'scorable':sum(a['scorable'] for _,_,a in primary),
             'artifact_correct':sum(a['artifact_correct'] for _,_,a in primary),'eligible':sum(a['eligible'] for _,_,a in primary),
@@ -153,6 +164,29 @@ def markdown(report):
             c=group['counts'];r=group['rates'];s=r['primary_success_planned'];a=r['artifact_success_scored']
             lines.append(f"| {name} | {c['planned']} | {c['started']} | {c['completed']} | {c['scorable']} | {c['eligible']} | {s['numerator']}/{s['denominator']} | {a['numerator']}/{a['denominator']} | {c['unscorable']} | {c['retries']} |")
         lines.append('')
+        native_rows=[(trial,stage) for group in case['variants'].values() for trial in group['trials']
+                     for stage in trial.get('native_tool_budgets',{}).get('stages',[])]
+        if native_rows:
+            lines += ['Parent ledger accounting; runtime qualification is separate. Stages remain separate.', '',
+                      '| Trial | Stage | Accounting | Error | Call limit | Reserve calls | Reserve seconds | Charged | Remaining | Phase | Blocked | Per-tool charged |',
+                      '|---|---|---|---|---:|---:|---:|---:|---:|---|---:|---|']
+            for trial,stage in native_rows:
+                budget=stage['budget']
+                cells=([budget['limits']['max_tool_calls'],budget['limits']['reporting_reserve_calls'],budget['limits']['reporting_reserve_seconds'],
+                        budget['counts']['charged'],budget['remaining_calls'],budget['phase'],budget['counts']['blocked'],
+                        ', '.join(name+': '+str(counts['charged']) for name,counts in sorted(budget['per_tool'].items()))]
+                       if budget is not None else ['unknown']*8)
+                lines.append('| '+ ' | '.join(str(value) for value in [trial['trial_id'],stage['stage'],stage['accounting'],stage['error'] or '-',*cells])+' |')
+            lines.append('')
+        completion_rows=[(trial,stage) for group in case['variants'].values() for trial in group['trials']
+                         for stage in trial.get('application_completion',{}).get('stages',[])]
+        if completion_rows:
+            lines += ['Required report completion is independent of invocation and task score.', '',
+                      '| Trial | Stage | Report status | Diagnostic counts |','|---|---|---|---|']
+            for trial,stage in completion_rows:
+                codes=', '.join(row['code']+': '+str(row['count']) for row in stage['diagnostics']) or '-'
+                lines.append('| '+' | '.join([trial['trial_id'],stage['stage'],stage['status'],codes])+' |')
+            lines.append('')
         for pair in case['pairs']:
             lines.append(f"{pair['candidate']} vs {case['baseline']}: {pair['eligible_pairs']}/{pair['planned_pairs']} eligible pairs; mean paired score difference {pair['score_differences']['mean'] if pair['score_differences']['mean'] is not None else 'unknown'}.")
         lines += ['', '| Trial | Variant | Repeat | Primary status | Task | Score | Eligible | Evidence |','|---|---|---:|---|---|---|---|---|']
@@ -171,6 +205,29 @@ def expected_contracts(root,metadata,rows,lab):
         path=Path(root)/row['plan']
         import agent_profiles
         profile=agent_profiles.load(Path(root)/row['agent_profile']) if row.get('agent_profile') else agent_profiles.builtin()
+        if metadata.get('document_type')=='application_experiment':
+            import application_preparation
+            compiled=application_preparation.load_compiled(Path(root)/row['compiled_plan'])
+            plan=compiled['plan'];contract=plan['checks'][0]['scorer']
+            hashes={asset['target']:asset['sha256'] for asset in contract['assets']}
+            oracle={'scorer_id':contract['id'],'scorer_version':contract['version'],
+                'scorer_sha256':hashlib.sha256(json.dumps(hashes,sort_keys=True).encode()).hexdigest(),
+                'score_domain':contract['score_domain']}
+            endpoint=lab.load_endpoint(Path(root)/row['endpoint']);names=[stage['id'] for stage in plan['stages']]
+            expected[row['trial_id']]={'scorer':oracle,
+                'endpoint_sha256':provenance.digest({k:v for k,v in endpoint.items() if k!='api_key_env'}),
+                'snapshot_sha256':metadata['source_receipts'][row['case']]['snapshot_sha256'],
+                'plan_sha256':plan['plan_sha256'],'runner_content_sha256':metadata['runner_content_sha256'],
+                'image':metadata['execution']['image'],'platform':metadata['execution']['platform'],
+                'profile_explicit':True,'agent_profile_id':'application-client','agent_profile_sha256':row['agent_profile_sha256'],
+                'native_budget_stage_names':names,'native_budget_required_stages':names,
+                'application_stage_names':names,'application_required_stages':names}
+            if metadata['schema']==3:
+                bindings=json.loads((Path(root)/row['inference_bindings']).read_text())
+                expected[row['trial_id']].update(indexed_bindings={name:indexed_reporting.identity(binding) for name,binding in bindings.items()},
+                    bindings_sha256=provenance.digest(bindings),parallel_contract_sha256=provenance.digest(metadata['indexed_execution']))
+            elif metadata['schema']==2:expected[row['trial_id']]['parallel_contract_sha256']=provenance.digest(metadata['concurrency'])
+            continue
         plan=lab.validate_plan(json.loads(path.read_text()),path.parent,profile,external_bindings=metadata['schema']==3)
         contract=plan['checks'][0]['scorer'];hashes={x['target']:hashlib.sha256(Path(x['source']).read_bytes()).hexdigest() for x in contract['assets']}
         oracle={'scorer_id':contract['id'],'scorer_version':contract['version'],'scorer_sha256':hashlib.sha256(json.dumps(hashes,sort_keys=True).encode()).hexdigest(),'score_domain':contract['score_domain']}
@@ -180,8 +237,10 @@ def expected_contracts(root,metadata,rows,lab):
                                   'plan_sha256':row['plan_sha256'],'runner_content_sha256':metadata['runner_content_sha256'],
                                   'image':metadata['execution']['image'],'platform':metadata['execution']['platform'],
                                   'profile_explicit':row.get('profile_explicit',False),'agent_profile_id':row.get('agent_profile_id','builtin'),'agent_profile_sha256':row.get('agent_profile_sha256')}
+        native_stages=[agent['name'] for agent in plan['agents'] if {'max_tool_calls','reporting_reserve_calls','reporting_reserve_seconds'}.intersection(agent)]
+        if native_stages:
+            expected[row['trial_id']].update(native_budget_stage_names=[agent['name'] for agent in plan['agents']],native_budget_required_stages=native_stages)
         if metadata.get('schema')==3:
-            import indexed_reporting
             bindings=json.loads((Path(root)/row['inference_bindings']).read_text())
             expected[row['trial_id']].update(indexed_bindings={name:indexed_reporting.identity(binding) for name,binding in bindings.items()},
                 bindings_sha256=provenance.digest(bindings),parallel_contract_sha256=provenance.digest(metadata['indexed_execution']))

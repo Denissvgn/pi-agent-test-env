@@ -51,8 +51,22 @@ def gateway_owner(lab,args,root,metadata,work,registry,pool,worker_resources,ups
     import inference_broker
     tokens={secrets.token_hex(32):cell['trial_id'] for cell in work}
     config={'endpoint':lab.load_endpoint(root/work[0]['endpoint']),'upstream_key':upstream_key,'tokens':tokens}
+    cohort=getattr(registry,'_native_budget_cohort',None)
+    if cohort is not None:config['active_tokens_file']=True
     with inference_broker.owner(lab,args,root,registry,pool,worker_resources,config,
                                 metadata['execution']['image'],metadata['concurrency']['gateway'],metadata['concurrency']) as result:
+        if cohort is not None:
+            cohort.add_redaction_values([upstream_key])
+            for token,trial in tokens.items():cohort.add_redaction_values([token],trial)
+            inference=result[0];original=inference['trial'];active={}
+            def trial(intent):
+                inference['admit']()
+                selected=original(intent);active[intent['trial_id']]=selected['token']
+                inference['activate'](active.values())
+                return selected
+            def release(trial_id):
+                active.pop(trial_id,None);inference['activate'](active.values())
+            inference['trial']=trial;inference['stage_release']=release
         yield result
 
 
@@ -88,6 +102,8 @@ def execute(root,lab,session=None,resume=False,retry_trial=None):
                     raise parallel_contract.ParallelError('Confirmed model environment differs from frozen inputs')
         with resources.admission_lock(args.lock_file,args.lock_wait_seconds) as registry:
             registry.command=lambda argv:lab.command(argv,timeout=15,required=False)
+            import parallel_native_budget
+            cohort=parallel_native_budget.NativeCohort(root,metadata,matrix,matrix['cells'],lab,args,registry)
             lab.require_host(args)
             capacity=parallel_contract.admit_capacity(metadata['concurrency'],resources.requested_policy(args),lab.docker_info())
             if args.resource_report['effective']['runtime']!=args.resource_report['requested']['runtime']:
@@ -106,10 +122,15 @@ def execute(root,lab,session=None,resume=False,retry_trial=None):
             if not work:return {'schema':2,'status':'halted' if halted else 'completed','planned':len(matrix['cells']),'completed_this_call':0,'exit_code':1 if halted else 0}
             endpoint=lab.load_endpoint(root/work[0]['endpoint']);upstream_key=lab.endpoint_secret(endpoint,args)
             credentials,authorities=app_admission(root,work,lab,args,endpoint,upstream_key)
-            pool=Allocator(capacity['aggregate'],metadata['concurrency']['max_stages'],metadata['concurrency']['max_pending'])
+            # Cohort reads only frozen inputs. Restrict queue pairing to cells
+            # that this invocation can actually launch (including explicitretry).
+            cohort.native_trials.intersection_update(cell['trial_id'] for cell in work)
+            pool=cohort.allocator(capacity['aggregate'],metadata['concurrency']['max_stages'],metadata['concurrency']['max_pending'])
+            cohort.attach(pool);cohort.add_redaction_values([upstream_key])
             probe=pool.request('admission-probe',{'generation':registry.generation},capacity['worker'],30);pool.dispatch();pool.consume(probe.identity,probe.capability,probe.binding,probe.resources)
             image=lab.probe_image(args,metadata['execution']['image']);selected=lab.admit_image(image)
             if selected!=metadata['release_contracts'].get(selected['release']):raise parallel_contract.ParallelError('Observed release differs from frozen contract')
+            cohort.admit_release(selected['release'])
             pool.release(probe.identity,True,True);registry.close()
             for cell in work:
                 agent_profiles.admit(agent_profiles.load(root/cell['agent_profile']),selected['release'])

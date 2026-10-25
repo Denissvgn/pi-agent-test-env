@@ -32,10 +32,12 @@ def execution(endpoint,image,root):
             'seed_replay':'not_guaranteed'}
 
 
-def collect_emitted(runtime,logs,secret='',application_secrets=()):
+def collect_emitted(runtime,logs,secret='',application_secrets=(),*,application=False):
     """After cleanup only. No-follow each ancestor; no authority is derived from child files."""
     artifacts={}
-    for name in ('effective-prompt.txt','effective-configuration.json','agent/models.json','agent/settings.json'):
+    names=('effective-prompt.txt','effective-configuration.json','agent/models.json','agent/settings.json')
+    if application:names+=('application-prompt.json',)
+    for name in names:
         parent=None
         try:
             parent=os.open(runtime,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)

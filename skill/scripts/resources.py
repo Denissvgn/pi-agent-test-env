@@ -12,6 +12,8 @@ import math
 import os
 from pathlib import Path
 import re
+import signal
+import threading
 import time
 from types import MappingProxyType
 
@@ -178,13 +180,119 @@ def thread_environment(jobs):
             'npm_config_jobs': n}
 
 
+def _queued_flock(fd, wait_seconds):
+    """Wait in the kernel queue on this FD, with a composable one-shot alarm.
+
+    Only the main thread owns Python signal handlers. Periodic, blocked or
+    already-pending alarms cannot be borrowed safely and reject before flock.
+    The caller owns the FD and closes it on every failure, including a signal
+    arriving immediately after acquisition.
+    """
+    required = ('pthread_sigmask', 'sigpending', 'sigwait', 'getitimer', 'setitimer')
+    if (threading.current_thread() is not threading.main_thread()
+            or any(not hasattr(signal, name) for name in required)):
+        raise AdmissionError('admission-lock-unavailable')
+    alarm = signal.SIGALRM
+    protected_signals = {alarm, signal.SIGINT}
+    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+    installed = False
+    previous_handler = None
+    outer_deadline = None
+    outer_fired = False
+    deliver_outer = False
+    callback_error = None
+    wait_deadline = time.monotonic() + wait_seconds
+    try:
+        signal.pthread_sigmask(signal.SIG_BLOCK, protected_signals)
+        if protected_signals.intersection(previous_mask) or alarm in signal.sigpending():
+            raise AdmissionError('admission-lock-unavailable')
+        observed_at = time.monotonic()
+        remaining, interval = signal.getitimer(signal.ITIMER_REAL)
+        previous_handler = signal.getsignal(alarm)
+        if interval or (remaining and not callable(previous_handler)):
+            raise AdmissionError('admission-lock-unavailable')
+        if remaining:
+            # Sample before getitimer: installation can shorten, never extend,
+            # the existing outer deadline.
+            outer_deadline = observed_at + remaining
+
+        def arm():
+            deadline = wait_deadline
+            if outer_deadline is not None and not outer_fired:
+                deadline = min(deadline, outer_deadline)
+            signal.setitimer(signal.ITIMER_REAL, max(0.000001, deadline - time.monotonic()))
+
+        def expired(signum, frame):
+            nonlocal outer_fired, callback_error
+            now = time.monotonic()
+            try:
+                if outer_deadline is not None and not outer_fired and now >= outer_deadline:
+                    outer_fired = True
+                    previous_handler(signum, frame)
+                elif now < wait_deadline:
+                    # An explicit external SIGALRM retains the original callback.
+                    if callable(previous_handler):
+                        previous_handler(signum, frame)
+                    else:
+                        raise AdmissionError('admission-lock-unavailable')
+            except BaseException as exc:
+                callback_error = exc
+                raise
+            if time.monotonic() >= wait_deadline:
+                raise AdmissionError('host-admission-busy')
+            arm()
+
+        signal.signal(alarm, expired)
+        installed = True
+        arm()
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        except OSError as exc:
+            if exc is callback_error:
+                raise
+            raise AdmissionError('admission-lock-unavailable') from None
+        # A delayed signal must not admit a lock acquired after its wait bound.
+        if time.monotonic() >= wait_deadline:
+            raise AdmissionError('host-admission-busy')
+    finally:
+        try:
+            # A SIGINT raised as this syscall returns must still run restoration.
+            signal.pthread_sigmask(signal.SIG_BLOCK, protected_signals)
+        finally:
+            try:
+                if installed:
+                    signal.setitimer(signal.ITIMER_REAL, 0)
+                    # Discard only our alarm before reinstalling the outer handler.
+                    # A due, undispatched outer timer is delivered below immediately.
+                    if alarm in signal.sigpending():
+                        signal.sigwait({alarm})
+                    signal.signal(alarm, previous_handler)
+                    if outer_deadline is not None and not outer_fired:
+                        remaining = outer_deadline - time.monotonic()
+                        if remaining <= 0:
+                            deliver_outer = True
+                        else:
+                            signal.setitimer(signal.ITIMER_REAL, remaining)
+            finally:
+                try:
+                    signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+                finally:
+                    if deliver_outer:
+                        previous_handler(alarm, None)
+
+
 @contextlib.contextmanager
-def admission_lock(path, wait_seconds=0):
+def admission_lock(path, wait_seconds=0, *, before_registry=None):
     """Serialize this tool across cooperating processes for one host user.
 
     flock releases automatically on crash. File stays in place to avoid unlink races.
     This is not a host-wide scheduler; separate users/lock files do not cooperate.
+    A trusted host preflight may deny entry before Registry effects; it never
+    replaces the original reconciliation, CURRENT context or cleanup path.
     """
+    if before_registry is not None and not callable(before_registry):
+        raise AdmissionError('resource-policy-invalid', 'before_registry must be callable or null')
     if type(wait_seconds) not in (int, float) or not 0 <= wait_seconds <= 3600:
         raise AdmissionError('resource-policy-invalid', 'lock wait must be between 0 and 3600 seconds')
     path = Path(path).expanduser()
@@ -200,18 +308,19 @@ def admission_lock(path, wait_seconds=0):
             os.chmod(path, 0o600)
         except OSError as exc:
             raise AdmissionError('admission-lock-unavailable', str(exc)) from None
-        deadline = time.monotonic() + wait_seconds
-        while True:
+        if wait_seconds:
+            _queued_flock(handle.fileno(), wait_seconds)
+        else:
             try:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                break
             except BlockingIOError:
-                if time.monotonic() >= deadline:
-                    raise AdmissionError('host-admission-busy')
-                time.sleep(0.1)
+                raise AdmissionError('host-admission-busy') from None
             except OSError as exc:
                 raise AdmissionError('admission-lock-unavailable', str(exc)) from None
         try:
+            if before_registry is not None:
+                before_registry(lease_fd=handle.fileno(), lock_path=path.absolute(),
+                                registry_root=Path(str(path.absolute())+'.registry'))
             try:
                 handle.seek(0)
                 handle.truncate()

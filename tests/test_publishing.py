@@ -19,6 +19,10 @@ class PublishingTests(unittest.TestCase):
     def test_source_allowlist_retains_tests_and_runtime_plans_without_internal_history(self):
         paths={p.relative_to(REPOSITORY).as_posix() for p in build_release.source_files(REPOSITORY)}
         self.assertIn('tests/test_publishing.py',paths)
+        self.assertIn('tests/fixtures/application-contracts/positive.json',paths)
+        self.assertIn('tests/fixtures/application-contracts/completion.json',paths)
+        self.assertIn('tests/fixtures/application-contracts/native-tools.json',paths)
+        self.assertIn('tests/fixtures/application-contracts/legacy-baseline.json',paths)
         self.assertIn('skill/assets/python-feature.plan.json',paths)
         self.assertIn('skill/examples/python-project/tests/test_slug.py',paths)
         self.assertIn('tools/validation/vendor/agentskills-source.tar.gz',paths)
@@ -36,6 +40,10 @@ class PublishingTests(unittest.TestCase):
             (extra.parent/'previous.zip').write_bytes(b'previous artifact')
             paths=build_release.source_files(repository)
             self.assertFalse(any('generated' in p.parts for p in paths))
+            unreviewed = repository/'tests/fixtures/application-contracts/private-response.json'
+            unreviewed.parent.mkdir(parents=True, exist_ok=True)
+            unreviewed.write_text('unregistered fixture output')
+            self.assertNotIn(unreviewed, build_release.source_files(repository))
             before=(repository/'skill/MANIFEST.sha256').read_bytes()
             with self.assertRaisesRegex(ValueError,'outside'):
                 build_release.build(repository/'tools/validation/new-release',repository)

@@ -6,6 +6,8 @@ from pathlib import Path
 import socket
 import subprocess
 import sys
+from types import SimpleNamespace
+import unittest
 from unittest import mock
 
 from test_experiments import ExperimentFixture
@@ -16,6 +18,25 @@ import parallel_engine
 from parallel_dispatch import Channel
 from parallel_allocator import Allocator
 import pi_lab as lab
+
+
+class NativeCleanupGateTests(unittest.TestCase):
+    def test_removed_helper_with_unknown_private_purge_retains_network_and_pool(self):
+        pool=Allocator({'cpu_millis':1000,'memory_mib':128,'pids_limit':64})
+        row=pool.request('trial',{},dict(pool.capacity),30);pool.dispatch()
+        peer=SimpleNamespace(native_budget=object(),registry=SimpleNamespace())
+        cleanup=mock.Mock()
+        self.assertFalse(parallel_engine.release_trial({'peer':peer,'network':'owned-network'},'trial',True,False,cleanup,pool))
+        cleanup.assert_not_called();self.assertFalse(pool.dependent_cleanup_confirmed)
+        self.assertTrue(pool.closed);self.assertEqual(row.state,'quarantined')
+
+    def test_legacy_release_does_not_add_new_gate_field(self):
+        pool=Allocator({'cpu_millis':1000,'memory_mib':128,'pids_limit':64})
+        pool.request('trial',{},dict(pool.capacity),30);pool.dispatch()
+        peer=SimpleNamespace(native_budget=None,registry=SimpleNamespace());cleanup=mock.Mock()
+        self.assertTrue(parallel_engine.release_trial({'peer':peer,'network':'owned-network'},'trial',True,True,cleanup,pool))
+        cleanup.assert_called_once_with('owned-network')
+        self.assertFalse(hasattr(pool,'dependent_cleanup_confirmed'))
 
 SCRIPT='''import json,os,socket,sys,time
 from unittest import mock

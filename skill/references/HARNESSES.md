@@ -58,11 +58,11 @@ No command here changes global configuration automatically.
 python3 skill/scripts/export_skill.py --output-dir /tmp/pi-agent-packages
 ```
 
-Version comes from `skill.json`. The package version is 4.4.0. Emitted artifacts:
+Version comes from `skill.json`. The package version is 4.5.0. Emitted artifacts:
 
 | Archive | Extraction layout | Extract into |
 |---|---|---|
-| `pi-agent-test-env-4.4.0.zip` | `pi-agent-test-env/SKILL.md` | Chosen skills parent |
+| `pi-agent-test-env-4.5.0.zip` | `pi-agent-test-env/SKILL.md` | Chosen skills parent |
 | `pi-agent-test-env.zip` | Same universal layout | Chosen skills parent |
 | `pi-agent-test-env-antigravity.zip` | Same universal layout | Workspace `.agents/skills` or chosen Antigravity personal skills parent |
 | `pi-agent-test-env-claude.zip` | `.claude/skills/pi-agent-test-env/SKILL.md` plus optional `.claude/commands/pi-agent-test-env.md` | Project root |
@@ -101,7 +101,7 @@ support table.
 | Parent | Actual observation | Scope |
 |---|---|---|
 | Codex CLI 0.144.6 | Enabled repo catalog entry and selected file content observed for the 4.0.1 entry | Workspace symlink; no automatic relevance selection or parent model turn |
-| Antigravity CLI 1.2.9 and 1.3.1 | Workspace catalog and selected content observed for earlier 3.0.0/4.0.0 entries | 4.0.1 catalog/content was unqualified: the authorized UI could not access the interactive CLI; no new discovery qualification is claimed for 4.2.0 |
+| Antigravity CLI 1.2.9 and 1.3.1 | Workspace catalog and selected content observed for earlier 3.0.0/4.0.0 entries | 4.0.1 catalog/content was unqualified: the authorized UI could not access the interactive CLI; the current package has no new discovery qualification |
 | Claude Code | Documented installation/archive layout | CLI discovery unqualified; Claude desktop is a separate product |
 | Antigravity app / IDE | Documented layout | Native GUI discovery unqualified |
 
