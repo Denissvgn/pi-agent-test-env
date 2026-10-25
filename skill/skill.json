@@ -79,18 +79,13 @@
       "command": "python3 scripts/pi_lab.py compile-application-plan --spec <SOURCE> --endpoint <ENDPOINT> --runtime-receipt <RECEIPT> --output-dir <NEW_DIRECTORY>"
     },
     {
-      "name": "validate-plan",
-      "description": "Validate a source or final plan with explicit input binding; validation is not live runtime qualification",
-      "command": "python3 scripts/pi_lab.py validate-plan --plan <PLAN>"
-    },
-    {
       "name": "run",
       "description": "Execute a full multi-stage agentic plan with isolated container stages",
       "command": "python3 scripts/pi_lab.py run --project <PROJECT> --plan <PLAN> --image <QUALIFIED_IMAGE> --session <SESSION>"
     },
     {
       "name": "validate-plan",
-      "description": "Offline reviewed plan structure",
+      "description": "Offline structure checks for legacy/source plans or validation of an already compiled final representation; source-only checks leave runtime inputs unbound",
       "command": "python3 scripts/pi_lab.py validate-plan --plan <PLAN>"
     },
     {
