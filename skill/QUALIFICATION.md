@@ -1,5 +1,33 @@
 # Qualification and support
 
+## Experimental 4.6.0 application-client scope
+
+Version 4.6.0 adds compiled typed API/browser participants, helper-owned
+credentials and automatic evidence, independent completion contracts, and
+centrally accounted native tool budgets with reporting reserves. Contracts cover
+Pi 0.87.1 and 1.2.0 on native ARM64. This is an experimental implementation with
+**partial native qualification**; it is not a fully native-qualified release.
+
+Offline regressions, extracted-package checks and independent source review
+establish only their recorded implementation/package scope. Historical native
+preflight, controlled and API observations stay attached to their original
+source, runner, image, model and configuration. They are not new measurements
+for the current executable. The older indexed, parallel and migration evidence
+below keeps its original dates and limits.
+
+Authenticated browser workflow acceptance remains unqualified. Affected runtime
+ownership, credential cleanup and upstream-termination uncertainty must still
+block admission until the actual selected scope satisfies its existing gates.
+Source fixes, engineering closure and release preparation do not clear old
+uncertainty or authorize another diagnostic, retry, report repair or continuation.
+No native Docker/Pi/model diagnostics were run to prepare this candidate.
+
+The release preparation changes version metadata and documentation while
+preserving the executable and fixture bytes reviewed in merged main at
+`7fe1dc3adc5e26239990f36ceb35e1943348692f`. Repackaging changes package identity;
+it does not expand runtime or parent-discovery qualification. Use the normal
+environment, image, resource and sensitive-cleanup gates before any live use.
+
 ## Experimental 4.5.0 indexed inference scope
 
 On 15 October 2026, a fresh frozen native ARM64 campaign at executable head
