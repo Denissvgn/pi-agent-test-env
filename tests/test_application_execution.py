@@ -269,6 +269,36 @@ class ApplicationCoordinatorTests(unittest.TestCase):
         with self.assertRaises(execution.ApplicationExecutionError):self.begin(co)
         self.start.assert_not_called()
 
+    def host_budget_case(self, cpu, memory):
+        original = authority_fixture.ReviewedAuthorityTests.compile_reviewed
+        def compile_with_budget(fixture, source=None):
+            source, _ = authority_fixture.inputs.inputs(source)
+            source['runtime']['resources']['host_budget'] = {'cpu_fraction': cpu, 'memory_fraction': memory}
+            source['runtime']['resources']['runtime'] = {'cpus': 1.0, 'memory': '1g', 'pids_limit': 256, 'jobs': 1}
+            return original(fixture, source)
+        case = ApplicationCoordinatorTests(methodName='runTest')
+        self.addCleanup(case.doCleanups)
+        with mock.patch.object(authority_fixture.ReviewedAuthorityTests, 'compile_reviewed', compile_with_budget):
+            case.setUp()
+        return case
+
+    def test_declared_cpu_or_memory_fraction_denies_pair_before_helper(self):
+        for cpu, memory in ((0.125, 0.5), (0.5, 0.0625)):
+            with self.subTest(cpu=cpu, memory=memory):
+                case = self.host_budget_case(cpu, memory)
+                case.lab.docker_info.return_value = {'NCPU': 8, 'MemTotal': 16 * 1024 ** 3}
+                co = case.prepare()
+                with self.assertRaises(execution.ApplicationExecutionError): case.begin(co)
+                case.start.assert_not_called()
+
+    def test_larger_declared_fraction_admits_fitting_pair(self):
+        case = self.host_budget_case(0.75, 0.75)
+        case.lab.docker_info.return_value = {'NCPU': 3, 'MemTotal': 4 * 1024 ** 3}
+        co = case.prepare(); case.begin(co)
+        self.assertEqual(co.pool.capacity['cpu_millis'], 2250)
+        self.assertEqual(len(case.helpers), 1)
+        co.mark_running(); co.after_segment(True); co.close(True)
+
     def test_byte_equivalent_memory_units_pass_without_mutating_frozen_ir(self):
         before=copy.deepcopy(self.plan)
         for section in ('runtime','build'):

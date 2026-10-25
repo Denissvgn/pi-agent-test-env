@@ -213,6 +213,22 @@ class CoordinatorTests(unittest.TestCase):
         with self.assertRaises(execution.NativeExecutionError): self.begin(co)
         self.start.assert_not_called()
 
+    def test_declared_cpu_or_memory_fraction_denies_pair_before_helper(self):
+        for cpu, memory in ((0.125, 0.5), (0.5, 0.0625)):
+            with self.subTest(cpu=cpu, memory=memory):
+                self.args.resource_report['effective']['host_budget'] = {'cpu_fraction': cpu, 'memory_fraction': memory}
+                co = self.prepare()
+                with self.assertRaises(execution.NativeExecutionError): self.begin(co)
+                self.start.assert_not_called()
+
+    def test_larger_declared_fraction_admits_fitting_pair(self):
+        self.args.resource_report['effective']['host_budget'] = {'cpu_fraction': 0.75, 'memory_fraction': 0.75}
+        self.lab.docker_info.return_value = {'NCPU': 3, 'MemTotal': 4 * 1024 ** 3}
+        co = self.prepare(); self.begin(co)
+        self.assertEqual(co.pool.capacity['cpu_millis'], 2250)
+        self.assertEqual(len(self.helpers), 1)
+        co.mark_running(); co.after_segment(True); co.close(True)
+
     def test_non_bridge_and_missing_indexed_support_reject(self):
         self.args.network = 'host'
         co = self.prepare()

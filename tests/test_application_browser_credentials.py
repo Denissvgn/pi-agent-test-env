@@ -40,6 +40,18 @@ class ResponseCredentialNormalizationTests(unittest.TestCase):
             with self.subTest(newline=repr(newline)):
                 self.reject('body::before {content:"' + ('\\' + newline).join(CANARY) + '"}', 'text/css')
 
+    def test_javascript_code_point_escapes_cannot_forward_known_credential(self):
+        for digits in ('x', 'X', '016x'):
+            encoded = ''.join('\\u{' + format(ord(char), digits) + '}' for char in CANARY)
+            with self.subTest(digits=digits):
+                self.reject('globalThis.exposed="' + encoded + '";', 'application/javascript')
+
+    def test_safe_javascript_code_point_escapes_remain_byte_preserving(self):
+        raw = b'HTTP/1.1 200 OK\r\nContent-Type: application/javascript\r\n\r\nconst publicText="\\u{1f642}";'
+        sanitized, redactions = application_api._redacted_response(raw, Redactor([CANARY]))
+        self.assertEqual(sanitized, raw)
+        self.assertEqual(redactions, [])
+
     def test_html_text_nodes_and_entities_cannot_split_known_credential(self):
         midpoint = len(CANARY) // 2
         cases = ['<span>' + CANARY[:midpoint] + '</span><span>' + CANARY[midpoint:] + '</span>',

@@ -107,9 +107,19 @@ class NativeReportingTests(unittest.TestCase):
         self.assertEqual(result['stages'][0]['budget'],None);self.assertNotIn(CANARY,json.dumps(result))
 
     def test_frozen_metadata_names_are_bounded_and_diagnostics_never_echo_them(self):
-        for names in ([CANARY+'\n'],['a']*2,['a']*9,'not-an-array'):
+        for names in ([CANARY+'\n'],['a']*2,['a']*9,['a'*65],'not-an-array'):
             with self.assertRaises(reporting.NativeBudgetReportingError) as caught:reporting.record_projection({},stage_names=names)
             self.assertNotIn(CANARY,str(caught.exception))
+
+    def test_application_stage_name_limit_is_preserved_in_private_and_public_reports(self):
+        for length in (52, 64):
+            name = 's' * length
+            with self.subTest(length=length):
+                result = reporting.record_projection(record(name=name), stage_names=[name], required_stages=[name])
+                self.assertEqual(result['stages'][0]['stage'], name)
+                self.assertEqual(result['stages'][0]['accounting'], 'available')
+                public = reporting.record_projection(record(name=name), stage_names=[name], required_stages=[name], public=True)
+                self.assertEqual(public['stages'][0]['stage'], 1)
 
     def test_same_parent_projection_across_standalone_serial_indexed_parallel(self):
         outputs=[]

@@ -30,6 +30,21 @@ KEY_A = 'disposable-application-A-\\"-123456'
 KEY_B = 'disposable-application-B-987654321'
 
 
+class ProjectionTests(unittest.TestCase):
+    def test_root_array_projection_keeps_json_array_shape_and_sparse_indices(self):
+        value = [{'id': 'first', 'private': 'omit'}, {'id': 'second', 'private': 'omit'}]
+        original = copy.deepcopy(value)
+        projected = api._projection(value, ['/1/id'])
+        self.assertEqual(projected, [None, {'id': 'second'}])
+        self.assertEqual(c.loads(c.canonical(projected)), projected)
+        self.assertEqual(value, original)
+
+    def test_numeric_object_keys_remain_strings(self):
+        projected = api._projection({'0': {'id': 'first', 'private': 'omit'}}, ['/0/id'])
+        self.assertEqual(projected, {'0': {'id': 'first'}})
+        self.assertEqual(c.loads(c.canonical(projected)), projected)
+
+
 class APITests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(dir=getattr(self, 'temporary_root', '/private/tmp'))
@@ -71,6 +86,8 @@ class APITests(unittest.TestCase):
                         value['items'][0]['text'] = 'echo=' + KEY_A
                     if fixture.mode == 'large-projection':
                         value['items'] = [{'id': 'r1', 'text': 'x' * 1000}] * 10
+                    if fixture.mode == 'root-array':
+                        value = value['items']
                 else:
                     payload = json.loads(content)
                     if fixture.mode == 'informational':
@@ -196,6 +213,19 @@ class APITests(unittest.TestCase):
         result = completion_contract.evaluate(self.plan['stages'][0]['completion'], report_root=self.artifacts,
             evidence_root=self.evidence, receipts=self.client.receipt_index(self.scope), binding=receipts[0]['binding'], writers_confirmed=True)
         self.assertEqual(result['status'], 'complete', result)
+
+    def test_declared_root_array_response_returns_selected_results_and_receipt(self):
+        operation = next(row for row in self.source['application']['operations'] if row['id'] == 'list-records')
+        operation['response_schema'] = copy.deepcopy(operation['response_schema']['properties']['items'])
+        operation.update(pagination=None, result_fields=['/0/id', '/1/text'])
+        self.source['stages'][0]['completion']['pagination'] = []
+        self.build(); self.mode = 'root-array'
+        self.assertTrue(self.call()['ok'])
+        result = self.call('list-records')
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(result['data'], [{'id': 'r1'}, {'text': 'Second'}])
+        self.assertEqual(self.read_receipt(result['receipt_id'])['outcome'], 'succeeded')
+        self.assertEqual(len(self.requests), 2)
 
     def test_missing_or_rejected_budget_proof_has_zero_network_effects(self):
         arguments = {'operation_id': 'identity', 'path_params': {}, 'query': {}, 'body': None, 'cursor': None}

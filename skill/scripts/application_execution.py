@@ -328,7 +328,8 @@ class ApplicationCoordinator(NativeCoordinator):
             if self.args.network!='bridge':self._error()
             daemon=self.lab.docker_info()
             if type(daemon.get('NCPU')) is not int or daemon['NCPU']<1 or type(daemon.get('MemTotal')) is not int or daemon['MemTotal']<1:self._error()
-            capacity={'cpu_millis':math.floor(daemon['NCPU']*.5*1000),'memory_mib':math.floor(daemon['MemTotal']*.5/1024**2),
+            host_budget=self.plan['runtime']['resources']['host_budget']
+            capacity={'cpu_millis':math.floor(daemon['NCPU']*host_budget['cpu_fraction']*1000),'memory_mib':math.floor(daemon['MemTotal']*host_budget['memory_fraction']/1024**2),
                       'pids_limit':weight['pids_limit']+footprint['pids_limit']}
             if any(weight[key]+footprint[key]>capacity[key] for key in capacity):self._error()
             self.pool=Allocator(capacity)

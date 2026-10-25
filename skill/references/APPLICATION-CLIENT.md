@@ -99,6 +99,9 @@ The compiler selects each stage's closed subset from this catalog:
 API grants fix transport, effect class, origin, method, route, credential alias,
 request/wire/response schemas, deadlines and bounded result projections. Identity
 and read operations use GET; mutations/publications use explicit write methods.
+Object response projections retain their selected fields beside the receipt
+metadata. Root-array response projections appear under `data`, retaining array
+indices, beside `ok` and `receipt_id`.
 Pagination advances only through explicit participant calls. Its chain binds a
 snapshot and cursor sequence, with finite pages/items/bytes/time; exhaustion is
 checked independently when required. There is no automatic page crawl, workflow,

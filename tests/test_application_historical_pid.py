@@ -89,7 +89,12 @@ class HistoricalControllerIntegrationTests(unittest.TestCase):
     def check_path(self,name):
         import test_application_launch as fixtures
         fixture_class={'first':fixtures.CampaignCarryTests,'preworker':fixtures.KnownPreworkerCarryTests,'admission':fixtures.KnownAdmissionCarryTests}[name]
-        fixture=fixture_class(methodName='runTest');fixture.setUp();self.addCleanup(fixture.doCleanups)
+        fixture=fixture_class(methodName='runTest');self.addCleanup(fixture.doCleanups)
+        # Earlier synthetic histories are fixture construction, not an actual
+        # host PID observation. The target decision is exercised below.
+        with mock.patch.object(launch,'_historical_controller_absent',return_value=True), \
+                mock.patch.object(launch.os,'kill',side_effect=ProcessLookupError):
+            fixture.setUp()
         root=fixture.old if name=='first' else fixture.q
         target=str(root);observed=[];allow=[True]
         def controller_check(pid,terminal,wallnow):
@@ -110,6 +115,11 @@ class HistoricalControllerIntegrationTests(unittest.TestCase):
     def test_first_predecessor_requires_positive_controller_identity(self):self.check_path('first')
     def test_preworker_cleanup_requires_positive_controller_identity(self):self.check_path('preworker')
     def test_admission_cleanup_requires_positive_controller_identity(self):self.check_path('admission')
+
+    def test_fixture_construction_and_target_decisions_use_no_host_pid_queries(self):
+        with mock.patch.object(launch.os,'kill',side_effect=AssertionError('host PID query forbidden')):
+            for name in ('first','preworker','admission'):
+                with self.subTest(path=name):self.check_path(name)
 
 
 if __name__=='__main__':unittest.main()

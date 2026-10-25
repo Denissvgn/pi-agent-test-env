@@ -89,7 +89,7 @@ def _request_target(operation, arguments, upstream=None):
 
 
 def _projection(value, paths):
-    result = {}
+    result = [] if type(value) is list else {}
     for pointer in paths:
         parts = [part.replace('~1', '/').replace('~0', '~') for part in pointer[1:].split('/')]
         source = value
@@ -148,8 +148,15 @@ def _redacted_response(raw, redactor):
             if redactor.contains(value.encode('utf-8')):
                 raise APIError('evidence_unavailable')
             return value
+        def javascript_code_point(match):
+            digits = match[1].lstrip('0') or '0'
+            if len(digits) > 6:
+                return match[0]
+            point = int(digits, 16)
+            return chr(point) if point <= 0x10ffff else match[0]
         for _ in range(3):
             decoded = check_decoded(html.unescape(current))
+            decoded = check_decoded(re.sub(r'\\u\{([a-fA-F0-9]+)\}', javascript_code_point, decoded))
             decoded = check_decoded(re.sub(r'\\u([a-fA-F0-9]{4})', lambda match: chr(int(match[1], 16)), decoded))
             decoded = check_decoded(re.sub(r'\\x([a-fA-F0-9]{2})', lambda match: chr(int(match[1], 16)), decoded))
             decoded = check_decoded(unquote(decoded, encoding='utf-8', errors='strict'))
@@ -788,6 +795,8 @@ class APIClient:
         if outcome != 'succeeded':
             return self._bounded({'ok': False, 'reason': receipt['reason'], 'outcome': outcome, 'receipt_id': receipt['receipt_id']})
         projected = _projection(value, operation['result_fields'])
+        if type(projected) is list:
+            projected = {'data': projected}
         if operation['pagination']:
             projected.pop(operation['pagination']['cursor_field'], None)
             tokens = self.evidence.state['chains'][chain]['tokens']

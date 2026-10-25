@@ -11,7 +11,7 @@ import native_budget_controls as controls
 SCOPE='parent_ledger; runtime_qualification_separate'
 ERRORS=frozenset({'accounting_unavailable','cleanup_unconfirmed'})
 PROCESS_FIELDS=frozenset({'native_tool_manifest','native_tool_budget','native_tool_budget_error'})
-STAGE=re.compile(r'[a-z0-9][a-z0-9-]{0,50}')
+STAGE=re.compile(r'[a-z0-9][a-z0-9-]{0,63}')
 
 
 class NativeBudgetReportingError(ValueError):

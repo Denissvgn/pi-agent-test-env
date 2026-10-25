@@ -221,12 +221,13 @@ class Coordinator:
             daemon = self.lab.docker_info()
             if (type(daemon.get('NCPU')) is not int or daemon['NCPU'] < 1
                     or type(daemon.get('MemTotal')) is not int or daemon['MemTotal'] < 1): self._error()
-            capacity = {'cpu_millis': math.floor(daemon['NCPU'] * .5 * 1000),
-                        'memory_mib': math.floor(daemon['MemTotal'] * .5 / 1024 ** 2),
+            host_budget = runtime_policy['host_budget']
+            capacity = {'cpu_millis': math.floor(daemon['NCPU'] * host_budget['cpu_fraction'] * 1000),
+                        'memory_mib': math.floor(daemon['MemTotal'] * host_budget['memory_fraction'] / 1024 ** 2),
                         'pids_limit': weight['pids_limit'] + 128}
             if any(weight[key] + extra > capacity[key] for key, extra in
                    (('cpu_millis', 1000), ('memory_mib', 512), ('pids_limit', 128))):
-                raise NativeExecutionError('Native helper and participant exceed half Docker capacity')
+                raise NativeExecutionError('Native helper and participant exceed the declared Docker host budget')
             self.pool = Allocator(capacity)
         self.authority = NativeBudgetAuthority(runtime={'pi_release': self.release, 'image_id': self.image,
             'platform': self.args.platform, 'container_profile': self.args.profile, 'resources': runtime_policy},

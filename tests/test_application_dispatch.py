@@ -198,6 +198,24 @@ class DispatchTests(unittest.TestCase):
         self.legacy_validation.assert_not_called()
         self.assertNotIn(APP_KEY,json.dumps(record));self.assertNotIn(MODEL_KEY,json.dumps(record))
 
+    def check_long_stage(self, length):
+        self.complete_two_stage_source()
+        self.fixture.source['stages'] = self.fixture.source['stages'][:1]
+        name = 's' * length
+        self.fixture.source['stages'][0]['id'] = name
+        self.fixture.write('source.json', self.fixture.source)
+        record, _, _ = self.run_dispatch()
+        self.assertEqual(record['status'], 'PASS', record)
+        self.assertEqual(len(self.tasks), 1)
+        self.assertEqual(self.score_calls, 1)
+        self.assertEqual(record['native_tool_budgets']['stages'][0]['stage'], name)
+
+    def test_52_character_compiled_stage_reaches_scoring_and_finalization(self):
+        self.check_long_stage(52)
+
+    def test_64_character_compiled_stage_reaches_scoring_and_finalization(self):
+        self.check_long_stage(64)
+
     def test_report_failure_blocks_dependent_and_unrelated_successors_without_second_business_stage(self):
         original=self.fixture.source['stages'][0]
         for name,dependencies in [('dependent',[original['id']]),('unrelated',[])]:
