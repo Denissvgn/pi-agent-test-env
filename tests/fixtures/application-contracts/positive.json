@@ -1,0 +1,784 @@
+{
+  "source": {
+    "schema": 1,
+    "document_type": "application_plan_source",
+    "name": "authenticated-summary",
+    "runtime": {
+      "pi_release": "1.2.0",
+      "image_id": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "platform": "linux/arm64",
+      "container_profile": "core",
+      "resources": {
+        "schema": 1,
+        "runtime": {
+          "cpus": 1,
+          "memory": "2g",
+          "pids_limit": 256,
+          "jobs": 1
+        },
+        "build": {
+          "cpus": 1,
+          "memory": "2g",
+          "max_parallelism": 1,
+          "timeout_seconds": 2400
+        },
+        "host_budget": {
+          "cpu_fraction": 0.5,
+          "memory_fraction": 0.5
+        }
+      },
+      "inference_owner": "compiler_input",
+      "browser_sandbox_policy": null
+    },
+    "application": {
+      "id": "diagnostic-app",
+      "origins": {
+        "fixture": {
+          "url": "http://fixture.invalid:8080",
+          "diagnostic_fixture": true,
+          "allowed_addresses": [
+            "192.0.2.10"
+          ]
+        }
+      },
+      "credentials": {
+        "persona": "DIAGNOSTIC_ALICE"
+      },
+      "operations": [
+        {
+          "transport": "api",
+          "credential_alias": "persona",
+          "origin": "fixture",
+          "path_params_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          },
+          "query_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          },
+          "body_schema": {
+            "type": "null"
+          },
+          "response_schema": {
+            "type": "object",
+            "properties": {
+              "application_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "tenant_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "actor_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "role": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            },
+            "required": [
+              "application_id",
+              "tenant_id",
+              "actor_id",
+              "role"
+            ],
+            "additionalProperties": false
+          },
+          "pagination": null,
+          "publication": null,
+          "id": "identity",
+          "effect": "identity",
+          "method": "GET",
+          "path_template": "/identity",
+          "max_request_seconds": 15,
+          "max_result_bytes": 8192,
+          "result_fields": [
+            "/application_id",
+            "/tenant_id",
+            "/actor_id",
+            "/role"
+          ],
+          "response_media_type": "application/json",
+          "wire_body_schema": {
+            "type": "null"
+          }
+        },
+        {
+          "transport": "api",
+          "credential_alias": "persona",
+          "origin": "fixture",
+          "path_params_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          },
+          "query_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          },
+          "body_schema": {
+            "type": "null"
+          },
+          "response_schema": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128
+                    },
+                    "text": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1024
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "text"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 100
+              },
+              "next_cursor": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 256
+              },
+              "snapshot_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              }
+            },
+            "required": [
+              "items",
+              "next_cursor",
+              "snapshot_id"
+            ],
+            "additionalProperties": false
+          },
+          "pagination": {
+            "cursor_field": "next_cursor",
+            "items_field": "items",
+            "snapshot_field": "snapshot_id",
+            "max_pages": 2,
+            "max_items": 3,
+            "max_response_bytes": 1048576,
+            "max_total_bytes": 8388608,
+            "timeout_seconds": 120,
+            "request_cursor": {
+              "location": "query",
+              "name": "cursor",
+              "encoding": "opaque_string"
+            }
+          },
+          "publication": null,
+          "id": "list-records",
+          "effect": "read",
+          "method": "GET",
+          "path_template": "/records",
+          "max_request_seconds": 15,
+          "max_result_bytes": 8192,
+          "result_fields": [
+            "/items",
+            "/snapshot_id"
+          ],
+          "response_media_type": "application/json",
+          "wire_body_schema": {
+            "type": "null"
+          }
+        },
+        {
+          "transport": "api",
+          "credential_alias": "persona",
+          "origin": "fixture",
+          "path_params_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          },
+          "query_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+          },
+          "body_schema": {
+            "type": "object",
+            "properties": {
+              "target_id": {
+                "type": "string",
+                "enum": [
+                  "team-summary"
+                ]
+              },
+              "artifact_id": {
+                "type": "string",
+                "enum": [
+                  "summary"
+                ]
+              },
+              "artifact_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "target_id",
+              "artifact_id",
+              "artifact_sha256"
+            ],
+            "additionalProperties": false
+          },
+          "response_schema": {
+            "type": "object",
+            "properties": {
+              "publication_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "published"
+                ]
+              },
+              "actor_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "target_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "artifact_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "publication_id",
+              "state",
+              "actor_id",
+              "target_id",
+              "artifact_sha256"
+            ],
+            "additionalProperties": false
+          },
+          "pagination": null,
+          "publication": {
+            "id": "summary-publication",
+            "artifact_id": "summary",
+            "target_id": "team-summary",
+            "required_state": "published",
+            "payload_source": "declared_artifact"
+          },
+          "id": "publish-summary",
+          "effect": "publication",
+          "method": "POST",
+          "path_template": "/publications",
+          "max_request_seconds": 15,
+          "max_result_bytes": 8192,
+          "result_fields": [
+            "/publication_id",
+            "/state",
+            "/actor_id",
+            "/target_id",
+            "/artifact_sha256"
+          ],
+          "response_media_type": "application/json",
+          "wire_body_schema": {
+            "type": "object",
+            "properties": {
+              "target_id": {
+                "type": "string",
+                "enum": [
+                  "team-summary"
+                ]
+              },
+              "artifact_id": {
+                "type": "string",
+                "enum": [
+                  "summary"
+                ]
+              },
+              "artifact_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$",
+                "minLength": 64,
+                "maxLength": 64
+              },
+              "content": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              }
+            },
+            "required": [
+              "target_id",
+              "artifact_id",
+              "artifact_sha256",
+              "content"
+            ],
+            "additionalProperties": false
+          }
+        }
+      ],
+      "browser_targets": [],
+      "limits": {
+        "max_evidence_bytes": 33554432,
+        "max_receipts": 500
+      }
+    },
+    "stages": [
+      {
+        "id": "participant",
+        "depends_on": [],
+        "participant": {
+          "application_id": "diagnostic-app",
+          "tenant_id": "team-1",
+          "actor_id": "actor-alice",
+          "role": "participant"
+        },
+        "credential_aliases": [
+          "persona"
+        ],
+        "profile": "application-client",
+        "prompt": "Explicitly verify the assigned identity. Read all two pages, write the three-record summary, publish summary once, then write the completion manifest. Use only declared operations and never disclose credentials.",
+        "operations": [
+          "identity",
+          "list-records",
+          "publish-summary"
+        ],
+        "browser_targets": [],
+        "limits": {
+          "timeout_seconds": 300,
+          "max_turns": 16,
+          "max_total_tokens": 64000,
+          "max_tool_calls": 32,
+          "reporting_reserve_calls": 6,
+          "reporting_reserve_seconds": 30
+        },
+        "completion": {
+          "id": "participant-report",
+          "participant": {
+            "application_id": "diagnostic-app",
+            "tenant_id": "team-1",
+            "actor_id": "actor-alice",
+            "role": "participant"
+          },
+          "report_path": "outputs/completion.json",
+          "artifacts": [
+            {
+              "id": "summary",
+              "path": "outputs/summary.md",
+              "media_type": "text/markdown",
+              "max_bytes": 4096
+            }
+          ],
+          "pagination": [
+            {
+              "operation_id": "list-records",
+              "require_exhausted": true
+            }
+          ],
+          "publications": [
+            {
+              "id": "summary-publication",
+              "operation_id": "publish-summary",
+              "artifact_id": "summary",
+              "target_id": "team-summary",
+              "required_state": "published"
+            }
+          ]
+        },
+        "input_artifacts": []
+      }
+    ],
+    "checks": [
+      {
+        "id": "root-effects",
+        "argv": [
+          "python3",
+          "/opt/pi-scorer/root_evaluate.py"
+        ],
+        "timeout_seconds": 120,
+        "network": "none",
+        "cwd": ".",
+        "scorer": {
+          "schema": 1,
+          "id": "authenticated-root-oracle",
+          "version": "1",
+          "assets": [
+            {
+              "source": "root_evaluate.py",
+              "target": "root_evaluate.py"
+            },
+            {
+              "source": "expected.json",
+              "target": "expected.json"
+            }
+          ],
+          "score_domain": {
+            "min": 0,
+            "max": 1,
+            "direction": "higher",
+            "pass_threshold": 1
+          },
+          "required_assertions": [
+            "participant",
+            "page-coverage",
+            "content",
+            "single-publication",
+            "completion"
+          ],
+          "test_counts_required": true,
+          "zero_test_policy": "fail",
+          "all_skipped_policy": "fail"
+        }
+      }
+    ]
+  },
+  "receipts": [
+    {
+      "schema": 1,
+      "document_type": "application_operation_receipt",
+      "receipt_id": "receipt-1",
+      "operation_instance_id": "operation-1",
+      "native_call_id": "call-1",
+      "sequence": 1,
+      "binding": {
+        "run_id": "11111111-1111-4111-8111-111111111111",
+        "trial_id": null,
+        "attempt_id": "22222222-2222-4222-8222-222222222222",
+        "stage_id": "33333333-3333-4333-8333-333333333333",
+        "segment_id": "44444444-4444-4444-8444-444444444444",
+        "session_id": "55555555-5555-4555-8555-555555555555",
+        "plan_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "profile_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "release_contract_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "report_contract_sha256": "757d135de78c2c075f5bfbbe03e6a25c115f12612fbae00501aebb2854119eb3",
+        "pi_release": "1.2.0"
+      },
+      "participant": {
+        "application_id": "diagnostic-app",
+        "tenant_id": "team-1",
+        "actor_id": "actor-alice",
+        "role": "participant"
+      },
+      "operation_id": "identity",
+      "effect": "identity",
+      "request": {
+        "method": "GET",
+        "origin_id": "fixture",
+        "path": "/identity",
+        "credential_alias": "persona"
+      },
+      "evidence": [
+        {
+          "kind": "request",
+          "path": "evidence/0001/request.txt",
+          "sha256": "2ab79a0da8589db5160f68512b2ab1bb69238c83fd6b3ef909878bf3d4eb6550",
+          "bytes": 70,
+          "redactions": [
+            "authentication_value"
+          ]
+        },
+        {
+          "kind": "response",
+          "path": "evidence/0001/response.txt",
+          "sha256": "e142da2270dd115bb0e91ec766d708cafa8c31945bd38fb62897157dd81cc4f5",
+          "bytes": 109,
+          "redactions": []
+        }
+      ],
+      "started_at": "2026-10-17T10:00:01Z",
+      "ended_at": "2026-10-17T10:00:01Z",
+      "outcome": "succeeded",
+      "reason": null,
+      "http_status": 200,
+      "pagination": null,
+      "publication": null,
+      "transport": "api",
+      "action_id": null
+    },
+    {
+      "schema": 1,
+      "document_type": "application_operation_receipt",
+      "receipt_id": "receipt-2",
+      "operation_instance_id": "operation-2",
+      "native_call_id": "call-2",
+      "sequence": 2,
+      "binding": {
+        "run_id": "11111111-1111-4111-8111-111111111111",
+        "trial_id": null,
+        "attempt_id": "22222222-2222-4222-8222-222222222222",
+        "stage_id": "33333333-3333-4333-8333-333333333333",
+        "segment_id": "44444444-4444-4444-8444-444444444444",
+        "session_id": "55555555-5555-4555-8555-555555555555",
+        "plan_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "profile_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "release_contract_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "report_contract_sha256": "757d135de78c2c075f5bfbbe03e6a25c115f12612fbae00501aebb2854119eb3",
+        "pi_release": "1.2.0"
+      },
+      "participant": {
+        "application_id": "diagnostic-app",
+        "tenant_id": "team-1",
+        "actor_id": "actor-alice",
+        "role": "participant"
+      },
+      "operation_id": "list-records",
+      "effect": "read",
+      "request": {
+        "method": "GET",
+        "origin_id": "fixture",
+        "path": "/records",
+        "credential_alias": "persona"
+      },
+      "evidence": [
+        {
+          "kind": "request",
+          "path": "evidence/0002/request.txt",
+          "sha256": "52d88aaff8fa8a7ca7c3b5b7b209a0af7bbd1fc4ba43c1e20c0afea57ca02c09",
+          "bytes": 69,
+          "redactions": [
+            "authentication_value"
+          ]
+        },
+        {
+          "kind": "response",
+          "path": "evidence/0002/response.txt",
+          "sha256": "e39071c5723fe2ec5a28f8703ab8b087e4f562b26bca72720fb1018958cb14bd",
+          "bytes": 151,
+          "redactions": []
+        }
+      ],
+      "started_at": "2026-10-17T10:00:02Z",
+      "ended_at": "2026-10-17T10:00:02Z",
+      "outcome": "succeeded",
+      "reason": null,
+      "http_status": 200,
+      "pagination": {
+        "chain_id": "records-chain-1",
+        "snapshot_id": "snapshot-1",
+        "page": 1,
+        "items": 2,
+        "total_items": 2,
+        "state": "more",
+        "reason": null,
+        "predecessor_receipt_id": null
+      },
+      "publication": null,
+      "transport": "api",
+      "action_id": null
+    },
+    {
+      "schema": 1,
+      "document_type": "application_operation_receipt",
+      "receipt_id": "receipt-3",
+      "operation_instance_id": "operation-3",
+      "native_call_id": "call-3",
+      "sequence": 3,
+      "binding": {
+        "run_id": "11111111-1111-4111-8111-111111111111",
+        "trial_id": null,
+        "attempt_id": "22222222-2222-4222-8222-222222222222",
+        "stage_id": "33333333-3333-4333-8333-333333333333",
+        "segment_id": "44444444-4444-4444-8444-444444444444",
+        "session_id": "55555555-5555-4555-8555-555555555555",
+        "plan_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "profile_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "release_contract_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "report_contract_sha256": "757d135de78c2c075f5bfbbe03e6a25c115f12612fbae00501aebb2854119eb3",
+        "pi_release": "1.2.0"
+      },
+      "participant": {
+        "application_id": "diagnostic-app",
+        "tenant_id": "team-1",
+        "actor_id": "actor-alice",
+        "role": "participant"
+      },
+      "operation_id": "list-records",
+      "effect": "read",
+      "request": {
+        "method": "GET",
+        "origin_id": "fixture",
+        "path": "/records",
+        "credential_alias": "persona"
+      },
+      "evidence": [
+        {
+          "kind": "request",
+          "path": "evidence/0003/request.txt",
+          "sha256": "6c31d7beff00ff06c4293be9341af7fab352577afd01fff0cac75007627e255f",
+          "bytes": 92,
+          "redactions": [
+            "authentication_value"
+          ]
+        },
+        {
+          "kind": "response",
+          "path": "evidence/0003/response.txt",
+          "sha256": "d566d26dde81a292bed6b925eafa7745b387d5c7b6b11f4ddc1abbd552fb1337",
+          "bytes": 99,
+          "redactions": []
+        }
+      ],
+      "started_at": "2026-10-17T10:00:03Z",
+      "ended_at": "2026-10-17T10:00:03Z",
+      "outcome": "succeeded",
+      "reason": null,
+      "http_status": 200,
+      "pagination": {
+        "chain_id": "records-chain-1",
+        "snapshot_id": "snapshot-1",
+        "page": 2,
+        "items": 1,
+        "total_items": 3,
+        "state": "exhausted",
+        "reason": null,
+        "predecessor_receipt_id": "receipt-2"
+      },
+      "publication": null,
+      "transport": "api",
+      "action_id": null
+    },
+    {
+      "schema": 1,
+      "document_type": "application_operation_receipt",
+      "receipt_id": "receipt-4",
+      "operation_instance_id": "operation-4",
+      "native_call_id": "call-4",
+      "sequence": 4,
+      "binding": {
+        "run_id": "11111111-1111-4111-8111-111111111111",
+        "trial_id": null,
+        "attempt_id": "22222222-2222-4222-8222-222222222222",
+        "stage_id": "33333333-3333-4333-8333-333333333333",
+        "segment_id": "44444444-4444-4444-8444-444444444444",
+        "session_id": "55555555-5555-4555-8555-555555555555",
+        "plan_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "profile_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "release_contract_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "report_contract_sha256": "757d135de78c2c075f5bfbbe03e6a25c115f12612fbae00501aebb2854119eb3",
+        "pi_release": "1.2.0"
+      },
+      "participant": {
+        "application_id": "diagnostic-app",
+        "tenant_id": "team-1",
+        "actor_id": "actor-alice",
+        "role": "participant"
+      },
+      "operation_id": "publish-summary",
+      "effect": "publication",
+      "request": {
+        "method": "POST",
+        "origin_id": "fixture",
+        "path": "/publications",
+        "credential_alias": "persona"
+      },
+      "evidence": [
+        {
+          "kind": "request",
+          "path": "evidence/0004/request.txt",
+          "sha256": "a93bc6a2cfee5eacb73d8c32f10c4d393dce242551c0b4ab708c2dd3da8eaef4",
+          "bytes": 304,
+          "redactions": [
+            "authentication_value"
+          ]
+        },
+        {
+          "kind": "response",
+          "path": "evidence/0004/response.txt",
+          "sha256": "83d9da6eff0068964ef225fce0af0bff2ed105b7111db91c8e93d59a91beaa5f",
+          "bytes": 200,
+          "redactions": []
+        }
+      ],
+      "started_at": "2026-10-17T10:00:04Z",
+      "ended_at": "2026-10-17T10:00:04Z",
+      "outcome": "succeeded",
+      "reason": null,
+      "http_status": 200,
+      "pagination": null,
+      "publication": {
+        "id": "summary-publication",
+        "publication_id": "publication-1",
+        "artifact_id": "summary",
+        "artifact_sha256": "755452d7796776ec15cf93323cfa00b216ce8794a61dd1361948df79dac80a33",
+        "target_id": "team-summary",
+        "state": "published"
+      },
+      "transport": "api",
+      "action_id": null
+    }
+  ],
+  "report": {
+    "schema": 1,
+    "document_type": "application_completion_report",
+    "contract_id": "participant-report",
+    "participant": {
+      "application_id": "diagnostic-app",
+      "tenant_id": "team-1",
+      "actor_id": "actor-alice",
+      "role": "participant"
+    },
+    "artifacts": [
+      {
+        "id": "summary",
+        "path": "outputs/summary.md",
+        "sha256": "755452d7796776ec15cf93323cfa00b216ce8794a61dd1361948df79dac80a33",
+        "bytes": 74
+      }
+    ],
+    "pagination": {
+      "list-records": [
+        "receipt-2",
+        "receipt-3"
+      ]
+    },
+    "publications": [
+      {
+        "id": "summary-publication",
+        "receipt_id": "receipt-4"
+      }
+    ],
+    "unresolved": []
+  },
+  "stored_artifacts": {
+    "outputs/summary.md": "# Team summary\n\n- r1: First record\n- r2: Second record\n- r3: Third record\n"
+  }
+}

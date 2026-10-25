@@ -4,6 +4,8 @@ import math
 
 VERSION = 'parallel-trials-v1'
 HOST_GENERATION = 1
+NATIVE_HELPER_RESOURCES = {'cpu_millis':1000,'memory_mib':512,'pids_limit':128}
+NATIVE_BROWSER_HELPER_RESOURCES = {'cpu_millis':2000,'memory_mib':2048,'pids_limit':512}
 
 
 class ParallelError(ValueError):
@@ -30,8 +32,10 @@ def weight(value):
 
 
 def validate(value):
-    fields(value, ('scheduler','host_generation','registry_aware_cohort','max_trials','max_stages',
-                   'max_pending','queue_wait_seconds','collection_timeout_seconds','aggregate','gateway'))
+    expected=('scheduler','host_generation','registry_aware_cohort','max_trials','max_stages',
+              'max_pending','queue_wait_seconds','collection_timeout_seconds','aggregate','gateway')
+    fields(value, (*expected,'native_budget') if isinstance(value,dict) and 'native_budget' in value else expected)
+    native_helper(value)
     if value['scheduler'] != VERSION or type(value['host_generation']) is not int or value['host_generation'] != HOST_GENERATION:
         raise ParallelError('Unsupported parallel scheduler or host generation')
     if value['registry_aware_cohort'] is not True:
@@ -57,6 +61,23 @@ def validate(value):
     return copy.deepcopy(value)
 
 
+def native_resources(value):
+    selected=weight(value)
+    if selected not in (NATIVE_HELPER_RESOURCES,NATIVE_BROWSER_HELPER_RESOURCES):
+        raise ParallelError('Helper footprint must select an exact reviewed resource class')
+    return selected
+
+
+def native_helper(value):
+    """Explicit versioned opt-in; never enlarge an old frozen aggregate."""
+    if not isinstance(value,dict) or 'native_budget' not in value:return None
+    selected=value['native_budget']
+    fields(selected,('schema','helpers_per_trial','resources'))
+    if type(selected['schema']) is not int or selected['schema']!=1 or type(selected['helpers_per_trial']) is not int or selected['helpers_per_trial']!=1:
+        raise ParallelError('Unsupported native budget helper topology')
+    return native_resources(selected['resources'])
+
+
 def preflight_limits(value):
     gateway=validate(value)['gateway']
     # A model-list request can queue behind the other trial's generation.
@@ -79,6 +100,7 @@ def worker_weight(policy):
 def admit_capacity(contract, policy, daemon):
     contract=validate(contract);worker=worker_weight(policy)
     aggregate=contract['aggregate'];gateway=contract['gateway']['resources']
+    native=native_helper(contract)
     if type(daemon.get('NCPU')) is not int or type(daemon.get('MemTotal')) is not int:
         raise ParallelError('Observed daemon capacity is required')
     budget=policy['host_budget']
@@ -86,6 +108,8 @@ def admit_capacity(contract, policy, daemon):
     cap_memory=math.floor(daemon['MemTotal']*budget['memory_fraction']/(1024**2))
     if aggregate['cpu_millis'] > cap_cpu or aggregate['memory_mib'] > cap_memory:
         raise ParallelError('Frozen aggregate exceeds the configured daemon budget')
-    if any(2*worker[k]+gateway[k] > aggregate[k] for k in aggregate):
+    if any(2*worker[k]+gateway[k]+(2*native[k] if native else 0) > aggregate[k] for k in aggregate):
         raise ParallelError('Two unchanged workers and gateway do not fit the frozen aggregate')
-    return {'worker':worker,'gateway':gateway,'aggregate':aggregate,'host_generation':HOST_GENERATION}
+    result={'worker':worker,'gateway':gateway,'aggregate':aggregate,'host_generation':HOST_GENERATION}
+    if native is not None:result['native_budget']=native
+    return result

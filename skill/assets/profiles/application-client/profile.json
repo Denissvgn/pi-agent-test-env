@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "document_type": "agent_profile",
+  "id": "application-client",
+  "kind": "application-client",
+  "components": [
+    {
+      "id": "application-client",
+      "kind": "pi-extension",
+      "version": "1",
+      "pi_release": "0.87.1",
+      "entrypoint": "application-client.mjs"
+    }
+  ],
+  "tools": [
+    "app_api",
+    "app_browser",
+    "artifact_read",
+    "artifact_write",
+    "report_write",
+    "budget_status"
+  ],
+  "required_tools": [],
+  "assets": [
+    {
+      "source": "application-client.mjs",
+      "target": "application-client.mjs",
+      "sha256": "8211f37f9b08716eb3cf0cdf965367c64d55146da9e4f501a379df0ab5e7ee96"
+    },
+    {
+      "source": "instructions.md",
+      "target": "instructions.md",
+      "sha256": "2b79ff90a09b6c7935d6b7cebf1ba1e78b4d7cb757bcd5c8fdf5a57307d0a10e"
+    }
+  ],
+  "service_endpoints": [
+    "http://pi-application:8081/tool"
+  ]
+}

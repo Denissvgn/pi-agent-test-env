@@ -48,11 +48,13 @@ class RemoteAdmission:
     def call(self,operation,cleanup=False,**payload):
         try:
             self.channel.send({'op':operation,**payload})
-            reply=self.channel.receive()
+            bounded_native = operation in ('native-budget-begin', 'native-budget-close')
+            deadline = time.monotonic()+60 if bounded_native else None
+            reply=self.channel.receive(max(0,deadline-time.monotonic())) if bounded_native else self.channel.receive()
             while reply.get('op')=='cancel':
                 self.cancelled=True
                 if not cleanup:raise KeyboardInterrupt
-                reply=self.channel.receive()
+                reply=self.channel.receive(max(0,deadline-time.monotonic())) if bounded_native else self.channel.receive()
         except (EOFError,BrokenPipeError,ConnectionResetError):
             self.owner_lost=True
             if not cleanup:raise KeyboardInterrupt from None
@@ -92,6 +94,24 @@ class RemoteAdmission:
         route=self.bootstrap.get('inference')
         if not route:raise ParallelError('Frozen inference gateway has not been admitted')
         return {**original,'base_url':route['base_url'],'host_base_url':route['host_base_url'],'api_key_env':'PI_PARALLEL_INFERENCE'}
+    def native_budget_begin(self,stage_name,binding):
+        reply=self.call('native-budget-begin',stage_name=stage_name,binding=binding)
+        return {key:reply[key] for key in ('context','network','binding','budget')}
+    def native_budget_status(self,stage_id):
+        return self.call('native-budget-status',stage_id=stage_id)['budget']
+    def native_budget_checkpoint(self,stage_id):
+        return self.call('native-budget-checkpoint',stage_id=stage_id)['budget']
+    def native_budget_extend(self,stage_id,command_id,max_tool_calls,remaining_seconds):
+        return self.call('native-budget-extend',stage_id=stage_id,command_id=command_id,
+            max_tool_calls=max_tool_calls,remaining_seconds=remaining_seconds)['budget']
+    def native_budget_continue(self,stage_id,command_id,segment_id):
+        reply=self.call('native-budget-continue',stage_id=stage_id,command_id=command_id,segment_id=segment_id)
+        return {key:reply[key] for key in ('context','network','binding','budget')}
+    def native_budget_close(self,stage_id):
+        reply=self.call('native-budget-close',cleanup=True,stage_id=stage_id)
+        result={key:reply[key] for key in ('budget','cleanup')}
+        if 'completion_context' in reply:result['completion_context']=reply['completion_context']
+        return result
 
 
 def worker_environment(bootstrap):
@@ -119,6 +139,8 @@ class Peer:
     def __init__(self,bootstrap,registry,allocator,reservation,metadata,runroot):
         self.bootstrap=bootstrap;self.registry=registry;self.allocator=allocator;self.reservation=reservation
         self.metadata=metadata;self.runroot=Path(runroot).resolve();self.entered=False;self.active=None;self.records=[]
+        cohort=getattr(registry,'_native_budget_cohort',None)
+        self.native_budget=cohort.bind(self) if cohort is not None else None
     def handle(self,message):
         operation=message.get('op')
         if operation=='enter':
@@ -126,6 +148,18 @@ class Peer:
             self.allocator.consume(self.reservation.identity,message.get('capability',''),self.reservation.binding,self.reservation.resources)
             self.entered=True;return {'op':'ok'}
         if not self.entered:raise ParallelError('Trial has no consumed admission grant')
+        if isinstance(operation,str) and operation.startswith('native-budget-'):
+            if self.native_budget is None:raise ParallelError('No frozen native helper grant')
+            actions={
+                'native-budget-begin':({'op','stage_name','binding'},lambda:self.native_budget.begin(message['stage_name'],message['binding'])),
+                'native-budget-status':({'op','stage_id'},lambda:{'budget':self.native_budget.status(message['stage_id'])}),
+                'native-budget-checkpoint':({'op','stage_id'},lambda:{'budget':self.native_budget.checkpoint(message['stage_id'])}),
+                'native-budget-extend':({'op','stage_id','command_id','max_tool_calls','remaining_seconds'},lambda:{'budget':self.native_budget.extend(message['stage_id'],message['command_id'],message['max_tool_calls'],message['remaining_seconds'])}),
+                'native-budget-continue':({'op','stage_id','command_id','segment_id'},lambda:self.native_budget.continuation(message['stage_id'],message['command_id'],message['segment_id'])),
+                'native-budget-close':({'op','stage_id'},lambda:self.native_budget.close(message['stage_id'])),
+            }
+            if operation not in actions or set(message)!=actions[operation][0]:raise ParallelError('Unsupported native helper operation')
+            return {'op':'ok',**actions[operation][1]()}
         if operation=='indexed-stage':
             if not hasattr(self,'indexed_stage') or set(message) not in ({'op','name'},{'op','name','renew'}):raise ParallelError('No indexed stage grant')
             return {'op':'ok',**self.indexed_stage(message['name'],message.get('renew',False))}
@@ -140,6 +174,7 @@ class Peer:
             argv=message.get('argv');self.validate_launch(argv)
             supplied=message.get('binding',{})
             if not isinstance(supplied,dict) or set(supplied)-{'stage_id','segment_id'}:raise ParallelError('Launch cannot enlarge its frozen identity binding')
+            if self.native_budget is not None:self.native_budget.validate_agent_launch(argv,supplied)
             binding={**self.reservation.binding,**supplied}
             record,argv=self.registry.intent(argv,message['name'],binding,self.runroot)
             self.active=record;self.records.append(record)
@@ -153,6 +188,14 @@ class Peer:
             else:self.allocator.release(self.reservation.identity,False,False)
             return {'op':'ok','confirmed':confirmed}
         raise ParallelError('Unknown private admission operation')
+
+    def finalize_native_budget(self,stop_worker=False):
+        cohort=getattr(self.registry,'_native_budget_cohort',None)
+        if stop_worker and self.active is not None and (self.native_budget is not None or cohort is not None):
+            from parallel_native_budget import stop_owned_worker
+            stop_owned_worker(self)
+        if self.native_budget is None:return True
+        return self.native_budget.finalize()
 
     def validate_launch(self,argv):
         import resources

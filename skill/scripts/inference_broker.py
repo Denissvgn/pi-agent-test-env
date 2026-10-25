@@ -21,7 +21,7 @@ def owner(lab,args,root,registry,pool,worker_resources,gateway_config,image_refe
     item=pool.request('gateway',{'generation':registry.generation},helper,30,'helper');pool.dispatch()
     pool.consume(item.identity,item.capability,item.binding,item.resources)
     directory=Path(tempfile.mkdtemp(prefix='pi-parallel-gateway-')).resolve();name='pi-lab-gateway-'+uuid.uuid4().hex[:12]
-    record=None;networks={};tokens=gateway_config['tokens']
+    record=None;networks={};tokens=gateway_config['tokens'];activation_revision=0
     try:
         config=copy.deepcopy(args);config.cpus=helper['cpu_millis']/1000;config.memory=str(helper['memory_mib'])+'m';config.pids_limit=helper['pids_limit'];config.jobs=1
         config.profile='core';config.browser_sandbox_policy='docker-default';config.frozen_browser_security=None
@@ -104,6 +104,22 @@ def owner(lab,args,root,registry,pool,worker_resources,gateway_config,image_refe
         inference['activate']=activate
         yield inference,network_factory,cleanup_network
     finally:
+        # Only the new native lifecycle sets this flag. Unknown dependent
+        # writers keep their shared network and private gateway state intact.
+        # Revocation is best effort; uncertainty never authorizes a purge.
+        if getattr(pool,'dependent_cleanup_confirmed',True) is not True:
+            activation_failed=True
+            pool.stop()
+            if item.state in ('reserved','launching','running','stopping','quarantined'):
+                pool.release('gateway',False,False)
+            if record is not None:
+                record['status']='quarantined';record['inference_uncertain']=True
+                try:registry.write(record)
+                except (OSError,ValueError):pass
+                try:
+                    controls.atomic(control/'active-tokens.json',{'revision':activation_revision+1,'tokens':[]})
+                except (OSError,ValueError):pass
+            raise parallel_contract.ParallelError('Dependent native cleanup unconfirmed; gateway and networks retained')
         # Confirm gateway absence before deleting its upstream secret and tokens.
         if record is not None:
             drain_deadline=time.monotonic()+contract['gateway']['request_timeout_seconds']+5

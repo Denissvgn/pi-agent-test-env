@@ -102,7 +102,7 @@ def verify(archives,report,repository=REPO):
         for name in ('plans','reports','dist','development','BACKLOG.md','RELEASE_BACKLOG.md','tools/release-hardening'):
             require(not (checkout/name).exists(),'Internal planning/history shipped in source archive')
         before=check_package.inventory(checkout)
-        result['unit_tests']=run([sys.executable,'-m','unittest','discover','-s','tests','-v'],checkout)
+        result['unit_tests']=run([sys.executable,'-m','unittest','discover','-s','tests','-v'],checkout,timeout=600)
         match=re.search(r'Ran (\d+) tests in ([\d.]+)s',result['unit_tests']['stderr'])
         verdict=re.search(r'\nOK(?: \(skipped=(\d+)\))?\n',result['unit_tests']['stderr'])
         require(match is not None and verdict is not None,'Missing test-suite verdict')

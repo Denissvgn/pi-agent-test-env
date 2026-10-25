@@ -13,6 +13,9 @@ import release_contracts
 ROOT=Path(__file__).resolve().parents[1]
 TARGETS={'fixture-lookup.mjs','fixtures.json','config.json','instructions.md'}
 BUILTIN_TOOLS={'read','write','edit','bash','grep','find','ls'}
+APPLICATION_TOOLS=['app_api','app_browser','artifact_read','artifact_write','report_write','budget_status']
+APPLICATION_TARGETS={'application-client.mjs','instructions.md'}
+APPLICATION_ENDPOINT='http://pi-application:8081/tool'
 
 class ProfileError(ValueError):pass
 
@@ -44,12 +47,54 @@ def identity(profile):
     return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
 
 
+def application(release):
+    """Select exact reviewed application assets; no source/profile discovery."""
+    import application_runtime_contracts
+    root=ROOT/'assets/profiles/application-client'
+    value=json.loads(read_asset(root/'profile.json'))
+    value['components']=[application_runtime_contracts.profile_component(release)]
+    return validate(value,root)
+
+
+def _application(value,base):
+    import application_runtime_contracts
+    if value['id']!='application-client':raise ProfileError('Unsupported application profile identity')
+    components=value['components']
+    if type(components) is not list or len(components)!=1 or type(components[0]) is not dict:
+        raise ProfileError('Exact application release component required')
+    try:expected=application_runtime_contracts.profile_component(components[0].get('pi_release'))
+    except ValueError:raise ProfileError('Unsupported application profile release') from None
+    if components!=[expected]:raise ProfileError('Exact application release component required')
+    if value['tools']!=APPLICATION_TOOLS or value['required_tools']!=[] or value['service_endpoints']!=[APPLICATION_ENDPOINT]:
+        raise ProfileError('Closed application tool catalog and helper endpoint required')
+    if type(value['assets']) is not list or len(value['assets'])!=2:
+        raise ProfileError('Exactly two reviewed application profile assets required')
+    assets=[];seen=set();base=Path(base).resolve()
+    for asset in value['assets']:
+        if type(asset) is not dict or set(asset)!={'source','target','sha256'}:raise ProfileError('Invalid application asset')
+        source=asset['source'];target=asset['target']
+        if (type(source) is not str or not source or '\\' in source or '\0' in source
+                or PurePosixPath(source).is_absolute() or str(PurePosixPath(source))!=source
+                or any(part in ('.','..') for part in source.split('/'))
+                or type(target) is not str or target not in APPLICATION_TARGETS or target in seen):
+            raise ProfileError('Invalid application asset path')
+        if type(asset['sha256']) is not str or not re.fullmatch('[a-f0-9]{64}',asset['sha256']):raise ProfileError('Explicit application asset hash required')
+        body=read_asset(base/source)
+        if (hashlib.sha256(body).hexdigest()!=asset['sha256']
+                or body!=read_asset(ROOT/'assets/profiles/application-client'/target)):
+            raise ProfileError('Only exact reviewed application assets are supported')
+        seen.add(target);assets.append({**asset,'source':str(base/source)})
+    if seen!=APPLICATION_TARGETS:raise ProfileError('Missing application asset')
+    return {**copy.deepcopy(value),'assets':assets}
+
+
 def validate(value,base):
     required={'schema','document_type','id','kind','components','tools','required_tools','assets','service_endpoints'}
     if not isinstance(value,dict) or set(value)!=required or type(value['schema']) is not int or value['schema']!=1 or value['document_type']!='agent_profile':raise ProfileError('Agent profile schema 1 with exact fields required')
     if value['kind']=='builtin':
         if value!=builtin():raise ProfileError('Built-in profile must be explicitly empty')
         return copy.deepcopy(value)
+    if value['kind']=='application-client':return _application(value,base)
     if value['kind']!='fixture-lookup' or value['id']!='fixture-lookup':raise ProfileError('Unsupported integration kind/id; only reviewed fixture-lookup is supported')
     components = value['components']
     if not isinstance(components, list) or len(components) != 1 or not isinstance(components[0], dict):
@@ -98,15 +143,36 @@ def load(path):
 
 def admit(profile, release):
     selected = release_contracts.contract(release)
+    if profile['kind']=='application-client':
+        import application_runtime_contracts
+        if profile['components']!=[application_runtime_contracts.profile_component(release)]:
+            raise ProfileError('Application profile release differs from observed Pi contract')
+        return release_contracts.identity(release)
     if profile['kind'] != 'builtin' and profile['components'] != [selected['fixture_component']]:
         raise ProfileError('Fixture profile release differs from the observed Pi contract; no substitution')
     return release_contracts.identity(release)
 
 
 def toolset(task,profile):
+    if profile['kind']=='application-client':
+        tools=task.get('tools');required=task.get('require_tools',[])
+        if (type(tools) is not list or not tools or any(type(name) is not str for name in tools)
+                or len(set(tools))!=len(tools) or set(tools)-set(APPLICATION_TOOLS)
+                or 'budget_status' not in tools or type(required) is not list
+                or any(type(name) is not str for name in required) or set(required)-set(tools)):
+            raise ProfileError('Explicit closed application stage tool subset required')
+        return set(tools)
     allowed=BUILTIN_TOOLS|set(profile['tools'])
+    native_fields={'max_tool_calls','reporting_reserve_calls','reporting_reserve_seconds'}
+    budgeted=bool(native_fields&set(task))
+    if budgeted:
+        import native_budget_controls
+        try:native_budget_controls.native_limits({key:task[key] for key in native_fields if key in task},
+                                                 timeout_seconds=task.get('timeout_seconds'),required=True)
+        except ValueError as exc:raise ProfileError('Invalid explicit native tool budget') from exc
+        allowed=allowed|{'budget_status'}
     if set(task.get('tools',[]))-allowed or set(task.get('require_tools',[]))-set(task.get('tools',[])):raise ProfileError('Undeclared custom tool or missing allowlist entry')
-    if profile['kind']=='builtin' and (set(task.get('tools',[]))-BUILTIN_TOOLS):raise ProfileError('Built-in profile cannot use custom tools')
+    if profile['kind']=='builtin' and (set(task.get('tools',[]))-(BUILTIN_TOOLS|({'budget_status'} if budgeted else set()))):raise ProfileError('Built-in profile cannot use custom tools')
     return allowed
 
 
@@ -132,6 +198,7 @@ def staged(receipt):
 
 
 def apply(plan,profile):
+    if profile['kind']=='application-client':raise ProfileError('Application profile requires a compiled stage; blanket application is unsupported')
     out=copy.deepcopy(plan)
     for task in out['agents']:
         for name in profile['tools']:
@@ -159,9 +226,27 @@ def observed(path,context):
         r=valid[0]
         if r.get('active_tools')!=context['allowed_tools']:errors.append('Effective active tool set differs from declared allowlist')
         if profile['kind']=='builtin' and 'fixture_lookup' in r.get('registered_tools',[]):errors.append('Built-in profile registered custom fixture tool')
-        if not all(t in r.get('registered_tools',[]) for t in profile['tools']):errors.append('Declared custom tool never registered')
+        if profile['kind']=='application-client':
+            if r.get('registered_tools')!=context['allowed_tools']:errors.append('Application registry differs from exact stage tool subset')
+        elif not all(t in r.get('registered_tools',[]) for t in profile['tools']):errors.append('Declared custom tool never registered')
         if r.get('assets_sha256')!={a['target']:a['sha256'] for a in profile['assets']}:errors.append('Loaded asset hashes differ')
     registration_ok=bool(valid) and not errors
+    if profile['kind']=='application-client':
+        declared={};calls=[]
+        for event in events:
+            message=event.get('message')
+            if event.get('type')=='message_end' and isinstance(message,dict) and message.get('role')=='assistant':
+                for block in message.get('content',[]) if isinstance(message.get('content'),list) else []:
+                    if isinstance(block,dict) and block.get('type')=='toolCall':declared[block.get('id')]=block
+            if event.get('type')=='tool_execution_end' and event.get('isError') is False:
+                block=declared.get(event.get('toolCallId'))
+                if (event.get('toolName') in context['allowed_tools'] and block
+                        and block.get('name')==event.get('toolName')):
+                    calls.append({'tool_call_id':event['toolCallId'],'tool':event['toolName']})
+        return {'schema':1,'profile_id':profile['id'],'profile_sha256':context['profile_sha256'],
+                'loading':'observed' if registration_ok else 'unverified','use':'observed' if calls else 'not_requested',
+                'successful_calls':calls,'errors':errors,
+                'scope':'observed exact registered/active stage tools and paired results; no server or authority attestation'}
     requested=profile['tools'];calls=[];declared={}
     for event in events:
         message=event.get('message')

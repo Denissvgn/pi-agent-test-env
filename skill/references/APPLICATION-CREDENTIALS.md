@@ -1,13 +1,26 @@
 # Scoped application credentials
 
-Version 4.1.0 supports separate application credentials on explicitly assigned
-agent stages. The runner delivers each stage's named host-store values as
+Choose the application credential boundary explicitly:
+
+| Execution contract | Credential delivery |
+|---|---|
+| Compiled `application-client` | Original application values stay in the parent-owned helper; the participant receives scoped capabilities and typed tools. See [APPLICATION-CLIENT.md](APPLICATION-CLIENT.md). |
+| Legacy schema-1 `application_secrets` | Assigned application values enter the stage's environment for its own Bash/HTTP client. The remainder of this guide describes that channel. |
+
+Both channels use owner-private host-store references, keep independent checks
+key-free and reject overlap with selected inference authorities. A profile asset
+must never contain a credential value. Original application values are not
+participant environment variables in the compiled contract; passing that profile
+to a legacy plan does not convert its credential boundary.
+
+Legacy environment delivery, introduced in version 4.1.0, delivers each assigned
+stage's named host-store values as
 `PI_APP_*` environment variables. Built-in Bash clients can use them for HTTP
 authentication; no child extension, proxy, arbitrary environment flag or extra
 mount is required. The inference key remains `PI_LAB_API_KEY`. Images declaring the reserved
 `PI_APP_*` namespace are rejected, including empty baked variables.
 
-## Plan and admission
+## Legacy plan and admission
 
 Schema-1 agent stages may declare `application_secrets`, mapping 1..8 variables
 to host-store entry names. Variable names must match
@@ -160,6 +173,12 @@ python3 "$SKILL_DIR/scripts/pi_lab.py" secrets clear WORKCHORD_B
 Clearing the store does not revoke a key at the application. Revoke disposable
 keys there after the campaign. Filesystem removal is not forensic secure erasure;
 backups, Docker daemon memory and host process memory are outside this guarantee.
+
+Compiled application helpers have a stricter recovery gate: generic recovery
+cannot recreate or purge an uncertain helper to make the attempt appear clean.
+Missing parent cleanup proof, retained context capabilities or pending credential
+cleanup preserve dependent networks/private stores and block new admission.
+See the [compiled lifecycle](APPLICATION-CLIENT.md#prepared-application-experiments).
 
 A worker with Bash can read its own environment and intentionally disclose or
 encode it, send it over the network, or include it in tool output sent to the

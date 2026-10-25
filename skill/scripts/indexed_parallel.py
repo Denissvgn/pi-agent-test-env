@@ -16,6 +16,8 @@ from parallel_allocator import Allocator
 import provenance
 import release_contracts
 import resources
+import parallel_contract
+import parallel_native_budget
 import stage_control as controls
 
 
@@ -73,8 +75,10 @@ def execute(root,lab,session=None,resume=False,retry_trial=None):
             keys={i:catalog.admit(b,session) for i,b in entries.items()};assigned={};authorities={}
             contract.secret_free(list(entries.values()),keys.values())
             actor_values={}
+            budgeted=False
             for cell in work:
                 plan=indexed_experiments.frozen_plan(root,cell,lab)
+                budgeted=indexed_execution.native_required(plan) or budgeted
                 indexed_experiments.check_deadlines(plan,bindings[cell['trial_id']],metadata['indexed_execution'])
                 unused,unused_keys,assigned[cell['trial_id']]=indexed_execution.resolve(catalog,bindings[cell['trial_id']],session,plan,root/cell['source'],root/'runs',lab)
                 authorities[cell['trial_id']]=sorted({v for t in plan['agents'] for v in t.get('application_secrets',{}).values()})
@@ -86,14 +90,23 @@ def execute(root,lab,session=None,resume=False,retry_trial=None):
                 for i,b in entries.items():application_credentials.resolve(plan,b['configuration']['endpoint'],keys[i],catalog.store,root/cell['source'],root/'runs',False,forbidden_roots=[lab.ROOT,root])
                 redactor=application_credentials.Redactor([*keys.values(),*actor_values])
                 if redactor.contains(__import__('json').dumps(plan).encode()) or not application_credentials.workspace_inspected_clean(root/cell['source'],redactor):raise IndexedError('selection-conflict')
-            helper,worker=indexed_execution.capacity(args,lab,2,metadata['indexed_execution'])
+            if any(metadata['concurrency'].get(key)!=metadata['indexed_execution'].get(key)
+                   for key in ('aggregate','gateway','native_budget')):raise IndexedError('selection-conflict')
+            helper,worker=indexed_execution.capacity(args,lab,2,metadata['indexed_execution'],
+                native=budgeted,concurrency=metadata['concurrency'])
             for i,b in entries.items():
                 if any(b['configuration']['request_limits'][k]>helper['gateway'][k] for k in b['configuration']['request_limits']):raise IndexedError()
-            pool=Allocator(helper['aggregate'],2,metadata['concurrency']['max_pending'])
+            per_trial={trial:[value for assigned_stage in assigned[trial].values() for value in assigned_stage.values()] for trial in assigned}
+            cohort=parallel_native_budget.NativeCohort(root,metadata,matrix,work,lab,args,registry,
+                redaction_values=list(keys.values()),per_trial_redaction=per_trial)
+            cohort.native_trials.intersection_update(cell['trial_id'] for cell in work)
+            pool=cohort.allocator(helper['aggregate'],metadata['concurrency']['max_stages'],metadata['concurrency']['max_pending'])
+            cohort.attach(pool)
             probe=pool.request('admission-probe',{'generation':registry.generation},worker,30);pool.dispatch()
             pool.consume(probe.identity,probe.capability,probe.binding,probe.resources)
             image=lab.probe_image(args,metadata['execution']['image']);selected=lab.admit_image(image)
             if selected!=metadata['release_contracts'].get(selected['release']):raise IndexedError('environment-configuration-changed')
+            cohort.admit_release(selected['release'])
             pool.release(probe.identity,True,True);registry.close()
             import agent_profiles
             for cell in work:
@@ -101,6 +114,10 @@ def execute(root,lab,session=None,resume=False,retry_trial=None):
             for entry in entries.values():lab.pi_contract.model_configuration(entry['configuration']['endpoint'],selected['release'])
             token_prefix=secrets.token_hex(16)
             tokens={trial:{name:[token_prefix+secrets.token_hex(16) for _ in range(100)] for name in stages} for trial,stages in bindings.items()}
+            for trial,stages in tokens.items():
+                values=[token for pool_tokens in stages.values() for token in pool_tokens]
+                indexed_execution.bounded_redaction([*keys.values(),*per_trial[trial],*values])
+                cohort.add_redaction_values(values,trial)
             routes={i:{'endpoint':b['configuration']['endpoint'],'upstream_key':keys[i],'limits':b['configuration']['request_limits']} for i,b in entries.items()}
             config={'routes':routes,'tokens':{token:{'route':bindings[trial][name]['incarnation']} for trial,stages in tokens.items() for name,pool_tokens in stages.items() for token in pool_tokens},'active_tokens_file':True,'token_prefix':token_prefix}
             active={};ordinals={(trial,name):0 for trial,stages in bindings.items() for name in stages}

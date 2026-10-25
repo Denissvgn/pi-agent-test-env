@@ -145,6 +145,39 @@ def collect(source):
                 normalized=experiments.validate(definition,pi_lab,catalog=catalog)
                 definitions.append({'path':'indexed-'+release+'-'+name,'planned_cells':len(normalized['cases'])*len(normalized['variants'])*normalized['repetitions']})
 
+    application_examples = []
+    import application_preparation
+    with tempfile.TemporaryDirectory(prefix='pi-authenticated-examples-') as temporary:
+        folder = Path(temporary).resolve()
+        endpoint = folder / 'endpoint.json'
+        endpoint.write_text(json.dumps({'base_url':'http://synthetic-model.invalid/v1',
+            'model':'synthetic-not-contacted','api_key_env':'FIXTURE_REFERENCE',
+            'context_window':262144,'max_tokens':8192}))
+        spec = importlib.util.spec_from_file_location('checked_authenticated_configure',
+            source/'examples/authenticated-application/configure.py')
+        module = importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        for release in ('0.87.1','1.2.0'):
+            for transport in ('api','browser'):
+                image = {'id':'sha256:'+'a'*64,'platform':'linux/arm64','capabilities':{'pi':release}}
+                receipt = image
+                if transport == 'browser':
+                    image['capabilities']['chromium']='Synthetic offline browser observation'
+                    receipt = {'schema':1,'document_type':'browser_admission','status':'PASS','image':image,
+                        'host':{'native_platform':'linux/arm64','selected_platform':'linux/arm64'},
+                        'browser_security':{'policy':'chromium-userns'},
+                        'process':{'exit_code':0,'cleanup_confirmed':True},
+                        'observations':[{'browser_sandbox':{'namespace_and_seccomp_verified':True}}]}
+                runtime = folder/(release+'-'+transport+'-runtime.json');runtime.write_text(json.dumps(receipt))
+                output = folder/(release+'-'+transport)
+                configured = module.configure(runtime_receipt=runtime,origin='http://fixture.invalid:8080',
+                    allowed_addresses=['192.0.2.10'],credential_reference='DIAGNOSTIC_ALICE',
+                    variant=transport,output_dir=output,endpoint=endpoint)
+                compiled = application_preparation.load_compiled(Path(configured['compiled_plan']),verify_runner=True)
+                application_examples.append({'pi_release':release,'transport':transport,
+                    'plan_sha256':compiled['plan']['plan_sha256'],
+                    'profile_sha256':compiled['plan']['stages'][0]['profile_binding']['sha256'],
+                    'classification':'Offline generation and final-IR loading from synthetic receipts; no qualification or credential read.'})
+
     syntax = {'python': [], 'json': [], 'javascript': []}
     for path in sorted(source.rglob('*')):
         if '__pycache__' in path.parts or not path.is_file(): continue
@@ -161,6 +194,7 @@ def collect(source):
     return {'status': 'fail' if errors else 'pass', 'errors': errors,
             'parsed_examples': commands, 'local_links': links, 'cli_help': helpers,
             'plans': plans, 'profiles': profiles, 'rendered_definitions': definitions,
+            'compiled_application_examples': application_examples,
             'outcome_examples': len(outcome_examples), 'pi_lifecycle_examples': len(pi['event_examples']),
             'syntax': syntax, 'python_grammar': '3.10',
             'scope': 'Offline schemas/parser/help/syntax/local links; synthetic metadata/traces only; no Docker/model/endpoint contact.'}

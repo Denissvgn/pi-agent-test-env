@@ -76,6 +76,15 @@ structured `admission_failure` on stderr with exit 2. Guidance is static and
 bounded; raw exception details remain represented only by their SHA-256 digest.
 Unknown errors are not classified by matching messages or digest values.
 
+Qualification preworker cleanup checks controller absence when its owner receipt
+is written and again before release. Admission can replay the exact attached
+receipt of an already released record without probing that historical numeric
+PID, which may have been reused. Replay still validates the complete frozen
+identity, lineage, terminal, CID and private/control cleanup evidence. It reads
+the referenced evidence and is not a metadata-only observation. It does not prove
+an unavailable individual process wait, a complete holder census or memory erasure.
+Pending helpers remain quarantined until their owned cleanup is established.
+
 The following worker hints are set from the effective job count:
 `PI_TEST_JOBS`, `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`,
 `NUMEXPR_NUM_THREADS`, `VECLIB_MAXIMUM_THREADS`, `UV_THREADPOOL_SIZE`,

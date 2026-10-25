@@ -49,6 +49,9 @@ def compile_input(path,lab,catalog=None,session=None,freeze=False):
     if raw['mode']=='parallel':contract.parallel(raw.get('concurrency'))
     helper=contract.helper_contract(raw['indexed_execution'])
     if helper['max_workers']!=(2 if raw['mode']=='parallel' else 1):raise IndexedError('selection-conflict')
+    if raw['mode']=='parallel' and any(raw['concurrency'].get(key)!=helper.get(key)
+                                      for key in ('aggregate','gateway','native_budget')):
+        raise IndexedError('selection-conflict')
     catalog=catalog or Catalog(lab.normalize_endpoint)
     transformed={k:copy.deepcopy(raw[k]) for k in required if k not in ('mode','indexed_execution')};transformed['schema']=1
     execution=transformed['execution']
@@ -60,6 +63,9 @@ def compile_input(path,lab,catalog=None,session=None,freeze=False):
         for field in ('project','plan'):case[field]=str((base/case[field]).absolute())
         catalog.outside(lab.ROOT,case['project'])
         planpath=Path(case['plan']);plan=lab.validate_plan(experiments.read_json(planpath),planpath.parent,external_bindings=True)
+        import indexed_execution
+        if indexed_execution.native_required(plan) and 'native_budget' not in helper:
+            raise IndexedError('selection-conflict')
         if plan.get('schema')==2:
             if plan['inference_bindings']!='external':raise IndexedError('selection-conflict')
             external_cases.add(case['name'])
@@ -117,6 +123,16 @@ def compile_input(path,lab,catalog=None,session=None,freeze=False):
         for endpoint,configuration in endpoint_files:controls.atomic(endpoint,configuration)
         definition=Path(temporary)/'definition.json';controls.atomic(definition,transformed)
         normalized=experiments.validate(definition,lab)
+        # Experiment/case budgets are applied by the final normalizer. Check
+        # that representation too; raw plan checks cannot see these overrides.
+        effective_native=any(indexed_execution.native_required(case['plan']) for case in normalized['cases'])
+        if effective_native and 'native_budget' not in helper:raise IndexedError('selection-conflict')
+        if 'native_budget' in helper:
+            import parallel_contract
+            worker=parallel_contract.worker_weight(normalized['execution']['resources'])
+            native_weight=parallel_contract.native_helper(helper);gateway=helper['gateway']['resources']
+            if any(helper['max_workers']*(worker[key]+native_weight[key])+gateway[key]>helper['aggregate'][key] for key in worker):
+                raise IndexedError('selection-conflict')
         if normalized['execution']['network']!='bridge':raise IndexedError('selection-conflict')
         for case in normalized['cases']:
             for variant in normalized['variants']:check_deadlines(case['plan'],bindings[variant['name']][case['name']],helper)

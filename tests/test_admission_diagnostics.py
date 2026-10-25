@@ -141,16 +141,20 @@ class AdmissionDiagnosticsTests(unittest.TestCase):
         for released in (False,True):
             with self.subTest(released=released),tempfile.TemporaryDirectory() as td:
                 path=Path(td)/'lease';holder=resources.admission_lock(path);holder.__enter__()
-                def wait(_):
-                    if released:holder.__exit__(None,None,None)
-                with mock.patch.object(resources.time,'monotonic',side_effect=[0,0,1]),mock.patch.object(resources.time,'sleep',side_effect=wait) as sleep:
+                def queued(fd, wait):
+                    self.assertEqual(wait,1)
+                    if released:
+                        holder.__exit__(None,None,None)
+                        resources.fcntl.flock(fd,resources.fcntl.LOCK_EX)
+                    else:raise resources.AdmissionError('host-admission-busy')
+                with mock.patch.object(resources,'_queued_flock',side_effect=queued) as queue:
                     if released:
                         with resources.admission_lock(path,1):pass
                     else:
                         with self.assertRaises(resources.AdmissionError) as caught:
                             with resources.admission_lock(path,1):self.fail('entered busy lease')
                         self.assertEqual(caught.exception.reason,'host-admission-busy')
-                sleep.assert_called_once_with(.1)
+                queue.assert_called_once()
                 if not released:holder.__exit__(None,None,None)
                 with resources.admission_lock(path):pass
 

@@ -11,6 +11,7 @@ import uuid
 
 SCHEMA = 2
 LIMIT_MAX = {'timeout_seconds':3600, 'max_turns':100, 'max_total_tokens':10000000}
+NATIVE_LIMIT_MAX = {'max_tool_calls':500, 'reporting_reserve_calls':20, 'reporting_reserve_seconds':120}
 
 class ControlError(RuntimeError):
     pass
@@ -81,7 +82,7 @@ def create(runroot, workspace, label, operation, task, control, state, stage_id,
                 'workspace_identity':[st.st_dev,st.st_ino], 'control':str(control),
                 'inbox':str(control/'inbox'), 'outbox':str(control/'outbox'), 'runtime':str(state),
                 'container':container, 'protected_paths':plan.get('protected_paths',[]),
-                'original_limits':{k:task[k] for k in LIMIT_MAX if task and k in task}}
+                'original_limits':{k:task[k] for k in (*LIMIT_MAX, *NATIVE_LIMIT_MAX) if task and k in task}}
         atomic(folder/'descriptor.json', desc)
         atomic(folder/'state.json', {'schema':2, 'status':'pending', 'revision':0, 'cleanup_confirmed':False})
     return desc
@@ -147,15 +148,21 @@ def budget_path(runroot,desc):
     return Path(runroot)/'stages'/desc['stage_id']/'budget.json'
 
 
-def start_budget(runroot,desc,start,cleanup_grace=0):
+def start_budget(runroot,desc,start,cleanup_grace=0,native_control=None):
     """Called by the active supervisor, using its own clock origin only."""
     with lock(runroot,desc['stage_id']):
         limits=desc['original_limits']
         for key,value in limits.items():
-            if type(value) is not int or not 0<value<=LIMIT_MAX[key]:raise ControlError('Invalid original limit')
+            if type(value) is not int or not 0<value<={**LIMIT_MAX, **NATIVE_LIMIT_MAX}[key]:raise ControlError('Invalid original limit')
+        if set(limits) & set(NATIVE_LIMIT_MAX):
+            import native_budget_controls
+            native_budget_controls.validate_budget(limits)
+            if native_control is None:raise ControlError('Native budget has no live parent control')
         budget={'schema':2,'revision':0,'original_limits':limits,'effective_limits':dict(limits),
                 'started_host_monotonic':start,'deadline_host_monotonic':start+limits['timeout_seconds'],
                 'cleanup_grace_seconds':cleanup_grace,'phase':'active'}
+        if native_control is not None:
+            budget['native_tool_budget']=native_control.status(force=True)
         atomic(budget_path(runroot,desc),budget)
         publish_budget(runroot,desc,budget)
     return budget
@@ -171,14 +178,24 @@ def publish_budget(runroot,desc,budget,command_id=None):
     atomic(Path(desc['inbox'])/'limits.json',view,0o644)
 
 
-def process_budget_requests(runroot,desc,closing=False):
+def process_budget_requests(runroot,desc,closing=False,native_control=None):
     import time
     with lock(runroot,desc['stage_id']):
         budget=read(budget_path(runroot,desc));state=read(Path(runroot)/'stages'/desc['stage_id']/'state.json')
+        if budget.get('native_budget_error'):
+            raise ControlError('Native budget update unconfirmed; further authority is blocked')
         requests=Path(runroot)/'stages'/desc['stage_id']/'budget-requests'
         responses=requests.parent/'budget-updates';responses.mkdir(exist_ok=True)
         for path in sorted(requests.glob('*.json'),key=lambda p:(read(p).get('created_at',''),p.name)):
-            if (responses/path.name).exists():continue
+            if (responses/path.name).exists():
+                previous=read(responses/path.name)
+                if 'max_tool_calls' in budget['original_limits'] and previous.get('status') == 'applying':
+                    budget['native_budget_error']='accounting_unavailable'
+                    atomic(budget_path(runroot,desc),budget)
+                    atomic(responses/path.name,{**previous,'status':'rejected',
+                        'reason':'native_budget_update_unconfirmed','helper_applied':'unknown'})
+                    raise ControlError('Interrupted native budget update; no retry permitted')
+                continue
             request=read(path);reason=None
             try:
                 if request.get('schema')!=2 or request.get('kind')!='extend_budget' or request.get('id')!=path.stem:
@@ -191,8 +208,14 @@ def process_budget_requests(runroot,desc,closing=False):
                     raise ControlError('Wrong budget target')
                 values=request['limits']
                 if set(values)!=set(budget['effective_limits']):raise ControlError('Incomplete limits')
-                if any(type(v) is not int or not 0<v<=LIMIT_MAX[k] or v<budget['effective_limits'][k] for k,v in values.items()):
+                if any(type(v) is not int or not 0<v<={**LIMIT_MAX, **NATIVE_LIMIT_MAX}[k] or v<budget['effective_limits'][k] for k,v in values.items()):
                     raise ControlError('Invalid or reduced budget')
+                if set(values) & set(NATIVE_LIMIT_MAX):
+                    import native_budget_controls
+                    native_budget_controls.validate_budget(values)
+                    if (native_control is None or any(values[key] != budget['effective_limits'][key]
+                            for key in ('reporting_reserve_calls', 'reporting_reserve_seconds'))):
+                        raise ControlError('Native budget requires live control and unchanged reserves')
                 if values==budget['effective_limits']:raise ControlError('Ineffective update')
             except (ControlError,KeyError,TypeError) as exc:reason=str(exc)
             response={'schema':2,'id':request.get('id'),'stage_id':desc['stage_id'],
@@ -204,6 +227,21 @@ def process_budget_requests(runroot,desc,closing=False):
                 if request.get('intervention_id'):audit(runroot,request,'rejected',reason_code='budget_rejected')
             if not reason:
                 audit(runroot,request,'accepted',before=response['before'],after=request['limits'])
+                if set(values) & set(NATIVE_LIMIT_MAX):
+                    # Only a retained, explicitly requested parent command may
+                    # grow helper authority. Failure is uncertain: stop the
+                    # supervisor instead of applying/retrying a local-only cap.
+                    atomic(responses/path.name,{**response,'status':'applying','helper_applied':'unverified'})
+                    try:
+                        budget['native_tool_budget']=native_control.extend(
+                            command_id=request['id'], max_tool_calls=values['max_tool_calls'],
+                            remaining_seconds=max(0,budget['started_host_monotonic']+values['timeout_seconds']-time.monotonic()))
+                    except Exception:
+                        budget['native_budget_error']='accounting_unavailable'
+                        atomic(budget_path(runroot,desc),budget)
+                        atomic(responses/path.name,{**response,'status':'rejected',
+                            'reason':'native_budget_update_unconfirmed','helper_applied':'unknown'})
+                        raise ControlError('Native budget update unconfirmed; no retry permitted') from None
                 budget['effective_limits']=values;budget['revision']+=1
                 budget['deadline_host_monotonic']=budget['started_host_monotonic']+values['timeout_seconds']
                 atomic(budget_path(runroot,desc),budget)
@@ -214,6 +252,9 @@ def process_budget_requests(runroot,desc,closing=False):
             if not reason:audit(runroot,request,'applied',before=response['before'],after=values,budget_revision=budget['revision'],host_applied=True)
         if closing:
             budget['phase']='stopped';atomic(budget_path(runroot,desc),budget)
+        if native_control is not None:
+            budget['native_tool_budget']=native_control.status(force=closing)
+            atomic(budget_path(runroot,desc),budget)
     return budget
 
 

@@ -23,10 +23,24 @@ inside the selected image. You provide the model server separately.
 | Measure use of an explicitly supplied tool | [Fixture lookup walkthrough](skill/examples/integration-baseline/README.md) | Native ARM64 built-in retrieval versus the one supported fixture tool, with actual tool-use evidence and independent scoring |
 | Add browser acceptance to your own app | [Browser plan template](skill/assets/browser-ui.plan.json) and [browser guide](skill/references/BROWSER.md) | A plan to adapt to your server, locked dependencies and real Chromium assertions |
 | Exercise an authenticated API as distinct workers | [Application credential recipe](skill/references/APPLICATION-CREDENTIALS.md) | Per-stage credential delivery, redacted capture and sensitive cleanup; you supply the application, disposable identities and effects oracle |
+| Run a typed authenticated application participant | [Reviewed application client](skill/references/APPLICATION-CLIENT.md) | Compiled API/UI grants, application keys held in an owned helper, automatic evidence, native call reserves and independent completion validation |
 
 The Python and Node projects are runnable starter tasks. Browser and authenticated
 API recipes require project-specific setup. The fixture integration is optional;
-ordinary application experiments use Pi's built-in tools.
+legacy application/coding baselines can use Pi's built-in tools.
+
+The compiled `application-client` path uses a separate source/plan contract.
+Declare exact participant identity, typed operations, artifacts, publication
+receipts and all six budgets; `compile-application-plan` freezes the effective
+prompt, schemas and runtime before `run --compiled-plan` dispatches it. Original
+application credentials stay in the parent-owned helper. Each action is explicit;
+the runner never retries a mutation or repairs a participant report. A settled
+model and passing task score can still fail the independent completion gate.
+See the [compiler, tools and experiment guide](skill/references/APPLICATION-CLIENT.md).
+The [authenticated participant example](skill/examples/authenticated-application/README.md)
+provides explicit API/browser plans, disposable personas and a key-free root oracle.
+Offline protocol tests and existing coding/fixture qualification do not establish
+native application-client/model qualification.
 
 ## How a run works
 
@@ -217,6 +231,13 @@ A passing check does not clear reviewer findings automatically. Fix findings and
 review the isolated-copy diff before promoting changes. Offline validation and
 maintainer tests do not measure live model quality; recorded qualification applies
 only to its exact image, model and configuration.
+
+For compiled application runs, inspect `application_completion` and
+`native_tool_budgets` too. Missing report requirements, unavailable accounting or
+uncertain helper/credential cleanup prevent a passing run. Reporting reserves
+stop business actions before the call/deadline ceiling and do not reopen after an
+assisted increase; publication must finish beforehand. Public summaries keep safe
+statuses/counts while private evidence remains in the owned run.
 
 ## Next experiments
 

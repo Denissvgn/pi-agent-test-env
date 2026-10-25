@@ -1,0 +1,170 @@
+{
+  "schema": 1,
+  "document_type": "application_legacy_compatibility_baseline",
+  "captured_on": "2026-10-17",
+  "historical_origin": {
+    "historical-result.json": "reports/wave-5/B34-evidence/changed/result.json",
+    "historical-experiment.json": "reports/wave-5/B34-evidence/qualified/experiment.json",
+    "historical-matrix.json": "reports/wave-5/B34-evidence/qualified/matrix.json"
+  },
+  "release_identities": {
+    "0.87.1": {
+      "release": "0.87.1",
+      "id": "pi-json-direct-0.87.1",
+      "revision": 1,
+      "sha256": "4f15d43728d06659bd5156458c895aea8babfcbfebcfc0d4ba9819ef98df3acb"
+    },
+    "1.2.0": {
+      "release": "1.2.0",
+      "id": "pi-json-direct-1.2.0",
+      "revision": 1,
+      "sha256": "65a4620bd2d51eec37524bfe0c5cb3e6c648b4460dee2612637129f25eec36bc"
+    }
+  },
+  "file_sha256": {
+    "skill/runtime/release_contracts.py": "5633815c7f17fff542a15f0f42b0f591f4b749a897932f6e6686f7821d69ea0f",
+    "skill/assets/profiles/fixture-lookup/config.json": "5814fe91550e523a7692fa5c5df7a62345ebeef6ec3a366da2c8b307226f6b5d",
+    "skill/assets/profiles/fixture-lookup/fixture-lookup.mjs": "5cd2057772db58a5ac7f6b0ee38eef550226c858e36172d0a84f367350e34cdb",
+    "skill/assets/profiles/fixture-lookup/fixtures.json": "baaa1173c021ce18bf70d234347324611be918e8cb514b83e31942bf8599c5ab",
+    "skill/assets/profiles/fixture-lookup/instructions.md": "54add0e25837ec70d0a35c2198d547f906a5c1251e9fe5e1c456eb6329c7d42a",
+    "skill/assets/profiles/fixture-lookup/profile.json": "ce795c36e1ebdeab9011f0e8999301af3ec8e0317fb019b7483699f3c5dc8606",
+    "skill/assets/profiles/fixture-lookup/profile.pi-1.2.0.json": "8072fe3d7f17dd2450e9611ac3114969855209ad6eb762075133c9162773b382"
+  },
+  "profile_identities": {
+    "profile.json": "25844908209cdb8b9d4edaa9ed94c4c84d3b9e96411094d50a746a8b35ed7d29",
+    "profile.pi-1.2.0.json": "d1c2f2cf5e756f76016ef854f2b6c81456a9d561b3aff2a35bee7184eba19d68"
+  },
+  "legacy_plans": [
+    {
+      "source": {
+        "schema": 1,
+        "agents": [
+          {
+            "name": "dev",
+            "prompt": "Frozen compatibility instructions.",
+            "tools": [
+              "read"
+            ],
+            "require_tools": [
+              "read"
+            ]
+          }
+        ],
+        "checks": [
+          {
+            "argv": [
+              "python3",
+              "-V"
+            ]
+          }
+        ]
+      },
+      "normalized": {
+        "schema": 1,
+        "name": "agent-tests",
+        "agents": [
+          {
+            "name": "dev",
+            "prompt": "Frozen compatibility instructions.",
+            "tools": [
+              "read"
+            ],
+            "require_tools": [
+              "read"
+            ],
+            "cwd": ".",
+            "access": "rw",
+            "timeout_seconds": 900,
+            "max_turns": 24,
+            "max_total_tokens": 500000
+          }
+        ],
+        "setup": [],
+        "checks": [
+          {
+            "argv": [
+              "python3",
+              "-V"
+            ],
+            "name": "checks-1",
+            "cwd": ".",
+            "timeout_seconds": 300,
+            "network": "none"
+          }
+        ],
+        "protected_paths": [],
+        "required_paths": []
+      },
+      "sha256": "5cf6a41c22d2a8f99b0356324c6c0a45cefba2b4cea86b0ef2b54e0455491222"
+    },
+    {
+      "source": {
+        "schema": 2,
+        "agents": [
+          {
+            "name": "dev",
+            "prompt": "Frozen compatibility instructions.",
+            "tools": [
+              "read"
+            ],
+            "require_tools": [
+              "read"
+            ]
+          }
+        ],
+        "checks": [
+          {
+            "argv": [
+              "python3",
+              "-V"
+            ]
+          }
+        ],
+        "inference_bindings": "external"
+      },
+      "normalized": {
+        "schema": 2,
+        "name": "agent-tests",
+        "agents": [
+          {
+            "name": "dev",
+            "prompt": "Frozen compatibility instructions.",
+            "tools": [
+              "read"
+            ],
+            "require_tools": [
+              "read"
+            ],
+            "cwd": ".",
+            "access": "rw",
+            "timeout_seconds": 900,
+            "max_turns": 24,
+            "max_total_tokens": 500000
+          }
+        ],
+        "setup": [],
+        "checks": [
+          {
+            "argv": [
+              "python3",
+              "-V"
+            ],
+            "name": "checks-1",
+            "cwd": ".",
+            "timeout_seconds": 300,
+            "network": "none"
+          }
+        ],
+        "protected_paths": [],
+        "required_paths": [],
+        "inference_bindings": "external"
+      },
+      "sha256": "2a9ae4fa422b75c778eb4dceb3fee1a5873a148552dd914cdcfb6f0c398f79fa"
+    }
+  ],
+  "archived_bytes": {
+    "historical-result.json": "a1ee102b245e443320714b1022076a82586fe4dd7ed99aac667f3fef11669fe5",
+    "historical-experiment.json": "05b42d859106d9f52b0ba5b98ef90ecc68773a2ba7d50a6e0323e564dcf34581",
+    "historical-matrix.json": "bfb804727e4411f2542f44bb5a0d98112610bcc9f4ad0602e8330dd9c8be19d5"
+  }
+}

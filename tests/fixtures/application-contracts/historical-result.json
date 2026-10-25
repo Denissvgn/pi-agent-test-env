@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "document_type": "run_result",
+  "run_id": "b52fa7a3-cddd-4980-830b-721127d2fbdf",
+  "attempt_id": "e1ef21ee-9b0f-4acb-ba85-ee5b18afcb86",
+  "experiment_id": null,
+  "trial_id": null,
+  "attempt_index": 1,
+  "retry_of_attempt_id": null,
+  "status": "BLOCKED",
+  "started_at": "2026-10-07T20:59:09.224250+00:00",
+  "run_dir": "/Users/bramen/Projects/pi-agentic-development/reports/wave-5/negative-changed/b52fa7a3-cddd-4980-830b-721127d2fbdf",
+  "workspace": null,
+  "infrastructure": {
+    "status": "failed",
+    "phase": "admission",
+    "reason": "ProfileError",
+    "error_digest": "26210a0ef7259ae1de86ad62f8c63693237b3b59cdfe22d6113948e40a40f3e3"
+  },
+  "invocation": {
+    "status": "not_started",
+    "attempted_stages": 0
+  },
+  "termination": {
+    "reason": "not_started",
+    "trigger": null,
+    "process_exit_code": null
+  },
+  "scoring": {
+    "status": "skipped",
+    "reason": "infrastructure_failure",
+    "results": []
+  },
+  "task_result": {
+    "status": "unknown",
+    "score": null,
+    "test_counts": null
+  },
+  "assistance": {
+    "status": "autonomous",
+    "intervention_ids": []
+  },
+  "protected_inputs": {
+    "status": "unknown"
+  },
+  "agents": [],
+  "checks": [],
+  "sealed": true,
+  "probe_receipt_contract": 1,
+  "event_contract": "settled",
+  "exit_code": 2,
+  "finished_at": "2026-10-07T20:59:09.226234+00:00"
+}

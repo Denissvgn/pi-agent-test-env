@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import sys
 import time
 import uuid
 
@@ -126,7 +127,7 @@ def classify_worker_limit(process,evidence,prior_turns=0,prior_tokens=0):
                        observed_budget_counts={'turns':observed_turns,'known_reported_tokens':observed_tokens})
     return process
 
-def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,access,network,timeout,helpers,application_secrets=None,redaction_secrets=()):
+def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,access,network,timeout,helpers,application_secrets=None,redaction_secrets=(),native_context_sink=None):
     application_secrets = application_secrets or {}
     release = getattr(args, 'observed_pi_version', None)
     selected = release_contracts.identity(release)
@@ -139,11 +140,35 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
     stage_started=time.monotonic()
     directive=None;session_body=None
     cwd='/workspace'+('' if task.get('cwd','.')=='.' else '/'+task['cwd'])
+    native=None;worker_launch_attempted=False;segment_result=None
     try:
+        if {'max_tool_calls','reporting_reserve_calls','reporting_reserve_seconds'} & set(task):
+            import native_budget_execution, native_tool_contracts
+            indexed=getattr(args,'_indexed_session',None)
+            if indexed is not None and not getattr(args,'_parallel_session',None):indexed.bind_native_stage(desc)
+            receipt=getattr(args,'frozen_agent_profile',None)
+            profile=agent_profiles.staged(receipt) if receipt else agent_profiles.builtin()
+            if task.get('application_execution'):
+                import application_execution, application_runtime_contracts
+                if getattr(args,'_parallel_session',None) is not None:
+                    from application_remote import RemoteApplicationCoordinator
+                    coordinator=RemoteApplicationCoordinator
+                else:coordinator=application_execution.ApplicationCoordinator
+                native=coordinator(lab,args,image,runroot,workspace,desc,task,profile,
+                    [secret,*application_secrets.values(),*redaction_secrets])
+            else:
+                native=native_budget_execution.prepare(lab,args,image,runroot,workspace,desc,task,profile,
+                    [secret,*application_secrets.values(),*redaction_secrets])
+            if native_context_sink is not None:native_context_sink['coordinator']=native
+            execution_identity['native_tool_budget']={'contract':(application_runtime_contracts.identity(release)
+                                                       if task.get('application_execution') else native_tool_contracts.identity(release)),
+                                                       'extensions_sha256':native.extension_sha256}
         for ordinal in range(1,101):
             if getattr(args,'_indexed_session',None):secret=args._indexed_session.continuation(renew=ordinal>1)
             segment_id=str(uuid.uuid4());logs=root/'segments'/segment_id
-            control=Path(desc['control'])/'segments'/segment_id;control.mkdir(parents=True)
+            worker_launch_attempted=False;segment_result=None
+            control=Path(desc['control'])/'segments'/segment_id
+            control.mkdir(parents=True,mode=0o700 if task.get('application_execution') else 0o777)
             state=activate(runroot,desc,segment_id,logs)
             runtime=lab.state_dir(runroot/'children',segment_id,args.uid)
             segment_task=copy.deepcopy(task)
@@ -153,10 +178,22 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
             if directive:
                 if records[-1].get('execution_identity') != execution_identity:
                     raise controls.ControlError('Cannot continue across Pi release/image/contract identities')
-                segment_task['prompt']=directive['message'];segment_task['resume_session']='/opt/pi-control/segments/'+segment_id+'/session.jsonl'
+                if task.get('application_execution'):
+                    segment_task['application_continuation']={'schema':1,'command_id':directive['id'],
+                        'continues_segment_id':records[-1]['segment_id'],'message':directive['message'],
+                        'sha256':hashlib.sha256(directive['message'].encode('utf-8')).hexdigest()}
+                else:segment_task['prompt']=directive['message']
+                segment_task['resume_session']='/opt/pi-control/segments/'+segment_id+'/session.jsonl'
                 digest=freeze_session(records[-1]['runtime'],session_id,cwd,endpoint['model'],control/'session.jsonl')
                 consumed.add(directive['id'])
             else:digest=None
+            segment_network=network
+            capture_secrets=list(redaction_secrets)
+            if native is not None:
+                admitted=native.begin_segment(segment_id,session_id,control,directive=directive)
+                segment_task['application_context' if task.get('application_execution') else 'native_budget_context']=admitted['context_path']
+                segment_network=admitted['network']
+                capture_secrets=native.redaction_values()
             receipt=getattr(args,'frozen_agent_profile',None)
             profile=agent_profiles.staged(receipt) if receipt else agent_profiles.builtin()
             context={'schema':1,'profile':profile,'profile_sha256':agent_profiles.identity(profile),
@@ -166,7 +203,7 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
             segment_task['agent_profile_context']='/opt/pi-control/segments/'+segment_id+'/profile-context.json'
             controls.atomic(control/'task.json',segment_task,0o644)
             controls.atomic(control/'stage.json',{**desc,'segment_id':segment_id,'stage_revision':state['revision']},0o644)
-            argv=lab.docker_args(args,image,workspace,Path(desc['control']),runtime,desc['container'],network,access,bool(secret),helpers=helpers)
+            argv=lab.docker_args(args,image,workspace,Path(desc['control']),runtime,desc['container'],segment_network,access,bool(secret),helpers=helpers)
             for variable in application_secrets:
                 argv[-2:-2] = ['--env', variable]
             if receipt and profile['kind']!='builtin':argv[-2:-2]=['--mount',f"type=bind,src={receipt['root']},dst=/opt/pi-profile,readonly,bind-recursive=disabled"]
@@ -181,15 +218,26 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
             controls.atomic(parent_records/(segment_id+'.json'),meta)
             if directive:controls.audit(runroot,directive,'applied',action='continuation_launch',successor_segment_id=segment_id,session_sha256=digest)
             try:
+                worker_launch_attempted=True
                 result=lab.stream_run(argv+['agent','--task',f'/opt/pi-control/segments/{segment_id}/task.json'],logs,timeout,desc['container'],secret,
-                                  stage=(runroot,desc),keep_budget=True,resume_budget=bool(records),application_secrets=application_secrets,redaction_secrets=redaction_secrets)
+                                  stage=(runroot,desc),keep_budget=True,resume_budget=bool(records),application_secrets=application_secrets,redaction_secrets=capture_secrets,
+                                  **({'native_control':native} if native is not None else {}))
+                segment_result=result
             except KeyboardInterrupt:
                 result=controls.read(logs/'process.json') if (logs/'process.json').exists() else {'exit_code':130,'cancelled':True,'cleanup_confirmed':False}
+                segment_result=result
                 meta.update(process=result,finished_at=controls.now())
                 controls.atomic(parent_records/(segment_id+'.json'),meta)
                 lab.save(root/'process.json',{**result,'segments':records+[meta]})
                 raise
             if getattr(args,'_indexed_session',None) and result.get('cleanup_confirmed') is True:args._indexed_session.release_segment()
+            if native is not None:
+                result['native_tool_manifest']={'schema':1,'tools':list(task['tools'])}
+                try:
+                    result['native_tool_budget']=native.after_segment(result.get('cleanup_confirmed') is True)
+                    if result['native_tool_budget']['accounting']!='available':raise controls.ControlError('Native accounting unavailable')
+                except ValueError:
+                    result.update(exit_code=2,native_tool_budget_error='accounting_unavailable')
             ev=lab.analyze(logs/'stdout.jsonl',endpoint['model'],[],result['exit_code'],args.event_contract,release=getattr(args,'observed_pi_version',None),allowed_tools=task['tools'])
             if receipt:agent_profiles.staged(receipt)
             observation=agent_profiles.observed(logs/'stdout.jsonl',{**context,'asset_root':receipt['root']}) if receipt else {'loading':'unverified','errors':[]}
@@ -199,15 +247,26 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
                 ev.setdefault('policy_errors', []).extend(profile_errors)
                 ev['errors'] += profile_errors
                 ev.update(agent_invocation_verified=False,completion_verified=False,invocation_status='invalid')
+            if result.get('native_tool_budget_error'):
+                error='Native tool budget accounting unavailable'
+                ev.setdefault('policy_errors',[]).append(error);ev['errors'].append(error)
+                ev.update(agent_invocation_verified=False,completion_verified=False,invocation_status='invalid')
             classify_worker_limit(result,ev,turns,tokens)
             lab.save(logs/'process.json',result)
-            effective=provenance.collect_emitted(runtime,logs,secret,[*application_secrets.values(), *redaction_secrets]) if result.get('cleanup_confirmed') is True else {'status':'cleanup_unconfirmed'}
+            effective=provenance.collect_emitted(runtime,logs,secret,[*application_secrets.values(), *capture_secrets],
+                **({'application':True} if task.get('application_execution') else {})) if result.get('cleanup_confirmed') is True else {'status':'cleanup_unconfirmed'}
+            if task.get('application_execution'):
+                try:application_execution.verify_emitted(native.stage,segment_task,effective)
+                except ValueError:
+                    ev['errors'].append('Compiled application prompt observation unavailable or different')
+                    ev.update(agent_invocation_verified=False,completion_verified=False,invocation_status='invalid')
             meta.update(process=result,evidence=ev,finished_at=controls.now(),provenance={'task_sha256':provenance.digest(segment_task),'emitted':effective})
             controls.atomic(parent_records/(segment_id+'.json'),meta);records.append(meta)
             turns+=ev.get('events',{}).get('turn_start',0)
             reported=ev.get('provider_reported_total_tokens')
             if reported is None:known=False
             tokens+=ev.get('usage',{}).get('categories',{}).get('total',{}).get('known_sum',reported or 0)
+            if result.get('native_tool_budget_error'):break
             if result.get('cancelled') or result.get('exit_code')==130 and not result.get('interrupts_applied') or not result.get('cleanup_confirmed') or result.get('timed_out') or result.get('log_limit_exceeded'):break
             directives=pending(runroot,desc,{r['segment_id'] for r in records},consumed)
             if not directives:break
@@ -240,4 +299,31 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
         lab.save(root/'process.json',result)
         return result
     finally:
-        if controls.budget_path(runroot,desc).exists():controls.process_budget_requests(runroot,desc,closing=True)
+        try:
+            if controls.budget_path(runroot,desc).exists():controls.process_budget_requests(runroot,desc,closing=True,native_control=native)
+        finally:
+            if native is not None:
+                physical=all(row['process'].get('cleanup_confirmed') is True for row in records)
+                current=controls.read(logs/'process.json') if 'logs' in locals() and (logs/'process.json').exists() else segment_result
+                physical=physical and (current.get('cleanup_confirmed') is True if current is not None else not worker_launch_attempted)
+                try:
+                    cleanup=native.close(writers_confirmed=physical)
+                    if (task.get('application_execution') and not records and not worker_launch_attempted
+                            and 'result' not in locals() and hasattr(native,'preworker_failure')):
+                        preworker=native.preworker_failure(worker_launch_attempted=False,segment_id=segment_id,session_id=session_id)
+                        if preworker is not None:
+                            result=preworker
+                            if isinstance(sys.exc_info()[1],KeyboardInterrupt):
+                                result.update(cancelled=True,termination_reason='cancelled')
+                    if 'result' in locals():result['native_tool_budget_cleanup']=cleanup
+                    if 'result' in locals() and task.get('application_execution'):
+                        result['application_helper_cleanup']=cleanup
+                        result['native_tool_budget']=copy.deepcopy(cleanup['budget'])
+                        result['application_completion_context']=copy.deepcopy(native.completion_context)
+                except ValueError as error:
+                    if 'result' not in locals():result={}
+                    result.update(exit_code=2,cleanup_confirmed=False,native_tool_budget_error='cleanup_unconfirmed')
+                    if task.get('application_execution'):
+                        from application_execution import settlement_diagnostic
+                        result['application_settlement_failure']=settlement_diagnostic(error,coordinator=native)
+                if 'result' in locals():lab.save(root/'process.json',result)

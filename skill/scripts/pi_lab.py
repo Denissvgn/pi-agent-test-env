@@ -252,7 +252,7 @@ def docker_args(args, image: str, workspace: Path, control: Path, state: Path,
 
 def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
                secret: str = '', max_bytes: int = 64 * 1024 * 1024, stage=None, keep_budget=False, resume_budget=False,
-               application_secrets=None, redaction_secrets=()) -> dict:
+               application_secrets=None, redaction_secrets=(), native_control=None) -> dict:
     """Drain both pipes continuously. Bound wall time/log size; remove the container on all exits."""
     logdir.mkdir(parents=True, exist_ok=True)
     registry=ownership_registry.CURRENT.get();launch=None
@@ -313,9 +313,10 @@ def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
             return argparse.Namespace(returncode=1,stdout='',stderr=str(exc))
     try:
         if stage:
-            budget=controls.read(controls.budget_path(stage[0],stage[1])) if resume_budget else controls.start_budget(stage[0],stage[1],start,grace)
+            budget=controls.read(controls.budget_path(stage[0],stage[1])) if resume_budget else controls.start_budget(stage[0],stage[1],start,grace,native_control=native_control)
             if resume_budget:controls.publish_budget(stage[0],stage[1],budget)
         p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, start_new_session=True)
+        if native_control is not None:native_control.mark_running()
         result['started']=True
         threads = [threading.Thread(target=drain, args=(p.stdout, logdir / 'stdout.jsonl'), daemon=True),
                    threading.Thread(target=drain, args=(p.stderr, logdir / 'stderr.log'), daemon=True)]
@@ -325,7 +326,7 @@ def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
             if registry is not None:registry.check_cancel()
             if stage:
                 controls.capture_observations(stage[0],stage[1])
-                budget=controls.process_budget_requests(stage[0],stage[1])
+                budget=controls.process_budget_requests(stage[0],stage[1],native_control=native_control)
                 state=controls.resolve(stage[0],stage[1]['stage_id'])[1]
                 for directive in segments.pending(stage[0],stage[1],state.get('segment_id'),set(result.get('interrupts_applied',[]))):
                     if directive.get('interrupt'):
@@ -369,11 +370,12 @@ def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
         if cleanup_deadline is None:cleanup_deadline=time.monotonic()+grace
         if stage and budget is not None:
             try:
-                final_budget=controls.process_budget_requests(stage[0],stage[1],closing=not keep_budget)
+                final_budget=controls.process_budget_requests(stage[0],stage[1],closing=not keep_budget,native_control=native_control)
                 result['original_limits']=final_budget['original_limits']
                 result['effective_limits']=final_budget['effective_limits']
                 result['budget_revision']=final_budget['revision']
                 result['cleanup_grace_seconds']=final_budget['cleanup_grace_seconds']
+                if 'native_tool_budget' in final_budget:result['native_tool_budget']=final_budget['native_tool_budget']
             except (OSError,ValueError,controls.ControlError) as exc:
                 result['budget_error']=str(exc);result['exit_code']=2
         if argv[:2] == ['docker', 'run']:
@@ -711,7 +713,8 @@ def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=
         if not isinstance(task, dict):
             raise LabError('Each agent stage must be an object')
         if set(task) - {'name', 'prompt', 'prompt_file', 'tools', 'require_tools', 'access',
-                        'timeout_seconds', 'max_turns', 'max_total_tokens', 'cwd', 'application_secrets'}:
+                        'timeout_seconds', 'max_turns', 'max_total_tokens', 'cwd', 'application_secrets',
+                        'max_tool_calls', 'reporting_reserve_calls', 'reporting_reserve_seconds'}:
             raise LabError(f'Unknown field in agent {i}')
         t = dict(task)
         if 'application_secrets' in t:
@@ -733,10 +736,25 @@ def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=
         t['cwd'] = working_directory(t.get('cwd', '.'))
         t.setdefault('tools', ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'])
         t.setdefault('require_tools', ['read'])
+        native_fields = {'max_tool_calls', 'reporting_reserve_calls', 'reporting_reserve_seconds'}
+        budgeted = bool(native_fields & set(t))
+        if budgeted:
+            import native_budget_controls
+            try:
+                native_budget_controls.native_limits({key: t[key] for key in native_fields if key in t},
+                                                      timeout_seconds=t.get('timeout_seconds', 900))
+            except ValueError as exc:
+                raise LabError('Invalid native tool budget: ' + str(exc)) from None
+            if isinstance(t['tools'], list):
+                t['tools'] = [*t['tools']]
+                if 'budget_status' not in t['tools']: t['tools'].append('budget_status')
         if not isinstance(t['tools'], list) or not isinstance(t['require_tools'], list) or not all(isinstance(tool, str) for tool in t['tools'] + t['require_tools']):
             raise LabError('Tool allowlists must be string arrays')
-        if not t['tools'] or set(t['tools']) - (TOOLS|set(agent_profile['tools'])) or set(t['require_tools']) - set(t['tools']):
+        allowed_tools = TOOLS | set(agent_profile['tools']) | ({'budget_status'} if budgeted else set())
+        if not t['tools'] or set(t['tools']) - allowed_tools or set(t['require_tools']) - set(t['tools']):
             raise LabError('Invalid tools/require_tools')
+        if budgeted and len(set(t['tools'])) != len(t['tools']):
+            raise LabError('Budgeted tool names must be unique')
         t.setdefault('access', 'rw')
         if t['access'] not in ('ro', 'rw'):
             raise LabError('access must be ro or rw')
@@ -954,7 +972,9 @@ def run_stage(args, image: str, runroot: Path, workspace: Path, label: str,
         controls.atomic(runroot/'stages'/stage_id/'descriptor.json',desc)
     credential_receipt = runroot / 'stages' / stage_id / 'application-credentials.json'
     indexed_sensitive=operation[0]=='agent' and bool(getattr(args,'_indexed_session',None))
-    if application_secrets or indexed_sensitive:
+    native_sensitive=operation[0]=='agent' and bool({'max_tool_calls','reporting_reserve_calls','reporting_reserve_seconds'} & set(task or {}))
+    native_sink={} if native_sensitive else None
+    if application_secrets or indexed_sensitive or native_sensitive:
         controls.atomic(credential_receipt, {'schema': 1, 'references': task.get('application_secrets',{}), 'status': 'pending'})
     argv[-2:-2]=['--env',f"PI_LAB_RUN_ID={desc['run_id']}",'--env',f"PI_LAB_ATTEMPT_ID={desc['attempt_id']}"]
     with controls.lock(runroot):
@@ -964,19 +984,28 @@ def run_stage(args, image: str, runroot: Path, workspace: Path, label: str,
         controls.atomic(control / 'stage.json', {**desc, 'stage_revision':running['revision']}, 0o644)
         if operation[0]=='agent':
             result=segments.execute(sys.modules[__name__],args,image,runroot,workspace,label,task,endpoint,secret,desc,access,network or args.network,timeout,helpers,
-                                    application_secrets=application_secrets, redaction_secrets=redaction_secrets)
+                                    application_secrets=application_secrets, redaction_secrets=redaction_secrets,
+                                    **({'native_context_sink':native_sink} if native_sink is not None else {}))
         else:result = stream_run(argv + operation, runroot / label, timeout, name, secret, redaction_secrets=redaction_secrets)
         return result
     finally:
         if not result and (runroot/label/'process.json').exists():
             try:result=controls.read(runroot/label/'process.json')
             except (OSError,ValueError,controls.ControlError):pass
+        if (operation[0]=='agent' and (task or {}).get('application_execution')
+                and native_sink and native_sink.get('coordinator') is not None):
+            from application_execution import settlement_diagnostic,settlement_failure_recorded
+            coordinator=native_sink['coordinator']
+            if settlement_failure_recorded(coordinator):
+                result['application_settlement_failure']=settlement_diagnostic(coordinator=coordinator)
         try:controls.capture_observations(runroot,desc)
         except (OSError,ValueError,controls.ControlError):
             result['observation_error']=True;result['exit_code']=2
         controls.transition(runroot, desc, 'stopping')
-        if application_secrets or indexed_sensitive:
+        if application_secrets or indexed_sensitive or native_sensitive:
             if indexed_sensitive:redaction_secrets=[*redaction_secrets,*args._indexed_session.redaction]
+            if native_sink and native_sink.get('coordinator') is not None:
+                redaction_secrets=[*redaction_secrets,*native_sink['coordinator'].redaction_values()]
             receipt = application_credentials.finish(runroot, desc, application_secrets, secret, result, redaction_secrets)
             controls.atomic(credential_receipt, {**receipt, 'references': task.get('application_secrets',{})})
             result['application_credentials'] = receipt
@@ -986,6 +1015,17 @@ def run_stage(args, image: str, runroot: Path, workspace: Path, label: str,
                 if result.get('evidence'):
                     result['evidence'].update(agent_invocation_verified=False, completion_verified=False, invocation_status='invalid')
             save(runroot / label / 'process.json', result)
+        if operation[0]=='agent' and (task or {}).get('application_execution'):
+            import application_completion
+            specification=getattr(args,'_application_execution',{})
+            stage=next((item for item in specification.get('plan',{}).get('stages',[])
+                        if item['id']==task['application_execution']['stage_id']),None)
+            if stage is None:raise LabError('Compiled application stage binding unavailable')
+            completion=application_completion.stage_result(stage,result.get('application_completion_context'),
+                result,result.get('application_credentials'))
+            result['application_completion']=completion['projection']
+            result['application_completion_result']=completion['result']
+            save(runroot / label / 'process.json',result)
         controls.transition(runroot, desc, 'stopped', exit_code=result.get('exit_code'),
                             cleanup_confirmed=result.get('cleanup_confirmed', False))
         controls.transition(runroot, desc, 'finalized')
@@ -1058,6 +1098,9 @@ def run_suite(args, smoke=False, initial_record=None):
     attempt.persist()
     try:
         attempt.record['infrastructure']['phase']='admission'
+        if getattr(args,'compiled_plan',None):
+            import application_dispatch
+            application_dispatch.prepare(args,attempt,sys.modules[__name__])
         requested_policy(args)
         if getattr(args,'project',None):
             project=checked_path(Path(args.project));lease=Path(args.lock_file).expanduser().absolute()
@@ -1123,6 +1166,10 @@ def _observe_last_process(attempt):
 
 
 def _execute_suite(args,attempt,smoke=False):
+    if getattr(args,'compiled_plan',None):
+        import application_dispatch
+        if smoke:raise LabError('Compiled application plans require the run command')
+        return application_dispatch.execute(args,attempt,sys.modules[__name__])
     runroot=attempt.root;summary=attempt.record
     summary['event_contract']=args.event_contract
     profile=agent_profiles.load(args.agent_profile) if getattr(args,'agent_profile',None) else agent_profiles.builtin()
@@ -1243,6 +1290,11 @@ def _execute_suite(args,attempt,smoke=False):
         summary['provenance']['agent_profile']={'id':profile['id'],'sha256':agent_profiles.identity(profile),'assets':{a['target']:a['sha256'] for a in profile['assets']}}
         check_project_contract(workspace, plan)
         save(runroot / 'plan.json', plan)
+        native_required=[task['name'] for task in plan['agents'] if 'max_tool_calls' in task]
+        if native_required:
+            import native_budget_reporting
+            summary['native_tool_budgets']=native_budget_reporting.record_projection(summary,
+                stage_names=[task['name'] for task in plan['agents']],required_stages=native_required)
         scorer_receipts={}
         for index,check in enumerate(plan['checks']):
             if check.get('scorer'):
@@ -1325,6 +1377,9 @@ def _execute_suite(args,attempt,smoke=False):
             summary['agents'].append({'name': task['name'], 'logs': label, 'process': r,
                                       'invocation_verified': evidence['agent_invocation_verified'], 'errors': evidence['errors'],
                                       **({'inference_binding':copy.deepcopy(args._indexed_binding)} if indexed else {})})
+            if native_required:
+                summary['native_tool_budgets']=native_budget_reporting.record_projection(summary,
+                    stage_names=[stage['name'] for stage in plan['agents']],required_stages=native_required)
             save(runroot / 'summary.json', summary)
             summary['invocation']['status']=evidence.get('invocation_status','verified' if evidence['agent_invocation_verified'] else 'invalid')
             if previous_invocation=='recovered' and evidence.get('completion_verified',evidence['agent_invocation_verified']):summary['invocation']['status']='recovered'
@@ -1548,6 +1603,15 @@ def cmd_status(args):
     if desc and (controls.budget_path(runroot,desc)).exists():
         budget=controls.read(controls.budget_path(runroot,desc))
         out.append(f"Parent Budget: revision {budget['revision']} ({budget['phase']}), effective {budget['effective_limits']}")
+        if 'max_tool_calls' in budget['original_limits']:
+            try:
+                import native_budget_controls
+                task=controls.read(Path(desc['control'])/'task.json')
+                native=native_budget_controls.public_snapshot(budget['native_tool_budget'], allowed_tools=task['tools'])
+                counts=native['counts']
+                out.append(f"Native Tool Budget (last parent observation): {native['phase']}; charged {counts['charged']} / {native['limits']['max_tool_calls']}; remaining {native['remaining_admissible_calls']}; blocked {counts['blocked']}; accounting {native['accounting']}")
+                out.append('Native per-tool charged totals: '+json.dumps({name:values['charged'] for name,values in native['per_tool'].items()},sort_keys=True))
+            except (KeyError,ValueError,OSError):out.append('Native Tool Budget: accounting unavailable')
         for path in sorted((controls.budget_path(runroot,desc).parent/'budget-updates').glob('*.json'))[-3:]:
             update=controls.read(path)
             out.append(f"Budget command {update['id']}: {update['status']} (host authoritative; worker observation untrusted)")
@@ -1591,6 +1655,7 @@ def audited_command(args,kind,function):
         identity=controls.read(runroot/'identity.json') if (runroot/'identity.json').exists() else {}
         desc={**identity,'stage_id':None,'segment_id':None}
     payload={k:getattr(args,k,None) for k in ('stage','revision','budget_revision','turns','timeout','tokens','message','interrupt','target')}
+    if getattr(args,'tool_calls',None) is not None:payload['tool_calls']=args.tool_calls
     context={k:desc.get(k) for k in ('run_id','attempt_id','stage_id','segment_id')}
     context.update(id=str(uuid.uuid4()),intervention_id=str(uuid.uuid4()),kind=kind,
                    payload_digest=hashlib.sha256(json.dumps(payload,sort_keys=True).encode()).hexdigest())
@@ -1629,18 +1694,21 @@ def _cmd_extend_budget(args):
 
 def _extend_budget(args,runroot,desc,state):
     budget=controls.read(controls.budget_path(runroot,desc))
+    if budget.get('native_budget_error'):raise LabError('Native budget accounting is unavailable; a new authorized attempt is required')
     if budget['phase']!='active' or time.monotonic()>=budget['deadline_host_monotonic']:
         raise LabError('Budget update is late or no active supervisor')
     expected=getattr(args,'budget_revision',None)
     if expected is not None and expected!=budget['revision']:raise LabError('Stale budget revision')
     values=dict(budget['effective_limits'])
-    for flag,key in [('turns','max_turns'),('timeout','timeout_seconds'),('tokens','max_total_tokens')]:
+    for flag,key in [('turns','max_turns'),('timeout','timeout_seconds'),('tokens','max_total_tokens'),('tool_calls','max_tool_calls')]:
         value=getattr(args,flag,None)
         if value is None:continue
+        if key not in values:raise LabError('Native tool limits must be declared before execution')
         if not re.fullmatch(r'\+?[0-9]+',str(value)):raise LabError('Budget must be a positive integer or +increment')
         number=int(str(value).lstrip('+'))
         new=values[key]+number if str(value).startswith('+') else number
-        if not 0<new<=controls.LIMIT_MAX[key] or new<=values[key]:raise LabError('Budget update must increase within finite allowed bounds')
+        maximum={**controls.LIMIT_MAX, **controls.NATIVE_LIMIT_MAX}[key]
+        if not 0<new<=maximum or new<=values[key]:raise LabError('Budget update must increase within finite allowed bounds')
         values[key]=new
     if values==budget['effective_limits']:raise LabError('No effective budget increase requested')
     request=controls.command_record(desc,state,'extend_budget',{
@@ -1905,6 +1973,14 @@ def parser():
     validate.add_argument('--plan', required=True)
     validate.add_argument('--external-inference-bindings',action='store_true',help='Offline schema-2 plan validation for experiment-owned maps')
     validate.add_argument('--agent-profile',help='Explicit reviewed custom-tool contract; validation does not load it')
+    compile_app=sub.add_parser('compile-application-plan',help='Offline compile and freeze the final application representation')
+    compile_app.add_argument('--spec',required=True)
+    compile_app.add_argument('--output-dir',required=True)
+    compile_app.add_argument('--runtime-receipt',required=True)
+    selector=compile_app.add_mutually_exclusive_group(required=True)
+    selector.add_argument('--endpoint')
+    selector.add_argument('--inference-env')
+    compile_app.add_argument('--catalog-dir')
 
     status_cmd = sub.add_parser('status', help='Inspect live or completed run status, heartbeat, and tool execution')
     status_cmd.add_argument('--run', help='Path to specific run directory (defaults to latest run in results-dir)')
@@ -1919,6 +1995,7 @@ def parser():
     extend_cmd.add_argument('--turns', help='Additional turns (e.g. +10) or new turn ceiling')
     extend_cmd.add_argument('--timeout', help='Additional timeout seconds (e.g. +300) or new timeout ceiling')
     extend_cmd.add_argument('--tokens', help='Additional token budget or new token ceiling')
+    extend_cmd.add_argument('--tool-calls', help='Explicit increase to a previously declared native call ceiling; reserves and phase stay fixed')
     extend_cmd.add_argument('--budget-revision', type=int, help='Expected supervisor budget revision')
     extend_cmd.add_argument('--wait-seconds', type=float, default=0, help='Wait up to 10 seconds for supervisor application')
 
@@ -2035,6 +2112,7 @@ def parser():
                            help='Default requires agent_settled; process-exit is explicit legacy Pi JSON one-shot compatibility')
             q.add_argument('--project')
             q.add_argument('--plan')
+            if name=='run':q.add_argument('--compiled-plan',help='Exact frozen application plan.json; competing selectors are rejected')
             q.add_argument('--in-place', action='store_true')
             q.add_argument('--exclude', action='append', default=[])
             q.add_argument('--max-project-mb', type=int, default=2048)
@@ -2046,12 +2124,31 @@ def parser():
 
 def main(argv=None):
     args = parser().parse_args(argv)
+    args._explicit_options={value.split('=',1)[0] for value in (sys.argv[1:] if argv is None else argv) if value.startswith('--')}
+    if args.op=='compile-application-plan':
+        import application_preparation
+        result=application_preparation.compile_artifact(args.spec,args.output_dir,args.runtime_receipt,
+            endpoint_path=args.endpoint,inference_env_id=args.inference_env,catalog_root=args.catalog_dir)
+        print(json.dumps({'status':'compiled_offline','plan_sha256':result['plan']['plan_sha256'],
+                          'output_dir':result['root'],'qualification':'not performed'},indent=2))
+        return 0
     if args.op == 'pr-review-gate':return pr_review_gate.command(args)
     if args.op in ('validate-experiment','experiment-prepare','experiment-run','experiment-resume','experiment-export','experiment-report'):return experiments.command(args,sys.modules[__name__])
     if args.op=='validate-agent-profile':
         profile=agent_profiles.load(args.agent_profile);print(json.dumps({'valid':True,'profile_id':profile['id'],'sha256':agent_profiles.identity(profile)}));return 0
     if args.op == 'validate-plan':
         path = checked_path(Path(args.plan))
+        import application_contracts
+        raw=json.loads(path.read_text())
+        if type(raw) is dict and raw.get('document_type') in ('application_plan_source','application_execution_plan'):
+            raw=application_contracts.loads(path.read_bytes())
+            if args.agent_profile or args.external_inference_bindings:raise LabError('Application inputs bind profiles and inference explicitly')
+            final=raw['document_type']=='application_execution_plan'
+            plan=(application_contracts.validate_ir(raw) if final else application_contracts.validate_source(raw))
+            print(json.dumps({'valid':True,'document_type':plan['document_type'],'stages':len(plan['stages']),
+                'scope':'final_representation' if final else 'source_only_unbound_runtime_inputs',
+                'plan_sha256':plan.get('plan_sha256'),'runtime_qualified':False},indent=2))
+            return 0
         profile=agent_profiles.load(args.agent_profile) if args.agent_profile else agent_profiles.builtin()
         plan = validate_plan(json.loads(path.read_text()), path.parent,profile,external_bindings=args.external_inference_bindings)
         print(json.dumps({'valid': True, 'name': plan['name'], 'agents': len(plan['agents']),
