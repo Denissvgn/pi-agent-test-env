@@ -1,5 +1,32 @@
 # Changelog
 
+## 4.6.0
+
+- Add an opt-in compiled application-client profile with typed API/browser
+  operations, helper-owned credential references, automatic evidence receipts
+  and bounded explicit pagination. Unsafe requests reject before effects;
+  workflows and mutations are never implicitly replayed.
+- Independently validate exact participant identity, required artifacts and
+  publication receipts after settlement. Diagnose incomplete reports without
+  automatically continuing the participant or repairing its output.
+- Compile and validate the same final representation used for dispatch,
+  including runtime, dependencies, credentials, rendered prompts and contracts.
+  Integrate the compiled route with serial, indexed and parallel preparation.
+- Centrally account native calls and reserve reporting capacity; close new
+  business admission monotonically at the reporting threshold.
+- Add an authenticated application example with an independent root oracle and
+  correct current harness-version documentation while retaining dated evidence.
+- Preserve root-array API result projections, screen known credentials hidden
+  by standard JavaScript Unicode code-point escapes, respect declared aggregate
+  host budget fractions and report valid compiled stage identifiers up to
+  64 characters. Keep historical test fixtures independent of host PID state.
+- Native qualification of the new application-client/native-budget scope is
+  partial. Authenticated browser acceptance and affected runtime safety/admission
+  qualification remain deferred. Offline source/package checks and independent
+  code review do not establish live execution, cleanup or model quality. All
+  historical measurements retain their original executable and environment
+  identities; no new native diagnostics are claimed for this candidate.
+
 ## 4.5.0
 
 - Add opt-in indexed inference environments with explicit credential sources,

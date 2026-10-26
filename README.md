@@ -1,6 +1,6 @@
 # pi-agent-test-env
 
-[![Version](https://img.shields.io/badge/version-4.5.0-blue)](skill/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.6.0-blue)](skill/CHANGELOG.md)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](skill/README.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-compatible-7B61FF)](skill/SKILL.md)
@@ -41,6 +41,10 @@ The [authenticated participant example](skill/examples/authenticated-application
 provides explicit API/browser plans, disposable personas and a key-free root oracle.
 Offline protocol tests and existing coding/fixture qualification do not establish
 native application-client/model qualification.
+The 4.6.0 application-client and native-budget additions remain experimental
+with partial native qualification. Authenticated browser workflows and the
+affected runtime admission/cleanup scope remain unqualified; see the
+[current qualification boundary](skill/QUALIFICATION.md).
 
 ## How a run works
 

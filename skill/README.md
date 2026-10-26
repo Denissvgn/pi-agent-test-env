@@ -1,4 +1,4 @@
-# Pi Agent Test Environment 4.5.0
+# Pi Agent Test Environment 4.6.0
 
 **English, project-adaptable, resource-bounded workflows for real local-LLM agents.**
 
@@ -67,12 +67,20 @@ different release and must be independently checked. On Apple Silicon use explic
 The runner code has no built-in model or address. The environment gate (below) saves the
 user's server once and asks for confirmation in each new session.
 
-Per-stage application credentials use the agent `application_secrets` map and
+For legacy plans, per-stage application credentials use the agent `application_secrets` map and
 named owner-only host-store entries. Only explicitly assigned workers receive
 `PI_APP_*` variables; inference credentials remain separate and independent checks
 stay key-free. See [the application-credential contract](references/APPLICATION-CREDENTIALS.md)
 for exact configuration, client use, redaction, sensitive cleanup and qualification
 limits. Missing/insecure references or incomplete cleanup fail closed.
+
+The separate experimental [compiled application-client path](references/APPLICATION-CLIENT.md)
+keeps original application credentials in an owned helper and gives participants
+typed API/browser operations, bounded evidence and reporting reserves. Compile
+the final plan offline before dispatch; independently validate its completion
+report after settlement. Native qualification remains partial, including
+unqualified authenticated browser workflows. Source review and archive checks
+do not replace the selected environment, image, admission and cleanup gates.
 
 For sandboxed browser admission, use the [credential-free browser-check gate](references/BROWSER.md#sandbox-and-webgl)
 and explicitly select the reviewed `chromium-userns` policy where required.

@@ -1,7 +1,7 @@
 {
   "name": "pi-agent-test-env",
-  "version": "4.5.0",
-  "description": "Evaluate frozen local-agent application cases and the optional reviewed fixture_lookup integration with independent scorers, fresh repeated Pi trials, bounded Docker resources and retained failures; also supports short coding-delegation plans.",
+  "version": "4.6.0",
+  "description": "Evaluate frozen local-agent tasks and typed authenticated application plans with scoped helper-owned credentials, independent completion validation, native tool budgets, bounded Docker resources and retained evidence; also supports coding delegation and the reviewed fixture_lookup integration.",
   "language": "en",
   "license": "MIT",
   "author": "Denissvgn",
@@ -74,13 +74,18 @@
       "command": "python3 scripts/pi_lab.py patch-session --run <RUN_DIR> --stage <STAGE_UUID> --file <PATCH_FILE> --target <RELATIVE_PATH>"
     },
     {
+      "name": "compile-application-plan",
+      "description": "Compile and validate final application plans offline from explicit source, endpoint and runtime receipt; credential values stay unresolved",
+      "command": "python3 scripts/pi_lab.py compile-application-plan --spec <SOURCE> --endpoint <ENDPOINT> --runtime-receipt <RECEIPT> --output-dir <NEW_DIRECTORY>"
+    },
+    {
       "name": "run",
       "description": "Execute a full multi-stage agentic plan with isolated container stages",
       "command": "python3 scripts/pi_lab.py run --project <PROJECT> --plan <PLAN> --image <QUALIFIED_IMAGE> --session <SESSION>"
     },
     {
       "name": "validate-plan",
-      "description": "Offline reviewed plan structure",
+      "description": "Offline structure checks for legacy/source plans or validation of an already compiled final representation; source-only checks leave runtime inputs unbound",
       "command": "python3 scripts/pi_lab.py validate-plan --plan <PLAN>"
     },
     {

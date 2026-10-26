@@ -14,7 +14,7 @@ description: >-
 
 # Local agent evaluation with Pi
 
-Package version: 4.5.0. Instructions are in English.
+Package version: 4.6.0. Instructions are in English.
 
 Exact reviewed Pi releases: 0.87.1 and 1.2.0. Use
 [PI-1.2.0.md](references/PI-1.2.0.md) for the newer contract and migration limits;
