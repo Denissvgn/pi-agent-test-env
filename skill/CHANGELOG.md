@@ -1,5 +1,27 @@
 # Changelog
 
+## 4.6.1
+
+- Diagnose blocked host-registry admission with closed phase, condition,
+  filesystem operation, OS-error category and possible partial effects in both
+  standalone CLI failures and sealed run results.
+- Add offline `registry-inspect` and explicit `registry-recover` commands under
+  the existing host lease. Recovery records a separate durable intent and
+  terminal receipt without dispatching a fresh probe, participant or model call.
+- Bind receipt publication to held directory descriptors; reject replaced
+  namespaces, linked or tampered receipts and unbounded output. Preserve terminal
+  interruption evidence and distinguish lease failures from body/timer failures.
+- Keep diagnostic context current when exception objects are reused, while
+  preserving the original inner operation through nested error wrappers.
+- Freeze the diagnostics dependency in application-helper bundles and preserve
+  the exact historical bundle shapes and cleanup evidence. Ownership, writer,
+  inference and sensitive-cleanup admission predicates remain enforced.
+- Verification covers synthetic Docker/model boundaries, native temporary
+  filesystem/lease operations and local service fixtures. Native qualification
+  of the changed admission/recovery scope remains deferred; previous measurements
+  retain their original source/runtime identities. The experimental application
+  and native-budget limits described for 4.6.0 still apply.
+
 ## 4.6.0
 
 - Add an opt-in compiled application-client profile with typed API/browser
