@@ -49,6 +49,7 @@ _ERRNOS = {
     errno.EMFILE: 'resource_exhausted', errno.ENFILE: 'resource_exhausted',
 }
 _CURRENT = contextvars.ContextVar('registry_diagnostic_phase', default=None)
+_OPERATIONS = contextvars.ContextVar('registry_diagnostic_operations', default=())
 _STAMP = object()
 
 
@@ -75,9 +76,18 @@ def project(value):
 
 def _attached(exc):
     value = getattr(exc, '_registry_observation', None)
-    if type(value) is tuple and len(value) == 2 and value[0] is _STAMP and project(value[1]):
+    if (type(value) is tuple and len(value) == 3 and value[0] is _STAMP
+            and type(value[2]) is tuple and project(value[1])):
         return value[1]
     return None
+
+
+def _origin(exc):
+    return exc._registry_observation[2] if _attached(exc) is not None else None
+
+
+def _remember(exc, snapshot, origin=None):
+    exc._registry_observation = (_STAMP, snapshot, _OPERATIONS.get() if origin is None else origin)
 
 
 def _capture(exc=None, condition=None):
@@ -103,7 +113,7 @@ class RegistryError(ValueError):
     def __init__(self, detail='', *, condition=None, cause=None):
         super().__init__(detail)
         snapshot = (snapshot_of(cause) or _attached(cause)) if cause is not None else None
-        self._registry_observation = (_STAMP, snapshot or _capture(cause, condition))
+        _remember(self, snapshot or _capture(cause, condition), _origin(cause))
 
 
 class RegistryCapacityError(RegistryError):
@@ -126,7 +136,7 @@ def annotate(exc, condition):
     if condition not in CONDITIONS:
         raise ValueError('Invalid registry diagnostic condition')
     if _CURRENT.get() is not None:
-        exc._registry_observation = (_STAMP, _capture(exc, condition))
+        _remember(exc, _capture(exc, condition))
     return exc
 
 
@@ -153,10 +163,10 @@ def phase(name, condition='validation_failed', *, inherit=False):
             snapshot = _Snapshot(snapshot.phase, snapshot.condition, snapshot.operation,
                                  snapshot.os_error, 'may_have_occurred')
         if type(exc) in (RegistryError, RegistryCapacityError):
-            exc._registry_observation = (_STAMP, snapshot)
+            _remember(exc, snapshot, _origin(exc))
             raise
         error = RegistryError(str(exc))
-        error._registry_observation = (_STAMP, snapshot)
+        _remember(error, snapshot, _origin(exc))
         raise error from None
     finally:
         _CURRENT.reset(token)
@@ -185,13 +195,21 @@ def operation(name, *, mutating=False):
     if mutating:
         state[0] = True
     token = _CURRENT.set((phase_name, condition, name, state))
+    path = _OPERATIONS.get() + (object(),)
+    operation_token = _OPERATIONS.set(path)
     try:
         yield
     except Exception as exc:
-        if _attached(exc) is None:
-            exc._registry_observation = (_STAMP, _capture(exc))
+        snapshot = _attached(exc)
+        origin = _origin(exc)
+        # Only a failure observed inside this particular operation can keep its
+        # inner context. A reused exception must not replay an earlier attempt.
+        if snapshot is None or origin[:len(path)] != path:
+            selected = snapshot.condition if snapshot_of(exc) is not None else None
+            _remember(exc, _capture(exc, selected))
         raise
     finally:
+        _OPERATIONS.reset(operation_token)
         _CURRENT.reset(token)
 
 

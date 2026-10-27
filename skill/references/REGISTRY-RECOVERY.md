@@ -87,12 +87,22 @@ durably writes `recovery.json` before attempting reconciliation. If this initial
 receipt cannot be persisted, reconciliation does not start. Keep recovery
 evidence separate from old campaign results and receipts.
 
+The receipt directory and its parent remain bound to open directory descriptors
+throughout recovery. Publication and temporary cleanup use those descriptors;
+replacing a path with a symlink or another directory cannot redirect a write.
+Before each publication, the original namespace, owner-only modes and previous
+receipt identity/content are rechecked. Changed, linked or tampered receipts
+block publication instead of being overwritten. Receipt size is bounded to 4 MiB.
+
 The report records a new invocation UUID, runner content hash, lease device/inode,
 registry identity, before/after counts, changed launch UUID/status transitions
 and reconciliation outcome. It is informational, not authority for a later
 admission. After-observation or final receipt failures remain explicit; a second
 failure cannot replace an already recorded primary denial. A hard process kill
 may leave the initial `RUNNING` receipt; it does not establish completed cleanup.
+An interruption during the final registry observation still attempts one terminal
+receipt under the held lease. An interruption during receipt publication is
+reported as unconfirmed and is not retried automatically.
 
 | Outcome | Meaning |
 | --- | --- |

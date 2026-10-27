@@ -364,6 +364,28 @@ class ReconciliationDiagnosticsTests(unittest.TestCase):
         context=resources.admission_diagnostic(caught.exception)['registry_diagnostic']
         self.assertEqual((context['phase'],context['condition']),('inventory','capacity_exceeded'))
 
+    def test_reused_filesystem_exception_reports_the_current_operation(self):
+        error=PermissionError(errno.EACCES,'private filesystem detail')
+        contexts=[]
+        for phase,operation in (('inventory','record_read'),('persist_release','file_fsync')):
+            with self.assertRaises(reg.RegistryError) as caught:
+                with diagnostics.phase(phase):
+                    with diagnostics.operation(operation,mutating=operation=='file_fsync'):raise error
+            contexts.append(diagnostics.diagnostic(caught.exception))
+        self.assertEqual((contexts[1]['phase'],contexts[1]['operation']),('persist_release','file_fsync'))
+        self.assertEqual(contexts[1]['effects'],'may_have_occurred')
+
+    def test_inner_operation_context_survives_wrapper_but_not_later_reuse(self):
+        error=OSError(errno.EIO,'private file')
+        for phase in ('persist_absent','persist_release'):
+            with self.subTest(phase=phase),self.assertRaises(reg.RegistryError) as caught:
+                with diagnostics.phase(phase):
+                    with diagnostics.operation('record_read'):
+                        with diagnostics.operation('file_fsync',mutating=True):raise error
+            context=diagnostics.diagnostic(caught.exception)
+            self.assertEqual((context['phase'],context['operation']),(phase,'file_fsync'))
+            self.assertEqual(context['effects'],'may_have_occurred')
+
     def test_cli_failure_before_output_directory_and_sealed_outcome_share_context(self):
         import outcomes
         for release in ('0.87.1','1.2.0'):

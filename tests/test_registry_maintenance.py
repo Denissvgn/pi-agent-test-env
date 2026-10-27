@@ -160,5 +160,174 @@ class MaintenanceTests(unittest.TestCase):
                 with maintenance.existing_lease(self.lease,1):self.fail('replacement admitted')
         self.assertEqual(self.lease.read_text(),'replacement')
 
+    def test_receipt_directory_replacement_cannot_overwrite_foreign_evidence(self):
+        output=self.root/'recovery';outside=self.root/'outside';outside.mkdir(mode=0o700)
+        victim=outside/'recovery.json';victim.write_bytes(b'foreign historical evidence')
+        real=maintenance._publish;calls=[]
+        def replaced(receipt,report):
+            calls.append(True)
+            if len(calls)==2:
+                output.rename(self.root/'original-recovery')
+                output.symlink_to(outside)
+            return real(receipt,report)
+        with mock.patch.object(maintenance,'_publish',side_effect=replaced):value=self.call('registry-recover')
+        self.assertEqual(victim.read_bytes(),b'foreign historical evidence')
+        self.assertEqual(value['status'],'BLOCKED')
+        self.assertEqual(value['receipt_persistence'],'unconfirmed')
+
+    def test_receipt_parent_replacement_cannot_redirect_publication(self):
+        parent=self.root/'receipts';parent.mkdir(mode=0o700);output=parent/'attempt'
+        outside=self.root/'outside';(outside/'attempt').mkdir(parents=True,mode=0o700)
+        victim=outside/'attempt/recovery.json';victim.write_bytes(b'foreign historical evidence')
+        real=maintenance._publish;calls=[]
+        def replaced(receipt,report):
+            calls.append(True)
+            if len(calls)==2:
+                parent.rename(self.root/'original-receipts');parent.symlink_to(outside)
+            return real(receipt,report)
+        with mock.patch.object(maintenance,'_publish',side_effect=replaced):value=self.call('registry-recover',output)
+        self.assertEqual(victim.read_bytes(),b'foreign historical evidence')
+        self.assertEqual(value['status'],'BLOCKED')
+
+    def test_receipt_swap_during_temporary_creation_stays_on_owned_directory(self):
+        output=self.root/'recovery';outside=self.root/'outside';outside.mkdir(mode=0o700)
+        victim=outside/'recovery.json';victim.write_bytes(b'foreign historical evidence')
+        real=os.open;creates=[]
+        def swap(path,*args,**kwargs):
+            if Path(path).name.startswith('.recovery.json-'):
+                creates.append(True)
+                if len(creates)==2:
+                    output.rename(self.root/'original-recovery');output.symlink_to(outside)
+            return real(path,*args,**kwargs)
+        with mock.patch.object(os,'open',side_effect=swap):value=self.call('registry-recover')
+        self.assertEqual(victim.read_bytes(),b'foreign historical evidence')
+        self.assertEqual(value['status'],'BLOCKED')
+
+    def test_interrupt_after_reconciliation_retains_terminal_receipt_under_lease(self):
+        real_reconcile=registry.Registry.reconcile;real_load=registry.Registry.load
+        completed=[];interrupted=[];publications=[];real_publish=maintenance._publish
+        def reconcile(owner):
+            result=real_reconcile(owner);completed.append(True);return result
+        def load(owner,*args,**kwargs):
+            if completed and not interrupted:
+                interrupted.append(True);raise KeyboardInterrupt
+            return real_load(owner,*args,**kwargs)
+        def publish(receipt,report):
+            publications.append(report['status'])
+            fd=os.open(self.lease,os.O_RDONLY)
+            try:
+                with self.assertRaises(BlockingIOError):
+                    resources.fcntl.flock(fd,resources.fcntl.LOCK_EX|resources.fcntl.LOCK_NB)
+            finally:os.close(fd)
+            return real_publish(receipt,report)
+        with mock.patch.object(registry.Registry,'reconcile',reconcile),mock.patch.object(registry.Registry,'load',load), \
+             mock.patch.object(maintenance,'_publish',side_effect=publish):
+            value=self.call('registry-recover')
+        self.assertEqual(value['status'],'INTERRUPTED')
+        self.assertEqual(value['exit_code'],130)
+        self.assertEqual(publications,['RUNNING','INTERRUPTED'])
+        saved=json.loads((self.root/'recovery/recovery.json').read_text())
+        self.assertEqual(saved['status'],'INTERRUPTED')
+        self.assertEqual(saved['reconciliation'],'completed')
+
+    def test_existing_lease_does_not_reclassify_body_filesystem_error(self):
+        error=PermissionError(errno.EACCES,'private body path')
+        with self.assertRaises(PermissionError) as caught:
+            with maintenance.existing_lease(self.lease):raise error
+        self.assertIs(caught.exception,error)
+
+    def test_existing_lease_preserves_outer_queue_callback_error(self):
+        error=PermissionError(errno.EACCES,'private outer callback')
+        with mock.patch.object(resources,'_queued_flock',side_effect=error):
+            with self.assertRaises(PermissionError) as caught:
+                with maintenance.existing_lease(self.lease,1):self.fail('callback failure admitted')
+        self.assertIs(caught.exception,error)
+        with maintenance.existing_lease(self.lease):pass
+
+    def test_initial_receipt_swap_blocks_before_reconciliation(self):
+        output=self.root/'recovery';outside=self.root/'outside';outside.mkdir(mode=0o700)
+        victim=outside/'recovery.json';victim.write_bytes(b'foreign historical evidence')
+        before=self.snapshot();real=os.open;swapped=[]
+        def swap(path,*args,**kwargs):
+            if Path(path).name.startswith('.recovery.json-') and not swapped:
+                swapped.append(True)
+                output.rename(self.root/'original-recovery');output.symlink_to(outside)
+            return real(path,*args,**kwargs)
+        with mock.patch.object(os,'open',side_effect=swap):value=self.call('registry-recover')
+        self.assertEqual(value['status'],'BLOCKED')
+        self.assertEqual(value['reconciliation'],'not_started')
+        self.assertEqual(victim.read_bytes(),b'foreign historical evidence')
+        self.assertEqual(self.snapshot(),before);self.assertEqual(self.docker.calls,[])
+
+    def test_replacement_with_regular_directory_is_not_accepted(self):
+        output=self.root/'recovery';real=maintenance._publish;calls=[]
+        def replaced(receipt,report):
+            calls.append(True)
+            if len(calls)==2:
+                output.rename(self.root/'original-recovery');output.mkdir(mode=0o700)
+                (output/'recovery.json').write_bytes(b'foreign receipt')
+            return real(receipt,report)
+        with mock.patch.object(maintenance,'_publish',side_effect=replaced):value=self.call('registry-recover')
+        self.assertEqual(value['status'],'BLOCKED')
+        self.assertEqual((output/'recovery.json').read_bytes(),b'foreign receipt')
+
+    def test_prior_receipt_tampering_or_alias_is_not_overwritten(self):
+        for kind in ('contents','hardlink','symlink','mode'):
+            with self.subTest(kind=kind):
+                output=self.root/('receipt-'+kind);foreign=self.root/('foreign-'+kind)
+                foreign.write_bytes(b'foreign receipt');foreign.chmod(0o600)
+                real=maintenance._publish;calls=[]
+                def changed(receipt,report):
+                    calls.append(True)
+                    if len(calls)==2:
+                        leaf=output/'recovery.json'
+                        if kind=='contents':leaf.write_bytes(b'tampered receipt')
+                        elif kind=='mode':leaf.chmod(0o644)
+                        else:
+                            leaf.unlink()
+                            if kind=='hardlink':os.link(foreign,leaf)
+                            else:leaf.symlink_to(foreign)
+                    return real(receipt,report)
+                with mock.patch.object(maintenance,'_publish',side_effect=changed):value=self.call('registry-recover',output)
+                self.assertEqual(value['status'],'BLOCKED')
+                self.assertEqual(foreign.read_bytes(),b'foreign receipt')
+                if kind=='contents':self.assertEqual((output/'recovery.json').read_bytes(),b'tampered receipt')
+
+    def test_terminal_publication_interruption_is_not_retried(self):
+        real=maintenance._publish;calls=[]
+        def interrupted(receipt,report):
+            calls.append(True)
+            if len(calls)==2:raise KeyboardInterrupt
+            return real(receipt,report)
+        with mock.patch.object(maintenance,'_publish',side_effect=interrupted):value=self.call('registry-recover')
+        self.assertEqual(len(calls),2)
+        self.assertEqual(value['status'],'INTERRUPTED')
+        self.assertEqual(value['receipt_persistence'],'unconfirmed')
+        self.assertEqual(value['interrupted_phase'],'terminal_receipt_publication')
+        self.assertEqual(value['reconciliation'],'completed')
+
+    def test_receipt_descriptors_close_after_success_and_failure(self):
+        for failure in (False,True):
+            with self.subTest(failure=failure):
+                if failure:fixtures.leave_pending(self.lease,self.root/'next-run')
+                captured=[];real_close=maintenance._Receipt.close
+                def close(receipt):
+                    captured.extend([receipt.fd,receipt.parent]);return real_close(receipt)
+                self.docker.fault='daemon' if failure else None
+                with mock.patch.object(maintenance._Receipt,'close',close):
+                    value=self.call('registry-recover',self.root/('close-'+str(failure)))
+                self.assertEqual(value['status'],'BLOCKED' if failure else 'RECONCILED')
+                for fd in captured:
+                    with self.assertRaises(OSError) as caught:os.fstat(fd)
+                    self.assertEqual(caught.exception.errno,errno.EBADF)
+
+    def test_oversize_receipt_denies_before_reconciliation(self):
+        before=self.snapshot()
+        with mock.patch.object(maintenance,'MAX_RECEIPT_BYTES',100):value=self.call('registry-recover')
+        self.assertEqual(value['status'],'BLOCKED')
+        self.assertEqual(value['reconciliation'],'not_started')
+        self.assertEqual(value['infrastructure']['registry_diagnostic']['condition'],'inventory_unbounded')
+        self.assertEqual(self.snapshot(),before);self.assertEqual(self.docker.calls,[])
+
 
 if __name__=='__main__':unittest.main()
