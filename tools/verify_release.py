@@ -19,6 +19,7 @@ import build_release
 from check_package import require
 
 REPO = Path(__file__).resolve().parents[1]
+DEFAULT_TEST_TIMEOUT = 900
 
 
 class VerificationCommandError(ValueError):
@@ -28,8 +29,14 @@ class VerificationCommandError(ValueError):
 
 
 def run(argv,cwd,timeout=180):
-    result = subprocess.run(argv,cwd=cwd,env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1',PYTHONNOUSERSITE='1'),
-                            capture_output=True,text=True,timeout=timeout)
+    try:
+        result = subprocess.run(argv,cwd=cwd,env=dict(os.environ,PYTHONDONTWRITEBYTECODE='1',PYTHONNOUSERSITE='1'),
+                                capture_output=True,text=True,timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        def output(value):return value.decode(errors='replace') if isinstance(value,bytes) else value or ''
+        raise VerificationCommandError({'command':argv,'cwd':str(cwd),'exit_code':124,
+            'timed_out':True,'timeout_seconds':timeout,'stdout':output(exc.stdout),
+            'stderr':output(exc.stderr)}) from None
     row = {'command':argv,'cwd':str(cwd),'exit_code':result.returncode,'stdout':result.stdout,'stderr':result.stderr}
     if result.returncode != 0: raise VerificationCommandError(row)
     return row
@@ -62,7 +69,9 @@ def extract(path,destination,expected):
             target.chmod(record['mode'])
 
 
-def verify(archives,report,repository=REPO):
+def verify(archives,report,repository=REPO,*,test_timeout_seconds=DEFAULT_TEST_TIMEOUT):
+    require(type(test_timeout_seconds) is int and 60<=test_timeout_seconds<=1800,
+            'Test timeout must be an integer in 60..1800 seconds')
     source=repository/'skill';archives=archives.resolve(strict=True);report=report.absolute()
     for root in (source.resolve(),archives):
         try: build_release.export_skill.require_external_destination(root,report)
@@ -79,7 +88,8 @@ def verify(archives,report,repository=REPO):
     require(all(check_package.sha(archives/n)==h for n,h in sums.items()),'Published checksums differ')
     require((archives/'pi-agent-test-env.zip').read_bytes()==(archives/f'pi-agent-test-env-{version}.zip').read_bytes()
             ==(archives/'pi-agent-test-env-antigravity.zip').read_bytes(),'Universal aliases are not byte-identical')
-    result={'status':'pass','version':version,'archive_sha256':sums,'package':{k:v for k,v in package.items() if k!='files'},'layouts':[]}
+    result={'status':'pass','version':version,'archive_sha256':sums,'package':{k:v for k,v in package.items() if k!='files'},'layouts':[],
+            'test_timeout_seconds':test_timeout_seconds}
     with tempfile.TemporaryDirectory(prefix='pi-published-verification-') as temporary:
         temp=Path(temporary).resolve();roots=[]
         for index,(name,prefix) in enumerate(layouts.items()):
@@ -102,7 +112,7 @@ def verify(archives,report,repository=REPO):
         for name in ('plans','reports','dist','development','BACKLOG.md','RELEASE_BACKLOG.md','tools/release-hardening'):
             require(not (checkout/name).exists(),'Internal planning/history shipped in source archive')
         before=check_package.inventory(checkout)
-        result['unit_tests']=run([sys.executable,'-m','unittest','discover','-s','tests','-v'],checkout,timeout=600)
+        result['unit_tests']=run([sys.executable,'-m','unittest','discover','-s','tests','-v'],checkout,timeout=test_timeout_seconds)
         match=re.search(r'Ran (\d+) tests in ([\d.]+)s',result['unit_tests']['stderr'])
         verdict=re.search(r'\nOK(?: \(skipped=(\d+)\))?\n',result['unit_tests']['stderr'])
         require(match is not None and verdict is not None,'Missing test-suite verdict')
@@ -126,8 +136,10 @@ def verify(archives,report,repository=REPO):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--archives',required=True,type=Path);parser.add_argument('--report',required=True,type=Path)
+    parser.add_argument('--test-timeout-seconds',type=int,default=DEFAULT_TEST_TIMEOUT,
+                        help='Finite extracted-source test budget in 60..1800 seconds (default: 900)')
     args=parser.parse_args()
-    try: result=verify(args.archives,args.report)
+    try: result=verify(args.archives,args.report,test_timeout_seconds=args.test_timeout_seconds)
     except (OSError,ValueError,KeyError,TypeError,subprocess.TimeoutExpired,zipfile.BadZipFile) as exc:
         value={'status':'fail','reason':str(exc)}
         if isinstance(exc,VerificationCommandError): value['failed_command']=exc.row

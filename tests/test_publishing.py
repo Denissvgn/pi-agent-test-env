@@ -6,6 +6,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -67,6 +68,21 @@ class PublishingTests(unittest.TestCase):
             verify_release.run([sys.executable,'-c',"import sys; print('diagnostic'*500); sys.exit(1)"],REPOSITORY)
         self.assertEqual(caught.exception.row['exit_code'],1)
         self.assertGreater(len(caught.exception.row['stdout']),3000)
+
+    def test_verification_timeout_retains_partial_stdout_and_stderr(self):
+        code="import sys,time; print('partial stdout',flush=True); print('partial stderr',file=sys.stderr,flush=True); time.sleep(5)"
+        with self.assertRaises(verify_release.VerificationCommandError) as caught:
+            verify_release.run([sys.executable,'-u','-c',code],REPOSITORY,timeout=1.0)
+        row=caught.exception.row
+        self.assertEqual(row['exit_code'],124);self.assertTrue(row['timed_out'])
+        self.assertEqual(row['timeout_seconds'],1.0)
+        self.assertIn('partial stdout',row['stdout']);self.assertIn('partial stderr',row['stderr'])
+
+    def test_verification_test_budget_is_bounded_before_input_access(self):
+        for budget in (True,0,59,1801,1.5,'900'):
+            with self.subTest(budget=budget),mock.patch.object(Path,'resolve',side_effect=AssertionError('input accessed')):
+                with self.assertRaisesRegex(ValueError,'60..1800'):
+                    verify_release.verify(Path('unopened'),Path('unwritten'),test_timeout_seconds=budget)
 
     def test_build_rejects_contained_output_before_manifest_mutation(self):
         with tempfile.TemporaryDirectory() as temporary:

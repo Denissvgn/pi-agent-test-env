@@ -16,6 +16,8 @@
 - Freeze the diagnostics dependency in application-helper bundles and preserve
   the exact historical bundle shapes and cleanup evidence. Ownership, writer,
   inference and sensitive-cleanup admission predicates remain enforced.
+- Record a bounded, configurable extracted-source release-test budget and retain
+  partial stdout/stderr when verification times out.
 - Verification covers synthetic Docker/model boundaries, native temporary
   filesystem/lease operations and local service fixtures. Native qualification
   of the changed admission/recovery scope remains deferred; previous measurements
