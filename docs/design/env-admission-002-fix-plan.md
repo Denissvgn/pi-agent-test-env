@@ -2,9 +2,9 @@
 
 Status: implementation and correctness/safety review verified on
 `codex/env-admission-002`. Four confirmed review findings are fixed and covered by
-regression tests. The 4.6.1 release candidate is verified and draft PR 9 is open.
-Live-state actions, lifecycle changes and final release gates remain deferred
-under the existing scope.
+regression tests. PR 9 is merged and the verified 4.6.1 prerelease is published under an explicit
+one-release Copilot waiver. Live-state actions and lifecycle changes remain
+deferred under the existing scope.
 Created: 27 October 2026. Updated: 27 October 2026.
 
 Affected release: `4.6.0`, tag `v4.6.0`, source commit
@@ -137,7 +137,7 @@ verification receipts. Status values are `planned`, `in_progress`, `verified`,
 | E002-06 | Specify and implement reconciliation-only recovery reporting | E002-03, E002-04, E002-05 | verified |
 | E002-07 | Identify the downstream failing prerequisite with narrow evidence | E002-03; E002-05/E002-06 as needed | deferred |
 | E002-08 | Decide whether exceptional-exit cleanup needs a separate change | E002-04, E002-07 | deferred |
-| E002-09 | Complete qualification, review and corrective-release preparation | Applicable implementation tasks | in_progress |
+| E002-09 | Complete qualification, review and corrective-release preparation | Applicable implementation tasks | verified |
 | E002-10 | Perform authorized downstream recovery and fresh preflight | E002-07, reviewed qualified implementation | deferred |
 
 ### E002-01 Diagnostic contract
@@ -635,3 +635,50 @@ E002-08 and E002-10 retain their earlier limits.
 | 2026-10-27 | RELEASE-02 | First artifact verification reached the old 600-second test cutoff | verification-timeout-600.json and first candidate | Failed attempt preserved; no passing artifact claim |
 | 2026-10-27 | RELEASE-03 | Bounded configurable verification deadline and retained timeout output | bd0958c; publishing-tests.log | 11 publishing regressions passed; runner/registry budgets unchanged |
 | 2026-10-27 | RELEASE-04 | Rebuilt candidate verified against extracted bytes | artifact-verification.json and candidate-verification.json | 2,687 passed; five layouts verified; no tag/publication or live recovery |
+
+## Published 4.6.1 prerelease
+
+The owner explicitly authorized: "Waive Copilot for this release; merge and publish
+using the recorded local review and verified artifacts." This is a one-release
+exception to the Copilot requirement, not a change to the package's future review
+policy. The retained promotion gate still says `BLOCKED` for missing completed
+Copilot review; no passed hosted review was fabricated. Copilot subsequently
+posted a quota refusal, which was not counted as a review. There were no unresolved
+review threads or other final gate blockers.
+
+[PR 9](https://github.com/Denissvgn/pi-agent-test-env/pull/9) was merged with an
+exact-head guard on `9bcf9f90d57ba05a1e48315173104d62051629f3` and no admin bypass.
+The merge commit is `cf90d19a8db094c6a6bce9eaac708efead3ef45b`; its complete tree
+`33d4e0c240bc8399cf44a1ec71b6344a73892e31` matches the verified PR head. The
+annotated `v4.6.1` tag points to that merge commit. Its tag object is
+`dc6246ce7c6d0924cc6e0dd79168202e90af440f`.
+
+The [4.6.1 prerelease](https://github.com/Denissvgn/pi-agent-test-env/releases/tag/v4.6.1)
+was published at `2026-10-27T15:38:37Z`, release ID `425648753`. It was staged as a
+draft, and all seven uploaded assets were downloaded and hashed before publishing.
+Every downloaded hash and GitHub server digest matched the verified candidate.
+The public release retained those same asset IDs, sizes and digests. `v4.5.0`
+remains the latest stable release; no existing release/tag/assets were rewritten.
+
+CI stayed skipped: both the verified PR head and merge commit have zero Actions
+runs, and the merge/tag messages retain `[skip ci]`. The live registry and
+downstream campaign were not operated on. No new native Docker/model
+qualification is claimed. E002-09 is complete for this authorized prerelease
+promotion; E002-07, E002-08 and E002-10 remain deferred. Earlier candidate and gate
+receipts remain historical evidence rather than being rewritten as successful
+hosted review or original-environment recovery.
+
+The [publication receipt](env-admission-002-evidence/publication-4.6.1/publication.json),
+[explicit authorization](env-admission-002-evidence/publication-4.6.1/authorization.json),
+[unchanged blocked review gate](env-admission-002-evidence/publication-4.6.1/review-gate.json)
+and [uploaded-byte verification](env-admission-002-evidence/publication-4.6.1/upload-verification.json)
+retain the exact identities and checksums. This post-publication audit changes
+only excluded planning/evidence files on the existing feature branch; it does not
+alter the immutable merge/tag or any published asset.
+
+| Date | Task or evidence ID | Change or observation | Evidence | Outcome |
+| --- | --- | --- | --- | --- |
+| 2026-10-27 | RELEASE-05 | Owner waived Copilot only for this prerelease | authorization.json; retained BLOCKED gate | Explicit exception recorded; future policy unchanged |
+| 2026-10-27 | RELEASE-06 | PR 9 merged with exact-head guard; complete tree matched candidate | cf90d19; v4.6.1 | Verified immutable release target; CI skipped |
+| 2026-10-27 | RELEASE-07 | Seven uploaded assets downloaded and SHA-256 checked before publication | upload-verification.json | All bytes/server digests matched |
+| 2026-10-27 | E002-09 / RELEASE-08 | Published 4.6.1 as a prerelease | Public release and publication.json | Complete within stated qualification scope; live registry/campaign untouched |
