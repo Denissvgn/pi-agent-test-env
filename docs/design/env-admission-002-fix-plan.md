@@ -2,8 +2,9 @@
 
 Status: implementation and correctness/safety review verified on
 `codex/env-admission-002`. Four confirmed review findings are fixed and covered by
-regression tests. Live-state actions, lifecycle changes and release gates remain
-deferred under the existing scope.
+regression tests. The 4.6.1 release candidate is verified and draft PR 9 is open.
+Live-state actions, lifecycle changes and final release gates remain deferred
+under the existing scope.
 Created: 27 October 2026. Updated: 27 October 2026.
 
 Affected release: `4.6.0`, tag `v4.6.0`, source commit
@@ -136,7 +137,7 @@ verification receipts. Status values are `planned`, `in_progress`, `verified`,
 | E002-06 | Specify and implement reconciliation-only recovery reporting | E002-03, E002-04, E002-05 | verified |
 | E002-07 | Identify the downstream failing prerequisite with narrow evidence | E002-03; E002-05/E002-06 as needed | deferred |
 | E002-08 | Decide whether exceptional-exit cleanup needs a separate change | E002-04, E002-07 | deferred |
-| E002-09 | Complete qualification, review and corrective-release preparation | Applicable implementation tasks | deferred |
+| E002-09 | Complete qualification, review and corrective-release preparation | Applicable implementation tasks | in_progress |
 | E002-10 | Perform authorized downstream recovery and fresh preflight | E002-07, reviewed qualified implementation | deferred |
 
 ### E002-01 Diagnostic contract
@@ -387,14 +388,15 @@ review dispositions and remaining limitations. For any live action, also record
 the authorized scope, actual lease identity, environment identity, new attempt
 identity, assistance classification and confirmed cleanup outcome.
 
-## Current implementation scope
+## Initial implementation authorization checkpoint
 
 The user authorized implementation on a separate branch and explicitly required
 that the live registry and downstream campaign remain untouched. The branch was
 created with `git switch --no-track -c codex/env-admission-002 HEAD` from
-`8f42f86e6077307e98869ba33298c8086abdc752`; no upstream is configured. No push,
-release, installed downstream package update or native recovery is part of this
-implementation session.
+`8f42f86e6077307e98869ba33298c8086abdc752`; it had no upstream at that checkpoint.
+Push, release preparation, installed downstream package updates and native recovery
+were outside that initial implementation scope. Later push/PR/release-preparation
+authorization is recorded below.
 
 The diagnostic contract is implemented in `registry_diagnostics.py` and documented
 in [REGISTRY-RECOVERY.md](../../skill/references/REGISTRY-RECOVERY.md). The public
@@ -451,7 +453,8 @@ test rejects changes to that validator.
 ## Final local verification
 
 Implementation commit: `b537b1942e7095f31a4c9b89a14ce2e56f17edad` on `codex/env-admission-002`.
-The branch has no configured upstream and has not been pushed. The separate
+At this verification checkpoint the branch had no upstream and had not been
+pushed. The separate
 tracking commit retains this plan and evidence without changing tested runtime
 bytes. Unrelated `docs/design/application-agent-enhancements/` content remains
 outside this change.
@@ -544,3 +547,91 @@ and [standard-validation.json](env-admission-002-evidence/review/standard-valida
 | 2026-10-27 | E002-R3 | Lease acquisition errors separated from body and outer-timer failures | Body-error identity and queue-callback regressions | Verified fixed |
 | 2026-10-27 | E002-R4 | Diagnostic origin tied to the active nested operation | Reused-error and nested-wrapper regressions | Verified fixed; inner origin preserved without stale replay |
 | 2026-10-27 | REVIEW-VERIFY | Final full suite and package checks on review fixes | Review verification receipt | 2,685 passed; live registry and downstream campaign untouched |
+
+## Release preparation and PR
+
+The user authorized pushing the branch, opening a PR with Actions CI skipped due
+to exhausted limits, and preparing the next project release. Native operations
+on the live registry and downstream campaign remain excluded.
+
+The branch was pushed with the explicit same-name refspec
+`codex/env-admission-002:refs/heads/codex/env-admission-002` and now tracks
+`origin/codex/env-admission-002` (`branch.remote = origin`,
+`branch.merge = refs/heads/codex/env-admission-002`).
+[Draft PR 9](https://github.com/Denissvgn/pi-agent-test-env/pull/9) targets `main`.
+Its initial head is `56d35bada04c655ef8fcf45175a090c5edb349b7`, whose commit message
+contains `[skip ci]`. Repository Actions inspection found only the managed
+Copilot reviewer and no checked-in CI workflow; the first post-creation query
+reported zero Actions runs and no check rollup for this head. No workflow or
+branch-protection policy was disabled. The configured review remains a later
+merge gate.
+
+The latest published release is the experimental `v4.6.0` prerelease. The new
+candidate is **4.6.1**, with updated package/version/archive documentation,
+changelog, registry-maintenance command metadata and CLI interruption exit code.
+Historical qualification text and evidence keep their original versions.
+
+Candidate output: `dist/pi-agent-test-env-4.6.1-candidate/` (ignored build output).
+The build produced five skill archive layouts, one source archive and SHA256SUMS,
+with 185 package files and 392 allowlisted source files. Internal planning,
+retained reports and unrelated untracked application-agent-enhancement work were
+excluded. A changed-file credential-literal scan found no candidate literals.
+
+Artifact verification was started through the repository's normal verifier,
+including standards validation of all five extracted skill layouts, the complete
+maintainer suite from extracted source bytes, example checks, checksums and
+before/after input inventories. Build output and release notes are retained in
+[the release evidence folder](env-admission-002-evidence/release-4.6.1/RELEASE-NOTES.md).
+This is candidate preparation. Final configured review, merge, immutable tag,
+verified uploads and release publication remain subsequent steps.
+
+### Release verifier timeout and fresh candidate
+
+The first archive-verification attempt exceeded the existing 600-second
+extracted-source test deadline. It did not produce a passing artifact receipt;
+[verification-timeout-600.json](env-admission-002-evidence/release-4.6.1/verification-timeout-600.json)
+retains that outcome. The first artifact directory and build receipt are
+preserved. No orphaned process for the temporary verification tree was found.
+
+The maintainer verifier now records a finite extracted-test budget, defaults to
+900 seconds and accepts an explicit integer in 60..1800 seconds. Timeout failures
+retain captured stdout/stderr with exit 124 instead of losing the partial output.
+This applies only to release-verification tests; runner, registry, inference and
+container budgets are unchanged. A timeout is still a failed verification and
+never skips tests. The publishing regressions passed 11 tests, including actual
+partial-output timeout capture and invalid-budget rejection before input access.
+
+Fix/candidate source commit: `bd0958cb8ab9c7e8c40d193300ae34ff4e954d08`.
+A fresh candidate was built in `dist/pi-agent-test-env-4.6.1-candidate-r2/`.
+Verification of the fresh candidate used an explicit 900-second test deadline; all first-attempt
+artifacts and outcomes remain separate. [source-r2.json](env-admission-002-evidence/release-4.6.1/source-r2.json)
+records the candidate identity and budget.
+
+### Verified release candidate
+
+The rebuilt **4.6.1** candidate passed the complete release verifier: five skill
+layouts, 185 package files, 392 allowlisted source files, all checksums and file
+modes, standards validation, **2,687 extracted-source tests with zero skips**,
+examples, and unchanged before/after source/archive inventories. The suite ran
+598.691 seconds under the explicit 900-second budget. Temporary extractions were
+removed. A direct comparison also confirmed that all 392 published source files
+still match the archive after updating only excluded planning/evidence files.
+
+- Candidate source: `bd0958cb8ab9c7e8c40d193300ae34ff4e954d08`.
+- Artifacts: `dist/pi-agent-test-env-4.6.1-candidate-r2/`.
+- [Candidate summary and checksums](env-admission-002-evidence/release-4.6.1/candidate-verification.json).
+- [Complete artifact verification](env-admission-002-evidence/release-4.6.1/artifact-verification.json).
+- [Release notes](env-admission-002-evidence/release-4.6.1/RELEASE-NOTES.md).
+
+The authorized push/PR/release-preparation scope is complete. E002-09 remains
+`in_progress` only for later configured review, authorized merge, immutable tag
+and publication gates. The candidate is not claimed as a final reviewed/merged
+release. The live registry and downstream campaign remain untouched; E002-07,
+E002-08 and E002-10 retain their earlier limits.
+
+| Date | Task or evidence ID | Change or observation | Evidence | Outcome |
+| --- | --- | --- | --- | --- |
+| 2026-10-27 | RELEASE-01 | Branch pushed with explicit same-name refspec; draft PR 9 opened | PR URL and source.json | Upstream verified as origin/codex/env-admission-002; initial Actions runs zero |
+| 2026-10-27 | RELEASE-02 | First artifact verification reached the old 600-second test cutoff | verification-timeout-600.json and first candidate | Failed attempt preserved; no passing artifact claim |
+| 2026-10-27 | RELEASE-03 | Bounded configurable verification deadline and retained timeout output | bd0958c; publishing-tests.log | 11 publishing regressions passed; runner/registry budgets unchanged |
+| 2026-10-27 | RELEASE-04 | Rebuilt candidate verified against extracted bytes | artifact-verification.json and candidate-verification.json | 2,687 passed; five layouts verified; no tag/publication or live recovery |
