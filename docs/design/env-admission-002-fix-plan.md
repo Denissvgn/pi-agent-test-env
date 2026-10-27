@@ -1,8 +1,9 @@
 # ENV-ADMISSION-002 implementation and verification plan
 
-Status: local implementation verified on `codex/env-admission-002`. Tasks
-E002-01 through E002-06 are complete within the documented synthetic-test scope.
-Live-state actions, lifecycle changes and release gates remain deferred.
+Status: implementation and correctness/safety review verified on
+`codex/env-admission-002`. Four confirmed review findings are fixed and covered by
+regression tests. Live-state actions, lifecycle changes and release gates remain
+deferred under the existing scope.
 Created: 27 October 2026. Updated: 27 October 2026.
 
 Affected release: `4.6.0`, tag `v4.6.0`, source commit
@@ -479,3 +480,67 @@ Captured terminal logs are retained byte-for-byte, including trailing whitespace
 The tracking commit marks these log files `-text -whitespace` in `.gitattributes`
 to preserve their bytes; this metadata change does not alter tested runtime or
 test sources. The verification receipt separately records this tracking metadata.
+
+## Correctness and safety review
+
+Review baseline: `4335f4b`, with runtime implementation `b537b1942e7095f31a4c9b89a14ce2e56f17edad`.
+The review compares the branch with base `8f42f86e6077307e98869ba33298c8086abdc752`.
+The user explicitly excluded operations on the live registry and downstream
+campaign. All reproductions use temporary leases, registries and files with
+Docker/model effects forbidden or mocked.
+
+| Finding | Priority | Confirmed behavior before the fix | Correction | State |
+| --- | --- | --- | --- | --- |
+| E002-R1 | P1 | Replacing the receipt directory or its parent with a symlink could redirect terminal publication and overwrite foreign evidence before a later no-follow check failed; replacement during temporary creation also reproduced the overwrite | Hold original parent/directory FDs through recovery; use FD-relative temporary creation, rename and cleanup; revalidate namespace, modes and the prior receipt identity/content; bound receipt size | Verified fixed |
+| E002-R2 | P2 | An interruption during the post-reconciliation registry observation skipped terminal receipt publication and left only `RUNNING`, despite a controlled exit 130 | Retain interruption phase and attempt one terminal receipt under the held lease; never retry reconciliation or interrupted publication | Verified fixed |
+| E002-R3 | P2 | `existing_lease()` caught body `OSError` and relabeled it as an admission-lock access failure | Restrict lock-error translation to acquisition/validation; propagate body exceptions unchanged while releasing the lease | Verified fixed |
+| E002-R4 | P2 | Reusing an exception object in a later operation replayed its earlier diagnostic phase and operation | Bind observation metadata to a particular nested operation invocation; preserve inner causes within that operation and refresh later occurrences | Verified fixed |
+
+Six focused reproductions failed on the reviewed baseline (five assertions and
+one error), retained in [findings-before-fixes.log](env-admission-002-evidence/review/findings-before-fixes.log).
+They establish these branch findings; none attributes the original downstream
+admission denial to a newly introduced maintenance command.
+
+The first post-fix focused pass completed 32 tests successfully. Expanded tests
+then exposed a test-fixture setup mistake: its failure subcase reused a registry
+that the success subcase had already released. The fixture now creates fresh
+pending records before injecting the daemon failure. That intermediate result is
+retained in [focused-fixture-correction.log](env-admission-002-evidence/review/focused-fixture-correction.log).
+Additional cases cover initial-publication replacement, late replacement,
+non-symlink directory replacement, receipt tampering/links/modes, descriptor
+closure, bounded output and publication interruption without retry.
+
+The earlier implementation evidence and original analysis artifacts remain
+unchanged. Review verification is retained separately under
+`env-admission-002-evidence/review/`. No historical receipt, campaign result or
+approved code revision is rewritten to satisfy the new tests.
+
+## Review completion
+
+Review fixes committed as `208121a86bec8beb4803f0cae84c7f2e502de195` against reviewed head
+`4335f4b3f81994fe9afb5c5ad2d927ee7dcf835a`. No unresolved findings remain from this local review.
+The original downstream denial is still not attributed; none of these findings
+is presented as evidence of its original cause.
+
+- Full maintainer suite: **2,685 tests passed**, no failures or skips, 557.823 s.
+- Focused registry/history/resource/maintenance suite: **160 tests passed**.
+- Final lease/queue suite including callback propagation: **34 tests passed**.
+- Package/manifest check and offline validator self-test: **passed**.
+- Original analysis artifacts and initial implementation evidence: preserved.
+
+The [review verification receipt](env-admission-002-evidence/review/verification.json)
+binds each finding to the reviewed/fixed commits, exact source hashes, commands,
+log hashes and scope. The [full review test log](env-admission-002-evidence/review/unit-tests.log)
+retains the complete final run. Focused results are in
+[focused-final.log](env-admission-002-evidence/review/focused-final.log) and
+[lease-final.log](env-admission-002-evidence/review/lease-final.log); package and
+validator results are in [package-check.json](env-admission-002-evidence/review/package-check.json)
+and [standard-validation.json](env-admission-002-evidence/review/standard-validation.json).
+
+| Date | Task or evidence ID | Change or observation | Evidence | Outcome |
+| --- | --- | --- | --- | --- |
+| 2026-10-27 | E002-R1 | FD-bound receipt publication, namespace and prior-content checks, bounded output | Replacement/tampering/link/mode/descriptor regressions | Verified fixed; no foreign evidence overwrite in reproduced cases |
+| 2026-10-27 | E002-R2 | Terminal interruption receipt stays under the existing lease | Post-observation and terminal-publication interruption regressions | Verified fixed; no automatic retry |
+| 2026-10-27 | E002-R3 | Lease acquisition errors separated from body and outer-timer failures | Body-error identity and queue-callback regressions | Verified fixed |
+| 2026-10-27 | E002-R4 | Diagnostic origin tied to the active nested operation | Reused-error and nested-wrapper regressions | Verified fixed; inner origin preserved without stale replay |
+| 2026-10-27 | REVIEW-VERIFY | Final full suite and package checks on review fixes | Review verification receipt | 2,685 passed; live registry and downstream campaign untouched |
