@@ -16,6 +16,7 @@ import signal
 import threading
 import time
 from types import MappingProxyType
+import registry_diagnostics
 
 ADMISSION_FAILURES = MappingProxyType({
     'host-registry-capacity': (
@@ -41,10 +42,11 @@ ADMISSION_FAILURES = MappingProxyType({
 
 class AdmissionError(ValueError):
     """Known parent failure; only the closed catalog is public diagnostic authority."""
-    def __init__(self, reason, detail=''):
+    def __init__(self, reason, detail='', *, registry_error=None):
         if not isinstance(reason, str) or reason not in ADMISSION_FAILURES:
             raise ValueError('Unknown admission failure code')
         self._admission_reason = reason
+        self._registry_diagnostic = registry_diagnostics.snapshot_of(registry_error)
         super().__init__(detail or ADMISSION_FAILURES[reason][0])
 
     @property
@@ -60,8 +62,9 @@ def admission_diagnostic(exc):
     """Do not classify arbitrary exception text, hashes or reason/remedy attributes."""
     import indexed_contract
     import ownership_registry
-    if type(exc) is ownership_registry.RegistryCapacityError:
-        return admission_diagnostic(AdmissionError('host-registry-capacity'))
+    if type(exc) in (ownership_registry.RegistryError, ownership_registry.RegistryCapacityError):
+        code = 'host-registry-capacity' if type(exc) is ownership_registry.RegistryCapacityError else 'host-registry-unsafe'
+        return admission_diagnostic(AdmissionError(code, registry_error=exc))
     selected=indexed_contract.diagnostic(exc)
     if selected is not None:return selected
     if not isinstance(exc, AdmissionError):
@@ -72,7 +75,11 @@ def admission_diagnostic(exc):
     if not isinstance(code, str) or code not in ADMISSION_FAILURES:
         return {'reason': 'admission-error'}
     message, guidance = ADMISSION_FAILURES[code]
-    return {'reason': code, 'message': message, 'remedy': guidance}
+    result = {'reason': code, 'message': message, 'remedy': guidance}
+    context = registry_diagnostics.project(getattr(exc, '_registry_diagnostic', None))
+    if code in ('host-registry-unsafe', 'host-registry-capacity') and context is not None:
+        result['registry_diagnostic'] = context
+    return result
 
 DEFAULTS = {
     'schema': 1,
@@ -330,19 +337,22 @@ def admission_lock(path, wait_seconds=0, *, before_registry=None):
                 raise AdmissionError('admission-lock-unavailable', str(exc)) from None
             import ownership_registry
             try:
-                registry=ownership_registry.Registry(Path(str(path.absolute())+'.registry'))
-                registry.lease_fd=handle.fileno()
-                registry.reconcile()
+                with registry_diagnostics.phase('registry_initialization'):
+                    registry=ownership_registry.Registry(Path(str(path.absolute())+'.registry'))
+                    registry.lease_fd=handle.fileno()
+                    with registry_diagnostics.phase('reconciliation'):
+                        registry.reconcile()
             except (ownership_registry.RegistryError,OSError,ValueError) as exc:
                 code='host-registry-capacity' if type(exc) is ownership_registry.RegistryCapacityError else 'host-registry-unsafe'
-                raise AdmissionError(code,str(exc)) from None
+                raise AdmissionError(code,str(exc),registry_error=exc) from None
             token=ownership_registry.CURRENT.set(registry)
             try:
                 yield registry
-                try:registry.close()
+                try:
+                    with registry_diagnostics.phase('terminal_close'):registry.close()
                 except (ownership_registry.RegistryError,OSError,ValueError) as exc:
                     code='host-registry-capacity' if type(exc) is ownership_registry.RegistryCapacityError else 'host-registry-unsafe'
-                    raise AdmissionError(code,str(exc)) from None
+                    raise AdmissionError(code,str(exc),registry_error=exc) from None
             finally:ownership_registry.CURRENT.reset(token)
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)

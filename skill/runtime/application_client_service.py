@@ -28,6 +28,7 @@ TRUSTED_CODE = ('runtime/application_client_service.py', 'runtime/prompt_contrac
                 'scripts/application_contracts.py', 'scripts/application_documents.py',
                 'scripts/resources.py', 'scripts/application_credentials.py',
                 'scripts/secret_store.py', 'scripts/stage_control.py',
+                'scripts/registry_diagnostics.py',
                 'runtime/native_budget_service.py', 'runtime/application_budget.py',
                 'scripts/tool_budgets.py', 'runtime/native_tool_contracts.py',
                 'runtime/release_contracts.py', 'runtime/application_execution_service.py',

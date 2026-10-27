@@ -38,6 +38,10 @@ PURE_AUTHORITY_SOURCE_SHA256 = {
     'skill/scripts/application_client.py':'3d949abdbc90b3943c1525ab4225e4fc708d4de24747ff1af8fdb2c5b4992cf8',
     'skill/scripts/native_budget_client.py':'7dece396f84b5bf4273507d0633e5683dec4d942a06f0c0b60c74c62df413577',
 }
+# Exact normalized CredentialError + validate AST from the pinned legacy file.
+# Recovery diagnostics can change other functions without changing this pure
+# historical authority producer. Never replace the historical whole-file hash.
+LEGACY_CREDENTIAL_VALIDATOR_AST_SHA256 = 'c6c025e4331814f0715ca5c5bd46f1433728594b4eaba3d7709c134fc8b57b25'
 
 
 # Exact Source039 _profile method fixture; normalized AST is pinned below.
@@ -67,7 +71,7 @@ def authority_pure_call(function,*args,**kwargs):
 def pure_authority_subset(relative,*,functions=(),classes=(),methods=None,bindings=None):
     assert relative in PURE_AUTHORITY_SOURCE_SHA256
     source=next(parent/relative for parent in HERE.parents if (parent/relative).is_file())
-    body=source.read_bytes();assert hashlib.sha256(body).hexdigest()==PURE_AUTHORITY_SOURCE_SHA256[relative]
+    body=source.read_bytes()
     nodes=[];found=set();methods=methods or {}
     for node in ast.parse(body,filename=str(source)).body:
         if isinstance(node,ast.FunctionDef) and node.name in functions:
@@ -83,6 +87,11 @@ def pure_authority_subset(relative,*,functions=(),classes=(),methods=None,bindin
             assert {item.name for item in selected.body}==set(methods[node.name])
             nodes.append(selected);found.add(node.name)
     assert found==set(functions)|set(classes)|set(methods)
+    if hashlib.sha256(body).hexdigest()!=PURE_AUTHORITY_SOURCE_SHA256[relative]:
+        assert relative=='skill/scripts/application_credentials.py'
+        assert functions==('validate',) and classes==('CredentialError',) and not methods
+        selected=ast.dump(ast.Module(body=nodes,type_ignores=[]),include_attributes=False).encode()
+        assert hashlib.sha256(selected).hexdigest()==LEGACY_CREDENTIAL_VALIDATOR_AST_SHA256
     subject=types.ModuleType('_pure_authority_public_fixture');subject.__file__=str(source)
     subject.__dict__.update(copy=copy,hashlib=hashlib,json=json,math=math,re=re)
     subject.__dict__.update(bindings or {})
@@ -836,6 +845,14 @@ class InertAdmission(unittest.TestCase):
                 authority_pure_call(credentials.validate,{'PI_APP_ALIAS':name})
         value=self.parallel_record();value['binding']['credential_authorities']=sorted(set(names))
         gate=M.AdmissionGate(self.policy);authority_pure_call(gate._shape,value,value['launch_id'])
+
+    def test_historical_credential_subset_pin_rejects_changed_validation(self):
+        relative='skill/scripts/application_credentials.py'
+        source=next(parent/relative for parent in HERE.parents if (parent/relative).is_file())
+        body=source.read_bytes();changed=body.replace(b'1 <= len(value) <= 8',b'1 <= len(value) <= 9')
+        self.assertNotEqual(body,changed)
+        with mock.patch.object(Path,'read_bytes',return_value=changed),self.assertRaises(AssertionError):
+            pure_authority_subset(relative,classes=('CredentialError',),functions=('validate',))
 
     def test_parallel_named_authorities_accept_only_declared_worker_role_forms(self):
         actor='application-actor:'+'a'*64

@@ -6,3 +6,8 @@
 /tools/release-hardening export-ignore
 /.agents export-ignore
 /.codex export-ignore
+/docs/design/env-admission-002-fix-plan.md export-ignore
+/docs/design/env-admission-002-evidence export-ignore
+# Retained terminal output is evidence, including its original line whitespace.
+/docs/design/env-admission-002-evidence/implementation/*.log -text -whitespace
+/docs/design/env-admission-002-evidence/review/*.log -text -whitespace

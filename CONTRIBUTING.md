@@ -58,6 +58,11 @@ python3 tools/verify_release.py --archives /tmp/pi-agent-release \
   --report /tmp/pi-agent-release-verification.json
 ```
 
+The extracted-source maintainer suite has a finite 900-second budget by default.
+Use `--test-timeout-seconds` to select 60..1800 seconds for the verification host;
+the report records that budget. A timeout remains a failed verification and
+retains captured stdout/stderr. It does not skip tests or change runner budgets.
+
 Choose a fresh output directory outside the skill, tests and publishing tools. The build emits five skill
 layouts, a clean source archive and `SHA256SUMS`. It retains all runtime assets and
 excludes plans, backlogs, development reports, stored test output and earlier

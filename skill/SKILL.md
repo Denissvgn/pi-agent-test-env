@@ -14,7 +14,7 @@ description: >-
 
 # Local agent evaluation with Pi
 
-Package version: 4.6.0. Instructions are in English.
+Package version: 4.6.1. Instructions are in English.
 
 Exact reviewed Pi releases: 0.87.1 and 1.2.0. Use
 [PI-1.2.0.md](references/PI-1.2.0.md) for the newer contract and migration limits;
@@ -339,6 +339,12 @@ substitute for completed review; pending, stale or unresolved review blocks merg
 Copilot quota/error notices marked COMMENTED do not establish that code was reviewed.
 
 ## Controls and recovery
+
+For host-registry admission failures, use the closed diagnostics and the explicit
+inspection/recovery contracts in [REGISTRY-RECOVERY.md](references/REGISTRY-RECOVERY.md).
+`registry-inspect` is offline and does not mutate the existing lease or registry.
+`registry-recover` reconciles prior ownership and records a separate receipt; it
+never dispatches a fresh probe or participant and has no force-release option.
 
 Use explicit run/stage identity when multiple records exist. Parent-owned controls
 are outside the project and mounted read-only at /opt/pi-control; runtime state is

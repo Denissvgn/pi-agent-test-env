@@ -1,6 +1,6 @@
 {
   "name": "pi-agent-test-env",
-  "version": "4.6.0",
+  "version": "4.6.1",
   "description": "Evaluate frozen local-agent tasks and typed authenticated application plans with scoped helper-owned credentials, independent completion validation, native tool budgets, bounded Docker resources and retained evidence; also supports coding delegation and the reviewed fixture_lookup integration.",
   "language": "en",
   "license": "MIT",
@@ -52,6 +52,16 @@
       "name": "secrets",
       "description": "Manage inference and stage-referenced application credentials in the owner-only host store (set, status, clear)",
       "command": "python3 scripts/pi_lab.py secrets status"
+    },
+    {
+      "name": "registry-inspect",
+      "description": "Offline read-only retained registry and cleanup inspection under the existing host lease; does not authorize dispatch",
+      "command": "python3 scripts/pi_lab.py registry-inspect --lock-wait-seconds 30"
+    },
+    {
+      "name": "registry-recover",
+      "description": "Explicit prior-ownership reconciliation with a separate recovery receipt; no fresh probe, participant or model request",
+      "command": "python3 scripts/pi_lab.py registry-recover --lock-wait-seconds 30 --output-dir <NEW_RECOVERY_DIRECTORY>"
     },
     {
       "name": "status",
@@ -151,7 +161,8 @@
     "3": "doctor/secrets: missing key; run/smoke records BLOCKED/2",
     "10": "env status: no saved environment",
     "11": "env status: saved environment awaits confirmation in this session",
-    "12": "env status: environment failed its live check"
+    "12": "env status: environment failed its live check",
+    "130": "CLI interruption, including registry inspection/recovery"
   },
   "homepage": "https://github.com/Denissvgn/pi-agent-test-env",
   "repository": "https://github.com/Denissvgn/pi-agent-test-env",

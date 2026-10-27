@@ -58,11 +58,11 @@ No command here changes global configuration automatically.
 python3 skill/scripts/export_skill.py --output-dir /tmp/pi-agent-packages
 ```
 
-Version comes from `skill.json`. The package version is 4.6.0. Emitted artifacts:
+Version comes from `skill.json`. The package version is 4.6.1. Emitted artifacts:
 
 | Archive | Extraction layout | Extract into |
 |---|---|---|
-| `pi-agent-test-env-4.6.0.zip` | `pi-agent-test-env/SKILL.md` | Chosen skills parent |
+| `pi-agent-test-env-4.6.1.zip` | `pi-agent-test-env/SKILL.md` | Chosen skills parent |
 | `pi-agent-test-env.zip` | Same universal layout | Chosen skills parent |
 | `pi-agent-test-env-antigravity.zip` | Same universal layout | Workspace `.agents/skills` or chosen Antigravity personal skills parent |
 | `pi-agent-test-env-claude.zip` | `.claude/skills/pi-agent-test-env/SKILL.md` plus optional `.claude/commands/pi-agent-test-env.md` | Project root |

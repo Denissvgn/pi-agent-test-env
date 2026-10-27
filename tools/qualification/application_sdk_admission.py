@@ -108,9 +108,10 @@ CODE_KEYS = frozenset(('runtime/application-browser-cdp.mjs','runtime/applicatio
     'scripts/application_credentials.py','scripts/application_documents.py',
     'scripts/application_evidence.py','scripts/resources.py','scripts/secret_store.py',
     'scripts/stage_control.py','scripts/tool_budgets.py'))
-# Historical records retain the exact original bundle. Current helpers add the
-# existing CDP driver's explicit local dependency; no other extra key is accepted.
-CURRENT_CODE_KEYS = CODE_KEYS | frozenset(('runtime/browser-options.mjs',))
+# Historical records retain their exact bundles. Current helpers additionally
+# freeze the diagnostics dependency imported by their existing host utilities.
+BROWSER_CODE_KEYS = CODE_KEYS | frozenset(('runtime/browser-options.mjs',))
+CURRENT_CODE_KEYS = BROWSER_CODE_KEYS | frozenset(('scripts/registry_diagnostics.py',))
 KNOWN_OWNERS_DIGEST = '86448b597f9d069231eb173ec9978fa726f232a8f3e310f0a8aeb276f9b9919e'
 KNOWN_PREWORKER_DIGEST = '2f8f1416af87de688ab90b07601489f1434c83620d2867275d0b348b37153f9c'
 PREWORKER_ID = '0234d21b-a2fd-40cb-bd28-0467e5ae4484'
@@ -416,7 +417,7 @@ class AdmissionGate:
         require(value.get('inference_uncertain') is not True, 'released_inference_uncertain')
         if 'code_identity' in value:
             require(type(value['code_identity']) is dict
-                and set(value['code_identity']) in (CODE_KEYS, CURRENT_CODE_KEYS)
+                and set(value['code_identity']) in (CODE_KEYS, BROWSER_CODE_KEYS, CURRENT_CODE_KEYS)
                 and all(sha(v) for v in value['code_identity'].values()), 'code_identity_keys')
         if 'diagnostic_entrypoint' in value:
             row=value['diagnostic_entrypoint'];require(type(row) is dict and set(row)=={'source','overlay','scope'}

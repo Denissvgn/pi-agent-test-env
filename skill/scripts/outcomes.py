@@ -139,6 +139,9 @@ class Attempt:
                     else getattr(exc,'remedy',''))
         if guidance:self.record['infrastructure']['remedy']=guidance
         else:self.record['infrastructure'].pop('remedy',None)
+        if diagnostic is not None and 'registry_diagnostic' in diagnostic:
+            self.record['infrastructure']['registry_diagnostic']=diagnostic['registry_diagnostic']
+        else:self.record['infrastructure'].pop('registry_diagnostic',None)
         self.record['infrastructure']['error_digest']=hashlib.sha256(str(exc).encode()).hexdigest()
         if self.record['scoring']['status']=='not_started':
             self.record['scoring'].update(status='skipped',reason='infrastructure_failure')

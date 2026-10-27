@@ -76,6 +76,13 @@ structured `admission_failure` on stderr with exit 2. Guidance is static and
 bounded; raw exception details remain represented only by their SHA-256 digest.
 Unknown errors are not classified by matching messages or digest values.
 
+Registry failures additionally retain a closed `registry_diagnostic` identifying
+the phase, condition, operation, OS-error category and possible partial effects.
+Use [registry diagnostics and recovery](REGISTRY-RECOVERY.md) for the schema and
+the separate `registry-inspect` and `registry-recover` commands. Inspection is
+offline and read-only; recovery uses the existing lease and predicates without
+dispatching a fresh probe or participant. Neither report grants admission.
+
 Qualification preworker cleanup checks controller absence when its owner receipt
 is written and again before release. Admission can replay the exact attached
 receipt of an already released record without probing that historical numeric
