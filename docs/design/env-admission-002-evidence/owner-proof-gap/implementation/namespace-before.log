@@ -1,0 +1,35 @@
+test_orphan_context_without_stage_descriptor_is_not_cleared_by_helper_only_proof (test_application_owner_cleanup.OwnerCleanupTests.test_orphan_context_without_stage_descriptor_is_not_cleared_by_helper_only_proof) ... FAIL
+test_uninspected_retained_file_requires_an_owner_adapter_without_deleting_history (test_application_owner_cleanup.OwnerCleanupTests.test_uninspected_retained_file_requires_an_owner_adapter_without_deleting_history) ... FAIL
+test_normal_runtime_binds_other_retained_run_files (test_application_owner_cleanup.OwnerCleanupTests.test_normal_runtime_binds_other_retained_run_files) ... FAIL
+
+======================================================================
+FAIL: test_orphan_context_without_stage_descriptor_is_not_cleared_by_helper_only_proof (test_application_owner_cleanup.OwnerCleanupTests.test_orphan_context_without_stage_descriptor_is_not_cleared_by_helper_only_proof)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bramen/Projects/pi-agentic-development/tests/test_application_owner_cleanup.py", line 436, in test_orphan_context_without_stage_descriptor_is_not_cleared_by_helper_only_proof
+    with self.assertRaises(registry.RegistryError):self.recover(request)
+         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: RegistryError not raised
+
+======================================================================
+FAIL: test_uninspected_retained_file_requires_an_owner_adapter_without_deleting_history (test_application_owner_cleanup.OwnerCleanupTests.test_uninspected_retained_file_requires_an_owner_adapter_without_deleting_history)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bramen/Projects/pi-agentic-development/tests/test_application_owner_cleanup.py", line 442, in test_uninspected_retained_file_requires_an_owner_adapter_without_deleting_history
+    with self.assertRaises(registry.RegistryError):self.recover(request)
+         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: RegistryError not raised
+
+======================================================================
+FAIL: test_normal_runtime_binds_other_retained_run_files (test_application_owner_cleanup.OwnerCleanupTests.test_normal_runtime_binds_other_retained_run_files)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bramen/Projects/pi-agentic-development/tests/test_application_owner_cleanup.py", line 465, in test_normal_runtime_binds_other_retained_run_files
+    with self.assertRaises(registry.RegistryError):self.api.validate_accepted(self.owner, self.helper)
+         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: RegistryError not raised
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.055s
+
+FAILED (failures=3)

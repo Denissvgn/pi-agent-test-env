@@ -1,0 +1,10 @@
+{
+  "tests": 2722,
+  "seconds": 543.211,
+  "failures": 0,
+  "skips": 0,
+  "source_inventory_unchanged": true,
+  "candidate_files": 395,
+  "log_sha256": "7375ccf7fce23d260e026615ade9069bb648b29d37bd58d712fcb843a64247cc",
+  "scope": "Host maintainer suite; disposable state, mocked Docker/model, local loopback services; no live qualification."
+}
