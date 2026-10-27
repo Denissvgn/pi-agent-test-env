@@ -340,6 +340,12 @@ Copilot quota/error notices marked COMMENTED do not establish that code was revi
 
 ## Controls and recovery
 
+For host-registry admission failures, use the closed diagnostics and the explicit
+inspection/recovery contracts in [REGISTRY-RECOVERY.md](references/REGISTRY-RECOVERY.md).
+`registry-inspect` is offline and does not mutate the existing lease or registry.
+`registry-recover` reconciles prior ownership and records a separate receipt; it
+never dispatches a fresh probe or participant and has no force-release option.
+
 Use explicit run/stage identity when multiple records exist. Parent-owned controls
 are outside the project and mounted read-only at /opt/pi-control; runtime state is
 separate /pi-state. Child outbox acknowledgements are untrusted observations.

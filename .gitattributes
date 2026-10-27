@@ -6,3 +6,5 @@
 /tools/release-hardening export-ignore
 /.agents export-ignore
 /.codex export-ignore
+/docs/design/env-admission-002-fix-plan.md export-ignore
+/docs/design/env-admission-002-evidence export-ignore

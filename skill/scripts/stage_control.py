@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import stat
 import uuid
+import registry_diagnostics
 
 SCHEMA = 2
 LIMIT_MAX = {'timeout_seconds':3600, 'max_turns':100, 'max_total_tokens':10000000}
@@ -25,13 +26,20 @@ def atomic(path, value, mode=0o600):
         raise ControlError('Symlinked parent record rejected')
     temp = path.with_name('.' + path.name + '-' + uuid.uuid4().hex)
     try:
-        fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
+        with registry_diagnostics.operation('temporary_create', mutating=True):
+            fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
         with os.fdopen(fd, 'w') as f:
-            json.dump(value, f, ensure_ascii=False, indent=2); f.write('\n'); f.flush(); os.fsync(f.fileno())
-        os.replace(temp, path)
+            with registry_diagnostics.operation('file_write', mutating=True):
+                json.dump(value, f, ensure_ascii=False, indent=2); f.write('\n'); f.flush()
+            with registry_diagnostics.operation('file_fsync', mutating=True):
+                os.fsync(f.fileno())
+        with registry_diagnostics.operation('atomic_replace', mutating=True):
+            os.replace(temp, path)
     finally:
-        temp.unlink(missing_ok=True)
+        with registry_diagnostics.operation('temporary_cleanup', mutating=True):
+            temp.unlink(missing_ok=True)
 
+@registry_diagnostics.observed('record_read')
 def read(path):
     path = Path(path)
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)

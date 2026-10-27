@@ -1966,6 +1966,8 @@ def default_lock_file() -> str:
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest='op', required=True)
+    import registry_maintenance
+    registry_maintenance.add_arguments(sub, default_lock_file())
     pr_review_gate.add_arguments(sub.add_parser('pr-review-gate', help='Read-only parent GitHub review readiness; no Docker/model execution'))
     experiments.add_parser(sub)
     profile=sub.add_parser('validate-agent-profile');profile.add_argument('--agent-profile',required=True)
@@ -2125,6 +2127,9 @@ def parser():
 def main(argv=None):
     args = parser().parse_args(argv)
     args._explicit_options={value.split('=',1)[0] for value in (sys.argv[1:] if argv is None else argv) if value.startswith('--')}
+    if args.op in ('registry-inspect', 'registry-recover'):
+        import registry_maintenance
+        return registry_maintenance.command(args)
     if args.op=='compile-application-plan':
         import application_preparation
         result=application_preparation.compile_artifact(args.spec,args.output_dir,args.runtime_receipt,

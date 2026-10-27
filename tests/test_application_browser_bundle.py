@@ -34,6 +34,7 @@ LEGACY_KEYS=frozenset(('runtime/application-browser-cdp.mjs','runtime/applicatio
     'scripts/application_evidence.py','scripts/resources.py','scripts/secret_store.py',
     'scripts/stage_control.py','scripts/tool_budgets.py'))
 BROWSER_OPTIONS='runtime/browser-options.mjs'
+REGISTRY_DIAGNOSTICS='scripts/registry_diagnostics.py'
 DRIVER='runtime/application-browser-cdp.mjs'
 NODE_LINKER=r"""
 import cp from 'node:child_process';import net from 'node:net';
@@ -108,7 +109,7 @@ class BrowserBundleTests(unittest.TestCase):
                 self.assertTrue(process.stdout.closed and process.stderr.closed)
 
     def test_genuine_freezer_includes_every_local_javascript_dependency(self):
-        self.assertEqual(set(self.identity),LEGACY_KEYS|{BROWSER_OPTIONS})
+        self.assertEqual(set(self.identity),LEGACY_KEYS|{BROWSER_OPTIONS,REGISTRY_DIAGNOSTICS})
         self.assertEqual(set(client.TRUSTED_CODE),set(self.identity))
         self.assertEqual({str(p.relative_to(self.code))for p in self.code.rglob('*')if p.is_file()},set(self.identity))
         for name,expected in self.identity.items():
@@ -128,9 +129,11 @@ class BrowserBundleTests(unittest.TestCase):
 
     def test_original_sdk_accepts_only_exact_legacy_or_current_bundle_shapes(self):
         self.assertEqual(sdk.CODE_KEYS,LEGACY_KEYS)
-        self.assertEqual(sdk.CURRENT_CODE_KEYS,LEGACY_KEYS|{BROWSER_OPTIONS})
+        self.assertEqual(sdk.BROWSER_CODE_KEYS,LEGACY_KEYS|{BROWSER_OPTIONS})
+        self.assertEqual(sdk.CURRENT_CODE_KEYS,LEGACY_KEYS|{BROWSER_OPTIONS,REGISTRY_DIAGNOSTICS})
         legacy={name:self.identity[name]for name in LEGACY_KEYS}
-        self.shape(legacy);self.shape(self.identity)
+        browser={name:self.identity[name]for name in sdk.BROWSER_CODE_KEYS}
+        self.shape(legacy);self.shape(browser);self.shape(self.identity)
         for fault in ('missing-old','extra','renamed','invalid-hash','bool-hash'):
             value=copy.deepcopy(self.identity)
             if fault=='missing-old':value.pop('runtime/application_api.py')
@@ -148,6 +151,21 @@ class BrowserBundleTests(unittest.TestCase):
         with self.assertRaises(ValueError):service.verify_code(legacy)
         bad=copy.deepcopy(self.identity);bad[BROWSER_OPTIONS]='0'*64
         with self.assertRaises(ValueError):service.verify_code(bad)
+        bad=copy.deepcopy(self.identity);bad[REGISTRY_DIAGNOSTICS]='0'*64
+        with self.assertRaises(ValueError):service.verify_code(bad)
+        browser={name:self.identity[name]for name in sdk.BROWSER_CODE_KEYS}
+        with self.assertRaises(ValueError):service.verify_code(browser)
+
+    def test_copied_python_bundle_requires_frozen_diagnostics_dependency(self):
+        source="import sys; from pathlib import Path; root=Path(sys.argv[1]); sys.path[:0]=[str(root/'scripts'),str(root/'runtime')]; import application_client_service, registry_diagnostics; assert Path(registry_diagnostics.__file__).parent==root/'scripts'; print('COPIED_BUNDLE_IMPORTED')"
+        def run():
+            return subprocess.run([sys.executable,'-I','-B','-c',source,str(self.code)],
+                                  capture_output=True,text=True,timeout=5,cwd=self.code)
+        result=run();self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(result.stdout.strip(),'COPIED_BUNDLE_IMPORTED')
+        (self.code/REGISTRY_DIAGNOSTICS).unlink()
+        result=run();self.assertNotEqual(result.returncode,0)
+        self.assertIn("No module named 'registry_diagnostics'",result.stderr)
 
 
 if __name__=='__main__':unittest.main()

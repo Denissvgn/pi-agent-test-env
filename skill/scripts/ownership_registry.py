@@ -14,6 +14,8 @@ import threading
 import uuid
 
 import stage_control as controls
+import registry_diagnostics as diagnostics
+from registry_diagnostics import RegistryError, RegistryCapacityError
 
 CURRENT=contextvars.ContextVar('pi_owned_admission',default=None)
 SCHEMA=1
@@ -23,27 +25,23 @@ MAX_RECORDS=8192
 MAX_TRANSIENT_RECORDS=32
 
 
-class RegistryError(ValueError):
-    reason='host-registry-unsafe'
-
-
-class RegistryCapacityError(RegistryError):
-    reason='host-registry-capacity'
-
-
-def private_directory(path):
+@diagnostics.scoped('registry_initialization')
+def private_directory(path, *, create=True):
     path=Path(path).absolute()
     # No lexical alias may select another registry. Parent directories can be
     # shared (e.g. /tmp), but the registry itself is always owner-only.
-    if path.is_symlink():raise RegistryError('Registry path aliases another location')
+    if path.is_symlink():raise RegistryError('Registry path aliases another location', condition='unsafe_path')
     path=path.parent.resolve()/path.name
-    path.mkdir(mode=0o700,parents=True,exist_ok=True)
+    if create:
+        with diagnostics.operation('directory_create', mutating=not path.exists()):
+            path.mkdir(mode=0o700,parents=True,exist_ok=True)
     st=path.lstat()
     if not stat.S_ISDIR(st.st_mode) or st.st_uid!=os.getuid() or stat.S_IMODE(st.st_mode)&0o077:
-        raise RegistryError('Registry directory is not owner-only')
+        raise RegistryError('Registry directory is not owner-only', condition='unsafe_path')
     return path
 
 
+@diagnostics.observed('record_read')
 def read_private(path,decode=True):
     # A concurrent atomic replace can unlink the inode after open but before
     # fstat. Retry only that verified replacement, never an insecure named file.
@@ -55,9 +53,9 @@ def read_private(path,decode=True):
                 current=os.stat(path,follow_symlinks=False)
                 if (st.st_dev,st.st_ino)!=(current.st_dev,current.st_ino):continue
             if not stat.S_ISREG(st.st_mode) or st.st_uid!=os.getuid() or st.st_nlink!=1 or stat.S_IMODE(st.st_mode)&0o077 or st.st_size>1024*1024:
-                raise RegistryError('Registry record is insecure or unbounded')
+                raise RegistryError('Registry record is insecure or unbounded', condition='unsafe_record')
             return json.load(f) if decode else None
-    raise RegistryError('Registry record changed during bounded observation')
+    raise RegistryError('Registry record changed during bounded observation', condition='unsafe_record')
 
 
 def docker(argv):
@@ -84,10 +82,11 @@ def _qualification_canonical(value):
 def _qualification_path(value):
     if (type(value) is not str or len(value)>4096 or value=='/' or not value.startswith('/') or value.startswith('//')
             or any(ord(ch)<32 or ord(ch)==127 for ch in value) or '..' in Path(value).parts or str(Path(value))!=value):
-        raise RegistryError('Unsafe qualification cleanup path')
+        raise RegistryError('Unsafe qualification cleanup path', condition='unsafe_path')
     return Path(value)
 
 
+@diagnostics.observed('proof_read')
 def _qualification_directory(path):
     path=_qualification_path(str(path));fd=os.open('/',os.O_RDONLY|os.O_DIRECTORY)
     try:
@@ -99,6 +98,7 @@ def _qualification_directory(path):
         os.close(fd);raise
 
 
+@diagnostics.observed('proof_read')
 def _qualification_absent(path):
     path=_qualification_path(path);fd=os.open('/',os.O_RDONLY|os.O_DIRECTORY)
     try:
@@ -160,7 +160,7 @@ def observe_qualification_private(record):
         if info.st_uid!=os.getuid() or stat.S_IMODE(info.st_mode)&0o077:
             raise RegistryError('Qualification private mount is not owner-only')
         return {'source':source,'device':info.st_dev,'inode':info.st_ino}
-    except (OSError,ValueError):raise RegistryError('Qualification private mount cannot be observed') from None
+    except (OSError,ValueError) as exc:raise RegistryError('Qualification private mount cannot be observed', cause=exc) from None
     finally:
         if fd is not None:os.close(fd)
 
@@ -171,7 +171,7 @@ def _qualification_cleanup_payload(record,value):
         'terminal_available','startup_readied','qualification_eligible'}
     if type(value) is not dict or set(value)!=fields or type(value['schema']) is not int or value['schema']!=1 or value['document_type']!='qualification_service_cleanup':
         raise RegistryError('Invalid qualification service cleanup proof')
-    if any(_qualification_canonical(value[key])!=_qualification_canonical(expected) for key,expected in identity.items()):raise RegistryError('Qualification cleanup ownership changed')
+    if any(_qualification_canonical(value[key])!=_qualification_canonical(expected) for key,expected in identity.items()):raise RegistryError('Qualification cleanup ownership changed', condition='ownership_mismatch')
     private=value['private_mount']
     if (type(private) is not dict or set(private)!={'source','device','inode'} or private['source']!=source
             or type(private['device']) is not int or not 0<=private['device']<2**64
@@ -181,10 +181,12 @@ def _qualification_cleanup_payload(record,value):
             or any(type(value[key]) is not bool for key in ('terminal_available','startup_readied','qualification_eligible'))
             or value['qualification_eligible']!=(value['terminal_available'] and value['startup_readied'])
             or not _qualification_absent(source)):
-        raise RegistryError('Qualification service cleanup remains uncertain')
+        raise RegistryError('Qualification service cleanup remains uncertain', condition='cleanup_proof_invalid')
     return value
 
 
+@diagnostics.scoped('qualification_service_cleanup', 'cleanup_proof_invalid')
+@diagnostics.observed('proof_read')
 def validate_qualification_service_cleanup(record,reference=None):
     """Read a closed owner receipt; never infer service cleanup from agent files."""
     fd=parent=None
@@ -210,7 +212,7 @@ def validate_qualification_service_cleanup(record,reference=None):
             return result
         value=json.loads(body,object_pairs_hook=pairs,parse_constant=lambda unused:(_ for _ in ()).throw(RegistryError('Invalid qualification cleanup number')))
         return _qualification_cleanup_payload(record,value)
-    except (OSError,ValueError,TypeError,KeyError):raise RegistryError('Qualification service cleanup cannot be established') from None
+    except (OSError,ValueError,TypeError,KeyError) as exc:raise RegistryError('Qualification service cleanup cannot be established', cause=exc) from None
     finally:
         if fd is not None:os.close(fd)
         if parent is not None:os.close(parent)
@@ -241,12 +243,13 @@ def write_qualification_service_cleanup(record,path,*,private_identity,physical_
         reference={'path':str(path),'sha256':hashlib.sha256(body).hexdigest()}
         validate_qualification_service_cleanup(record,reference)
         return reference
-    except (OSError,ValueError,TypeError,KeyError):raise RegistryError('Qualification service cleanup receipt cannot be published') from None
+    except (OSError,ValueError,TypeError,KeyError) as exc:raise RegistryError('Qualification service cleanup receipt cannot be published', cause=exc) from None
     finally:
         if fd is not None:os.close(fd)
         if parent is not None:os.close(parent)
 
 
+@diagnostics.observed('proof_read')
 def _qualification_reference(reference,private=False,*,_current=False):
     if (type(reference) is not dict or set(reference)!={'path','sha256'} or type(reference['sha256']) is not str
             or re.fullmatch(r'[a-f0-9]{64}',reference['sha256']) is None) and not (_current and type(reference) is dict and set(reference)=={'path','sha256'} and reference['sha256'] is None):raise RegistryError('Invalid qualification evidence reference')
@@ -413,7 +416,7 @@ def _preworker_payload(record,value,*,historical_replay=False):
     if not historical_replay:
         try:os.kill(controller['pid'],0)
         except ProcessLookupError:pass
-        except PermissionError:raise RegistryError('Qualification preworker controller absence uncertain') from None
+        except PermissionError as exc:raise RegistryError('Qualification preworker controller absence uncertain',cause=exc) from None
         else:raise RegistryError('Qualification preworker controller remains present')
     private=value['private_cleanup'];_preworker_exact(private,{'helper','parent_bootstrap','control','workspace'})
     _preworker_exact(private['helper'],{'source','provenance','removed','container_id_provenance'})
@@ -451,6 +454,8 @@ def _preworker_payload(record,value,*,historical_replay=False):
     return value
 
 
+@diagnostics.scoped('qualification_preworker_cleanup', 'cleanup_proof_invalid')
+@diagnostics.observed('proof_read')
 def validate_qualification_preworker_cleanup(record,reference=None,*,historical_replay=False):
     """Validate the full owner proof; replay only a released, attached receipt.
 
@@ -464,7 +469,7 @@ def validate_qualification_preworker_cleanup(record,reference=None,*,historical_
                 (record.get('status')!='released' or reference!=record.get('qualification_preworker_cleanup'))):
             raise RegistryError('Historical qualification cleanup requires the attached released receipt')
         return _preworker_payload(record,_qualification_reference(reference,private=True),historical_replay=historical_replay)
-    except (OSError,ValueError,TypeError,KeyError,AttributeError,IndexError):raise RegistryError('Qualification preworker cleanup cannot be established') from None
+    except (OSError,ValueError,TypeError,KeyError,AttributeError,IndexError) as exc:raise RegistryError('Qualification preworker cleanup cannot be established', cause=exc) from None
 
 
 def write_qualification_preworker_cleanup(record,path,*,proof):
@@ -481,12 +486,13 @@ def write_qualification_preworker_cleanup(record,path,*,proof):
         with os.fdopen(fd,'wb') as stream:fd=None;stream.write(body);stream.flush();os.fsync(stream.fileno())
         os.fsync(parent);reference={'path':str(path),'sha256':hashlib.sha256(body).hexdigest()}
         validate_qualification_preworker_cleanup(record,reference);return reference
-    except (OSError,ValueError,TypeError,KeyError,AttributeError,IndexError):raise RegistryError('Qualification preworker cleanup receipt cannot be published') from None
+    except (OSError,ValueError,TypeError,KeyError,AttributeError,IndexError) as exc:raise RegistryError('Qualification preworker cleanup receipt cannot be published', cause=exc) from None
     finally:
         if fd is not None:os.close(fd)
         if parent is not None:os.close(parent)
 
 
+@diagnostics.scoped('application_cleanup', 'application_cleanup_pending')
 def _application_stage_pending(path):
     """Bounded no-follow observation before generic recovery has any effects."""
     path=Path(path)
@@ -499,6 +505,7 @@ def _application_stage_pending(path):
         values=os.listdir(fd)
         if len(values)>256:raise RegistryError('Application cleanup inventory is unbounded')
         return values
+    @diagnostics.observed('proof_read')
     def read(parent,name,private=False):
         fd=os.open(name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=parent)
         with os.fdopen(fd,'rb') as stream:
@@ -572,20 +579,21 @@ def _application_stage_pending(path):
                 finally:os.close(stage)
         finally:os.close(control)
         return False
-    except (OSError,ValueError):raise RegistryError('Application sensitive cleanup cannot be established') from None
+    except (OSError,ValueError) as exc:raise RegistryError('Application sensitive cleanup cannot be established', cause=exc) from None
     finally:os.close(root)
 
 
 class Registry:
-    def __init__(self,path,command=docker,recover_sensitive=None):
-        self.root=private_directory(path);self.command=command
+    @diagnostics.scoped('registry_initialization')
+    def __init__(self,path,command=docker,recover_sensitive=None,*,create=True):
+        self.root=private_directory(path,create=create);self.command=command
         self.generation=str(uuid.uuid4());self.registry_id=hashlib.sha256(str(self.root).encode()).hexdigest()
         self.recover_sensitive=recover_sensitive;self.runroot=None;self.binding={};self.daemon=None
         self._write_lock=threading.RLock()
 
     def _paths(self,observe=False):
         paths=[];transient=0
-        with os.scandir(self.root) as entries:
+        with diagnostics.operation('inventory_read'), os.scandir(self.root) as entries:
             for entry in entries:
                 path=self.root/entry.name
                 if observe and re.fullmatch(r'\.[a-f0-9-]{36}\.json-[a-f0-9]{32}',path.name):
@@ -594,13 +602,14 @@ class Registry:
                     try:read_private(path,decode=False)
                     except FileNotFoundError:pass # atomic replace consumed this temporary name
                     transient+=1
-                    if transient>MAX_TRANSIENT_RECORDS:raise RegistryError('Registry transient inventory exceeds its bounded limit')
+                    if transient>MAX_TRANSIENT_RECORDS:raise RegistryError('Registry transient inventory exceeds its bounded limit', condition='inventory_unbounded')
                     continue
-                if not re.fullmatch(r'[a-f0-9-]{36}\.json',path.name):raise RegistryError('Unknown registry entry')
+                if not re.fullmatch(r'[a-f0-9-]{36}\.json',path.name):raise RegistryError('Unknown registry entry', condition='unexpected_entry')
                 paths.append(path)
                 if len(paths)>MAX_RECORDS:raise RegistryCapacityError('Registry committed inventory exceeds its bounded limit')
         return paths
 
+    @diagnostics.scoped('inventory')
     def load(self,observe=False):
         records=[]
         for path in self._paths(observe):
@@ -613,10 +622,10 @@ class Registry:
                 or (record.get('kind','container')!='network' and not re.fullmatch(r'sha256:[a-f0-9]{64}',record.get('image','')))
                 or record.get('kind','container') not in ('container','network','builder')
                 or not isinstance(record.get('mounts'),list)):
-                raise RegistryError('Malformed launch registry')
-            if record['schema']==2 and (not isinstance(record.get('binding'),dict) or type(record['binding'].get('indexed_host_generation')) is not int or record['binding']['indexed_host_generation']!=2):raise RegistryError('Invalid indexed registry generation')
+                raise RegistryError('Malformed launch registry', condition='malformed_record')
+            if record['schema']==2 and (not isinstance(record.get('binding'),dict) or type(record['binding'].get('indexed_host_generation')) is not int or record['binding']['indexed_host_generation']!=2):raise RegistryError('Invalid indexed registry generation', condition='malformed_record')
             if any(not isinstance(m,dict) or set(m)!={'source','target','rw'} or not isinstance(m['source'],str) or not Path(m['source']).is_absolute() or not isinstance(m['target'],str) or not m['target'].startswith('/') or type(m['rw']) is not bool for m in record['mounts']):
-                raise RegistryError('Malformed ownership mount bindings')
+                raise RegistryError('Malformed ownership mount bindings', condition='malformed_record')
             records.append(record)
         return records
 
@@ -627,6 +636,7 @@ class Registry:
         if count+additional>MAX_RECORDS:raise RegistryCapacityError('Insufficient registry headroom before dispatch')
         return {'retained_records':count,'new_records_ceiling':additional,'committed_records_limit':MAX_RECORDS}
 
+    @diagnostics.scoped('registry_write', inherit=True)
     def write(self,record):
         if not controls.valid_id(record.get('launch_id')):raise RegistryError('Invalid launch identity')
         if len((json.dumps(record,ensure_ascii=False,indent=2)+'\n').encode())>1024*1024:
@@ -637,20 +647,23 @@ class Registry:
             except FileNotFoundError:
                 if len(self._paths(observe=True))>=MAX_RECORDS:raise RegistryCapacityError('Registry capacity exhausted before intent creation')
             controls.atomic(path,record)
-            fd=os.open(self.root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
-            try:os.fsync(fd)
+            with diagnostics.operation('directory_open'):
+                fd=os.open(self.root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+            try:
+                with diagnostics.operation('directory_fsync', mutating=True):os.fsync(fd)
             finally:os.close(fd)
 
-    def reconcile(self):
-        records=self.load();pending=[r for r in records if r['status']!='released']
+    @diagnostics.scoped('application_cleanup')
+    def validate_history(self, records, *, quarantine=False):
+        """Shared predicates; only reconciliation may quarantine pending helpers."""
+        pending=[r for r in records if r['status']!='released']
         application=[record for record in pending if record.get('application_helper') is True]
         if application:
-            # Generic recovery cannot prove private application authority,
-            # pending effects or sensitive context cleanup. Keep every dependent
-            # network/store intact until the owned application cleanup path acts.
-            for record in application:
-                record['status']='quarantined';self.write(record)
-            raise RegistryError('Application helper requires owned sensitive cleanup; generic recovery is prohibited')
+            if quarantine:
+                for record in application:
+                    record['status']='quarantined';self.write(record)
+            raise RegistryError('Application helper requires owned sensitive cleanup; generic recovery is prohibited',
+                                condition='owned_application_cleanup_required')
         def qualification(record):
             return (str(record.get('client_mode','')).startswith('qualification-')
                 or 'qualification_role' in record or 'qualification_service_cleanup' in record)
@@ -663,60 +676,91 @@ class Registry:
         for record in records:
             if record.get('application_helper') is not True or qualification(record) or 'qualification_preworker_cleanup' in record:continue
             if record.get('runroot') is None or _application_stage_pending(record['runroot']):
-                raise RegistryError('Application contexts or credential cleanup remain pending; generic recovery is prohibited')
-        if any(r.get('daemon') for r in pending):
-            observed=self.command(['docker','info','--format','{{.ID}}'])
-            if observed.returncode or any(r.get('daemon')!=observed.stdout.strip() for r in pending):
-                raise RegistryError('Daemon identity changed or cannot be observed')
+                raise RegistryError('Application contexts or credential cleanup remain pending; generic recovery is prohibited',
+                                    condition='application_cleanup_pending')
+        return pending
+
+    @diagnostics.scoped('reconciliation')
+    def reconcile(self):
+        records=self.load()
+        pending=self.validate_history(records,quarantine=True)
+        if not pending:return []
+        with diagnostics.phase('daemon_observation'):
+            if any(r.get('daemon') for r in pending):
+                with diagnostics.operation('daemon_info'):
+                    observed=self.command(['docker','info','--format','{{.ID}}'])
+                if observed.returncode:
+                    raise RegistryError('Daemon identity cannot be observed',condition='daemon_unavailable')
+                if any(r.get('daemon')!=observed.stdout.strip() for r in pending):
+                    raise RegistryError('Daemon identity changed',condition='daemon_changed')
         # An owner died: recover every writer before touching sensitive files.
         for record in pending:
-            if record.get('inference_uncertain'):raise RegistryError('Upstream request termination remains uncertain')
-            if record.get('gateway_state') and record.get('gateway_ready'):
-                import time
-                deadline=time.monotonic()+35
-                while True:
-                    value=read_private(record['gateway_state'])
-                    if value.get('launch_id')!=record['launch_id'] or value.get('uncertain'):raise RegistryError('Gateway inference termination uncertain')
-                    if value.get('inflight')==0 and value.get('pending')==0:break
-                    if time.monotonic()>=deadline:raise RegistryError('Gateway still owns an upstream request')
-                    time.sleep(.1)
+            with diagnostics.phase('inference_termination'):
+                if record.get('inference_uncertain'):
+                    raise RegistryError('Upstream request termination remains uncertain',condition='inference_uncertain')
+                if record.get('gateway_state') and record.get('gateway_ready'):
+                    import time
+                    deadline=time.monotonic()+35
+                    while True:
+                        value=read_private(record['gateway_state'])
+                        if value.get('launch_id')!=record['launch_id'] or value.get('uncertain'):
+                            raise RegistryError('Gateway inference termination uncertain',condition='inference_uncertain')
+                        if value.get('inflight')==0 and value.get('pending')==0:break
+                        if time.monotonic()>=deadline:
+                            raise RegistryError('Gateway still owns an upstream request',condition='gateway_pending')
+                        time.sleep(.1)
             if record.get('kind')=='network':continue
-            reply=self.command(['docker','container','inspect',record['container']])
-            if not absent(reply):
-                if reply.returncode:raise RegistryError('Writer absence cannot be established')
-                try:data=json.loads(reply.stdout)[0]
-                except (ValueError,KeyError,IndexError):raise RegistryError('Invalid writer inspection') from None
-                labels=data.get('Config',{}).get('Labels') or {}
-                mounts=data.get('Mounts') or []
-                expected={LABEL:record['launch_id'],REGISTRY_LABEL:self.registry_id}
-                label_match=all(labels.get(k)==v for k,v in expected.items())
-                if record.get('kind')=='builder':label_match=bool(record.get('container_id')) and data.get('Id')==record['container_id']
-                if (data.get('Image')!=record['image'] or not label_match
-                    or any(not any(m.get('Source')==e['source'] and m.get('Destination')==e['target'] and m.get('RW')==e['rw'] for m in mounts) for e in record['mounts'])):
-                    record['status']='quarantined';self.write(record)
-                    raise RegistryError('Container ownership does not match persisted intent')
-                removed=self.command(['docker','rm','--force',record['container']])
-                if removed.returncode:raise RegistryError('Owned writer cleanup failed')
-                if not absent(self.command(['docker','container','inspect',record['container']])):
-                    raise RegistryError('Owned writer absence is unconfirmed')
-            record['status']='absent';self.write(record)
+            with diagnostics.phase('writer_inspection'):
+                with diagnostics.operation('container_inspect'):
+                    reply=self.command(['docker','container','inspect',record['container']])
+                if not absent(reply):
+                    if reply.returncode:
+                        raise RegistryError('Writer absence cannot be established',condition='writer_observation_failed')
+                    try:data=json.loads(reply.stdout)[0]
+                    except (ValueError,KeyError,IndexError) as exc:
+                        raise RegistryError('Invalid writer inspection',condition='writer_observation_failed',cause=exc) from None
+                    labels=data.get('Config',{}).get('Labels') or {}
+                    mounts=data.get('Mounts') or []
+                    expected={LABEL:record['launch_id'],REGISTRY_LABEL:self.registry_id}
+                    label_match=all(labels.get(k)==v for k,v in expected.items())
+                    if record.get('kind')=='builder':label_match=bool(record.get('container_id')) and data.get('Id')==record['container_id']
+                    if (data.get('Image')!=record['image'] or not label_match
+                        or any(not any(m.get('Source')==e['source'] and m.get('Destination')==e['target'] and m.get('RW')==e['rw'] for m in mounts) for e in record['mounts'])):
+                        record['status']='quarantined';self.write(record)
+                        raise RegistryError('Container ownership does not match persisted intent',condition='ownership_mismatch')
+                    with diagnostics.phase('writer_termination'):
+                        with diagnostics.operation('container_remove',mutating=True):
+                            removed=self.command(['docker','rm','--force',record['container']])
+                        if removed.returncode:
+                            raise RegistryError('Owned writer cleanup failed',condition='writer_cleanup_failed')
+                        with diagnostics.operation('container_inspect'):
+                            reply=self.command(['docker','container','inspect',record['container']])
+                        if not absent(reply):
+                            raise RegistryError('Owned writer absence is unconfirmed',condition='writer_absence_unconfirmed')
+            with diagnostics.phase('persist_absent'):
+                record['status']='absent';self.write(record)
         for record in pending:
             if record.get('kind')=='network':self.remove_network(record)
-        for runroot in {r.get('runroot') for r in pending if r.get('runroot')}:
-            path=Path(runroot)
-            if not path.is_absolute() or path.is_symlink():raise RegistryError('Unsafe sensitive recovery root')
-            if self.recover_sensitive is None:
-                import application_credentials
-                application_credentials.recover(path)
-            else:self.recover_sensitive(path)
+        with diagnostics.phase('sensitive_recovery'):
+            for runroot in {r.get('runroot') for r in pending if r.get('runroot')}:
+                path=Path(runroot)
+                if not path.is_absolute() or path.is_symlink():
+                    raise RegistryError('Unsafe sensitive recovery root',condition='unsafe_path')
+                if self.recover_sensitive is None:
+                    import application_credentials
+                    application_credentials.recover(path)
+                else:self.recover_sensitive(path)
         for record in pending:
-            if record.get('private_store'):
-                import shutil
-                path=Path(record['private_store'])
-                if path.is_symlink() or path.parent.resolve()!=Path(__import__('tempfile').gettempdir()).resolve() or not path.name.startswith('pi-parallel-gateway-'):
-                    raise RegistryError('Unsafe gateway private-store cleanup path')
-                if path.exists():shutil.rmtree(path)
-            record['status']='released';self.write(record)
+            with diagnostics.phase('private_store_cleanup'):
+                if record.get('private_store'):
+                    import shutil
+                    path=Path(record['private_store'])
+                    if path.is_symlink() or path.parent.resolve()!=Path(__import__('tempfile').gettempdir()).resolve() or not path.name.startswith('pi-parallel-gateway-'):
+                        raise RegistryError('Unsafe gateway private-store cleanup path',condition='unsafe_path')
+                    if path.exists():
+                        with diagnostics.operation('purge',mutating=True):shutil.rmtree(path)
+            with diagnostics.phase('persist_release'):
+                record['status']='released';self.write(record)
         return pending
 
     def intent(self,argv,name,binding=None,runroot=None):
@@ -754,9 +798,10 @@ class Registry:
         record['status']='absent' if confirmed else 'quarantined';self.write(record)
         return confirmed
 
+    @diagnostics.scoped('persist_release')
     def release(self,record,sensitive_clean):
         if record['status']!='absent' or sensitive_clean is not True:
-            record['status']='quarantined';self.write(record);raise RegistryError('Sensitive or physical cleanup remains uncertain')
+            record['status']='quarantined';self.write(record);raise RegistryError('Sensitive or physical cleanup remains uncertain', condition='sensitive_cleanup_pending')
         if record.get('application_helper') is True and 'qualification_preworker_cleanup' in record:
             try:validate_qualification_preworker_cleanup(record)
             except RegistryError:
@@ -768,12 +813,13 @@ class Registry:
                 record['status']='quarantined';self.write(record);raise
         record['status']='released';self.write(record)
 
+    @diagnostics.scoped('terminal_close')
     def close(self):
         current=[r for r in self.load() if r['generation']==self.generation and r['status']!='released']
         for root in {r['runroot'] for r in current if r['runroot']}:
             for receipt in (Path(root)/'stages').glob('*/application-credentials.json'):
                 if controls.read(receipt).get('status')!='removed':
-                    raise RegistryError('Sensitive state has not been purged')
+                    raise RegistryError('Sensitive state has not been purged', condition='sensitive_cleanup_pending')
         for record in current:self.release(record,True)
 
     def check_cancel(self):
@@ -790,18 +836,22 @@ class Registry:
                 'daemon':self.daemon,'runroot':None,'created_at':controls.now()}
         self.write(record);return record
 
+    @diagnostics.scoped('network_cleanup')
     def remove_network(self,record):
-        reply=self.command(['docker','network','inspect',record['container']])
+        with diagnostics.operation('network_inspect'):
+            reply=self.command(['docker','network','inspect',record['container']])
         if reply.returncode:
-            if not network_absent(reply,record['container']):raise RegistryError('Owned network absence uncertain')
+            if not network_absent(reply,record['container']):raise RegistryError('Owned network absence uncertain', condition='network_cleanup_failed')
         else:
             data=json.loads(reply.stdout)[0];labels=data.get('Labels') or {}
             if labels.get(LABEL)!=record['launch_id'] or labels.get(REGISTRY_LABEL)!=self.registry_id or data.get('Driver')!='bridge' or data.get('Containers'):
-                raise RegistryError('Network ownership or quiescence does not match')
-            removed=self.command(['docker','network','rm',record['container']])
-            if removed.returncode:raise RegistryError('Owned network cleanup failed')
-            absent=self.command(['docker','network','inspect',record['container']])
-            if not network_absent(absent,record['container']):raise RegistryError('Owned network absence uncertain')
+                raise RegistryError('Network ownership or quiescence does not match', condition='ownership_mismatch')
+            with diagnostics.operation('network_remove',mutating=True):
+                removed=self.command(['docker','network','rm',record['container']])
+            if removed.returncode:raise RegistryError('Owned network cleanup failed',condition='network_cleanup_failed')
+            with diagnostics.operation('network_inspect'):
+                absent=self.command(['docker','network','inspect',record['container']])
+            if not network_absent(absent,record['container']):raise RegistryError('Owned network absence uncertain', condition='network_cleanup_failed')
         record['status']='absent';self.write(record)
 
     def builder_intent(self,name,image):

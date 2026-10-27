@@ -8,6 +8,7 @@ import stat
 
 import secret_store
 import stage_control as controls
+import registry_diagnostics
 
 
 class CredentialError(ValueError):
@@ -232,11 +233,14 @@ def recover(runroot):
             continue
         desc = controls.read(path.parent / 'descriptor.json')
         if desc['stage_id'] != path.parent.name:
-            raise CredentialError('Sensitive recovery identity mismatch')
-        purge_stage(runroot, desc)
+            raise registry_diagnostics.annotate(CredentialError('Sensitive recovery identity mismatch'),
+                                                'sensitive_identity_mismatch')
+        with registry_diagnostics.operation('purge', mutating=True):
+            purge_stage(runroot, desc)
         workspace = runroot / 'workspace'
         if workspace.is_symlink():
-            raise CredentialError('Sensitive recovery workspace alias')
+            raise registry_diagnostics.annotate(CredentialError('Sensitive recovery workspace alias'), 'unsafe_path')
         if workspace.exists():
-            shutil.rmtree(workspace)
+            with registry_diagnostics.operation('purge', mutating=True):
+                shutil.rmtree(workspace)
         controls.atomic(path, {**receipt, 'status': 'removed', 'workspace': 'discarded', 'recovery': True})

@@ -1,0 +1,164 @@
+"""Real temporary leases/files; all Docker and model effects are forbidden/mocked."""
+import argparse
+import contextlib
+import errno
+import io
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'skill/scripts'))
+import ownership_registry as registry
+import registry_maintenance as maintenance
+import registry_diagnostics as diagnostics
+import resources
+import pi_lab as lab
+import test_registry_reconciliation_diagnostics as fixtures
+
+
+class MaintenanceTests(unittest.TestCase):
+    def setUp(self):
+        temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
+        self.root=Path(temp.name).resolve();self.lease=self.root/'lease'
+        self.docker=fixtures.DockerFixture()
+        self.external=fixtures.mocked_external(self.docker);self.external.__enter__()
+        self.addCleanup(self.external.__exit__,None,None,None)
+        self.owner=fixtures.leave_pending(self.lease,self.root/'run')
+        self.docker.calls.clear()
+
+    def call(self, op='registry-inspect', output=None, lease=None):
+        args=[op,'--lock-file',str(lease or self.lease)]
+        if op=='registry-recover':args+=['--output-dir',str(output or self.root/'recovery')]
+        stream=io.StringIO()
+        with contextlib.redirect_stdout(stream):code=lab.main(args)
+        value=json.loads(stream.getvalue());self.assertEqual(code,value['exit_code'])
+        return value
+
+    def snapshot(self):
+        paths=[self.lease,*self.owner.root.iterdir()]
+        return {p.name:(p.read_bytes(),p.stat().st_ino,p.stat().st_mode) for p in paths}
+
+    def test_offline_inspection_preserves_every_record_and_lock(self):
+        before=self.snapshot();value=self.call()
+        self.assertEqual(value['status'],'OBSERVED')
+        self.assertFalse(value['admission_authorized'])
+        self.assertEqual(value['before']['statuses'],{'absent':3})
+        self.assertIn('record_write_and_fsync',value['untested'])
+        self.assertEqual(self.snapshot(),before);self.assertEqual(self.docker.calls,[])
+        self.assertEqual(value['lease']['inode'],self.lease.stat().st_ino)
+
+    def test_inspection_pending_helper_denies_without_quarantine_or_purge(self):
+        row=self.owner.load()[0];row['application_helper']=True;self.owner.write(row)
+        before=self.snapshot();value=self.call()
+        self.assertEqual(value['status'],'BLOCKED')
+        self.assertEqual(value['infrastructure']['registry_diagnostic']['condition'],'owned_application_cleanup_required')
+        self.assertEqual(self.snapshot(),before);self.assertEqual(self.docker.calls,[])
+
+    def test_recovery_preserves_original_failure_and_only_reconciles_owned_records(self):
+        original=self.root/'run/result.json';original.write_text('{"sealed":true,"status":"BLOCKED"}')
+        before=original.read_bytes();lock=self.lease.read_bytes();inode=self.lease.stat().st_ino
+        value=self.call('registry-recover')
+        self.assertEqual(value['status'],'RECONCILED')
+        self.assertFalse(value['admission_authorized'])
+        self.assertEqual(value['after']['statuses'],{'released':3})
+        self.assertEqual(len(value['transitions']),3)
+        self.assertTrue(all(row[1:]==['absent','released'] for row in value['transitions']))
+        self.assertEqual(value['receipt_persistence'],'confirmed')
+        saved=json.loads((self.root/'recovery/recovery.json').read_text())
+        self.assertEqual(saved['invocation_id'],value['invocation_id'])
+        self.assertEqual(saved['reconciliation'],'completed')
+        self.assertEqual(original.read_bytes(),before)
+        self.assertEqual((self.lease.read_bytes(),self.lease.stat().st_ino),(lock,inode))
+        self.assertEqual(len(self.docker.calls),4)
+        self.assertFalse(any(a[:2]==['docker','run'] for a in self.docker.calls))
+        self.assertEqual((self.root/'recovery').stat().st_mode&0o777,0o700)
+        self.assertEqual((self.root/'recovery/recovery.json').stat().st_mode&0o777,0o600)
+
+    def test_missing_unsafe_or_busy_lease_never_creates_an_alternative(self):
+        missing=self.root/'missing'
+        value=self.call(lease=missing)
+        self.assertEqual(value['infrastructure']['reason'],'admission-lock-unavailable')
+        self.assertFalse(missing.exists());self.assertFalse(Path(str(missing)+'.registry').exists())
+        link=self.root/'alias';link.symlink_to(self.lease)
+        self.assertEqual(self.call(lease=link)['infrastructure']['reason'],'admission-lock-insecure')
+        with resources.admission_lock(self.lease):
+            before=self.lease.read_bytes()
+            self.assertEqual(self.call()['infrastructure']['reason'],'host-admission-busy')
+            self.assertEqual(self.lease.read_bytes(),before)
+
+    def test_receipt_must_be_new_and_outside_retained_execution_paths(self):
+        existing=self.root/'existing';existing.mkdir()
+        for output in (existing,self.owner.root/'receipt',self.root/'run/receipt'):
+            with self.subTest(output=output):
+                before=self.snapshot();value=self.call('registry-recover',output)
+                self.assertEqual(value['status'],'BLOCKED')
+                self.assertEqual(value['infrastructure']['registry_diagnostic']['phase'],'recovery_receipt')
+                self.assertEqual(self.snapshot(),before);self.assertEqual(self.docker.calls,[])
+        target=self.root/'target';target.mkdir();alias=self.root/'receipt-alias';alias.symlink_to(target)
+        self.assertEqual(self.call('registry-recover',alias)['status'],'BLOCKED')
+        self.assertEqual(list(target.iterdir()),[])
+
+    def test_failed_initial_receipt_persistence_prevents_all_recovery_effects(self):
+        before=self.snapshot()
+        with mock.patch.object(maintenance,'_publish',side_effect=OSError(errno.EIO,'private-canary')):
+            value=self.call('registry-recover')
+        self.assertEqual(value['status'],'BLOCKED')
+        self.assertEqual(value['receipt_persistence'],'unconfirmed')
+        self.assertEqual(value['infrastructure']['registry_diagnostic']['phase'],'recovery_receipt')
+        self.assertEqual(self.snapshot(),before);self.assertEqual(self.docker.calls,[])
+        self.assertNotIn('private-canary',json.dumps(value))
+
+    def test_secondary_receipt_failure_cannot_replace_primary_denial(self):
+        self.docker.fault='daemon';real=maintenance._publish;calls=[]
+        def publish(folder,value):
+            calls.append(True)
+            if len(calls)==2:raise OSError(errno.ENOSPC,'private-receipt-canary')
+            return real(folder,value)
+        with mock.patch.object(maintenance,'_publish',side_effect=publish):value=self.call('registry-recover')
+        self.assertEqual(value['infrastructure']['registry_diagnostic']['condition'],'daemon_changed')
+        self.assertEqual(value['receipt_failure']['registry_diagnostic']['phase'],'recovery_receipt')
+        self.assertEqual(value['reconciliation'],'attempted')
+        self.assertEqual(value['receipt_persistence'],'unconfirmed')
+        self.assertNotIn('private-receipt-canary',json.dumps(value))
+
+    def test_interrupted_partial_release_has_separate_receipt_and_no_automatic_retry(self):
+        real=registry.Registry.write
+        def interrupted(owner,row):
+            real(owner,row)
+            if row['status']=='released':raise KeyboardInterrupt
+        with mock.patch.object(registry.Registry,'write',interrupted):value=self.call('registry-recover')
+        self.assertEqual(value['status'],'INTERRUPTED');self.assertEqual(value['exit_code'],130)
+        self.assertEqual(value['after']['statuses'],{'absent':2,'released':1})
+        self.assertEqual(len(value['transitions']),1)
+        saved=json.loads((self.root/'recovery/recovery.json').read_text())
+        self.assertEqual(saved['status'],'INTERRUPTED')
+        # A fresh explicit operation is distinct and preserves the earlier receipt.
+        before=(self.root/'recovery/recovery.json').read_bytes()
+        later=self.call('registry-recover',self.root/'second-recovery')
+        self.assertEqual(later['status'],'RECONCILED')
+        self.assertNotEqual(later['invocation_id'],value['invocation_id'])
+        self.assertEqual((self.root/'recovery/recovery.json').read_bytes(),before)
+
+    def test_read_only_constructor_never_creates_missing_registry(self):
+        path=self.root/'missing-registry'
+        with self.assertRaises(registry.RegistryError) as caught:registry.Registry(path,create=False)
+        self.assertFalse(path.exists())
+        context=diagnostics.diagnostic(caught.exception)
+        self.assertEqual((context['phase'],context['os_error']),('registry_initialization','missing'))
+
+    def test_lock_inode_replacement_while_waiting_is_rejected(self):
+        def replaced(fd,wait):
+            resources.fcntl.flock(fd,resources.fcntl.LOCK_EX)
+            self.lease.rename(self.root/'old-lease')
+            self.lease.write_text('replacement');self.lease.chmod(0o600)
+        with mock.patch.object(resources,'_queued_flock',side_effect=replaced):
+            with self.assertRaises(resources.AdmissionError):
+                with maintenance.existing_lease(self.lease,1):self.fail('replacement admitted')
+        self.assertEqual(self.lease.read_text(),'replacement')
+
+
+if __name__=='__main__':unittest.main()
