@@ -11,6 +11,13 @@
 - Refuse unsupported authority scopes and frozen SDK policies without proof
   read authority. No new model, application or container dispatch is performed
   by owner cleanup.
+- Preserve failed credential accounting through dependent generic recovery,
+  compare related identities independently of directory order, and enforce
+  read limits/privacy across complete proof graphs. Recognize the runner's
+  browser stage and avoid allocating receipts before runner identity is available.
+- Block file cleanup while another pending registered owner holds an overlapping
+  run root or mount, including read-only and aliased paths, without taking over
+  unrelated cleanup.
 
 ## 4.6.1
 

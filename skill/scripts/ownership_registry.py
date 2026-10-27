@@ -763,6 +763,16 @@ class Registry:
                 path=Path(runroot)
                 if not path.is_absolute() or path.is_symlink():
                     raise RegistryError('Unsafe sensitive recovery root',condition='unsafe_path')
+                import application_owner_cleanup
+                owners=[r for r in records if r.get('runroot')==runroot and r.get('application_helper') is True
+                        and not str(r.get('client_mode','')).startswith('qualification-')
+                        and not any(k in r for k in ('qualification_role','qualification_service_cleanup','qualification_preworker_cleanup'))]
+                if any(application_owner_cleanup.validate_accepted(self, r) for r in owners):
+                    # Owner proof already establishes sensitive cleanup while
+                    # preserving original failed accounting. Revalidate after
+                    # writer/status transitions; legacy repair would rewrite it.
+                    self.validate_history(self.load(),quarantine=False)
+                    continue
                 if self.recover_sensitive is None:
                     import application_credentials
                     application_credentials.recover(path)

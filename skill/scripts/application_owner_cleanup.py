@@ -83,11 +83,13 @@ def pairs(items):
 
 class Reader:
     def __init__(self):
-        self.references = {}; self.bytes = 0
+        self.references = {}; self.bytes = 0; self.private_paths = set()
 
     @diagnostics.observed('proof_read')
     def read(self, value, *, private=False, parent_fd=None):
         value = path(str(value))
+        if private:self.private_paths.add(str(value))
+        private = str(value) in self.private_paths
         require(parent_fd is None or type(parent_fd) is int)
         parent = directory(value.parent) if parent_fd is None else os.dup(parent_fd)
         try:
@@ -228,7 +230,7 @@ def _stages(reader, root):
             require(controls.valid_id(name))
             desc, ref = reader.read(stages / name / 'descriptor.json'); metadata.append(ref)
             require(desc.get('stage_id') == name)
-            require(desc.get('kind') in ('agent', 'check', 'probe', 'preflight', 'boundary', 'browser-check'), 'owner_scope_unsupported')
+            require(desc.get('kind') in ('agent', 'check', 'probe', 'preflight', 'boundary', 'browser'), 'owner_scope_unsupported')
             if desc.get('kind') != 'agent':
                 for target in (stages / name / 'state.json', stages / name / 'budget.json'):
                     try:body, ref = reader.read(target)
@@ -395,7 +397,7 @@ def _owned_snapshot(reader, reference, record):
     return snapshot
 
 
-def _prepare(registry, request, *, replay=False):
+def _prepare(registry, request, *, replay=False, reader=None):
     exact(request, REQUEST_FIELDS)
     exact(request['subject'], {'registry', 'generation', 'launch_id', 'intent_sha256', 'container_id'})
     require(type(request['schema']) is int and request['schema'] == 1
@@ -406,13 +408,13 @@ def _prepare(registry, request, *, replay=False):
     require(record['status'] == 'released', 'owned_application_cleanup_required')
     root = path(record['runroot']); root_fd = directory(root); os.close(root_fd)
     # A proof cannot spill to another run or borrow another generation's custody.
-    related = [r for r in current if r.get('runroot') == str(root)]
+    related = sorted((r for r in current if r.get('runroot') == str(root)), key=lambda r: r['launch_id'])
     require(all(r['generation'] == record['generation'] and r['registry'] == record['registry']
                 and r.get('daemon') == record['daemon'] and not r.get('inference_uncertain')
                 and not r.get('gateway_state') and r.get('kind', 'container') == 'container' for r in related))
     require(len(related) <= 64 and type(record.get('daemon')) is str and bool(record['daemon']))
     ids = sorted(r['launch_id'] for r in related)
-    reader = Reader()
+    reader = Reader() if reader is None else reader
     controller = _terminal(reader, request['controller'], record, ids, replay=replay)
     parent_scopes = _parent_scopes(controller, request['controller']['invocation'], request['extra_private_roots'])
     require(type(request['launchers']) is list and len(request['launchers']) == len(ids))
@@ -525,6 +527,13 @@ def _selection(registry, record):
     return store_path(registry) / 'selected' / (record['launch_id'] + '.json')
 
 
+def _remember_selection(registry, record):
+    selected = getattr(registry, '_owner_proof_selected_ids', None)
+    if selected is None:
+        selected = set(); registry._owner_proof_selected_ids = selected
+    selected.add(record['launch_id'])
+
+
 def _mark_selected(registry, record):
     fd = _store(registry)
     parent = None
@@ -549,6 +558,7 @@ def _mark_selected(registry, record):
         named = directory(target.parent)
         try:require(identity(os.fstat(named)) == identity(os.fstat(parent)), 'unsafe_path')
         finally:os.close(named)
+        _remember_selection(registry, record)
     finally:
         if parent is not None:os.close(parent)
         os.close(fd)
@@ -616,6 +626,7 @@ def validate_accepted(registry, record):
     reader = Reader()
     try:index, unused = reader.read(_index(registry, record), private=True)
     except FileNotFoundError:
+        require(record['launch_id'] not in getattr(registry, '_owner_proof_selected_ids', set()))
         if getattr(registry, '_owner_proof_store_identity', None) is not None:
             bound = directory(store_path(registry))
             try:_bind_directory(registry, '_owner_proof_store_identity', bound)
@@ -626,6 +637,7 @@ def validate_accepted(registry, record):
             require(not os.path.lexists(_selection(registry, record)))
         else:require(False)
         return False
+    _remember_selection(registry, record)
     require(subject(record)['registry'] == registry.registry_id)
     store = directory(store_path(registry))
     try:
@@ -654,13 +666,13 @@ def validate_accepted(registry, record):
             and type(receipt['runner_content_sha256']) is str and re.fullmatch('[a-f0-9]{64}', receipt['runner_content_sha256']) is not None
             and receipt['global_actor_census'] == 'not_attested' and receipt['credential_memory_erasure'] == 'not_attested')
     if receipt.get('method') == 'runtime_finalization':
-        _validate_runtime(registry, record, receipt)
+        _validate_runtime(registry, record, receipt, reader=reader)
         return True
     require(receipt.get('method') == 'retained_terminals')
-    original, related, observed, metadata, roots, physical = _prepare(registry, receipt['request'], replay=True)
+    original, related, observed, metadata, roots, physical = _prepare(registry, receipt['request'], replay=True, reader=reader)
     require(metadata == receipt['metadata'] and all(r['state'] == 'absent' for r in roots))
     require([r['path'] for r in roots] == [r['path'] for r in receipt['roots']])
-    require(receipt['related_subjects'] == [_resource_subject(r) for r in related])
+    require(_canonical_subjects(receipt['related_subjects']) == [_resource_subject(r) for r in related])
     return True
 
 
@@ -668,13 +680,50 @@ def _resource_subject(record):
     return {'launch_id': record['launch_id'], 'identity': digest({k: v for k, v in record.items() if k != 'status'})}
 
 
+def _no_foreign_holders(registry, record, related, reader, roots):
+    """Do not discard a namespace still held by another registered owner.
+
+    Historical replay remains passive: ordinary reconciliation must be able to
+    stop later pending writers before authorizing fresh dispatch.
+    """
+    related_ids = {item['launch_id'] for item in related}
+    protected_values = [record['runroot'], *[item['path'] for item in roots],
+                        *[ref['path'] for ref in reader.references.values()]]
+    def resolved(value):
+        try:return path(value).resolve(strict=False)
+        except (OSError, RuntimeError) as exc:
+            raise ownership.RegistryError('Registered holder scope cannot be established',
+                                          condition='owner_scope_unsupported', cause=exc) from None
+    protected = {resolved(value) for value in protected_values}
+    for other in registry.load():
+        if other['launch_id'] in related_ids or other['status'] == 'released':continue
+        values = [other['runroot']] if other.get('runroot') is not None else []
+        values.extend(mount['source'] for mount in other['mounts'])
+        for value in values:
+            candidate = resolved(value)
+            require(not any(candidate == target or candidate in target.parents or target in candidate.parents
+                            for target in protected), 'owner_writer_pending')
+
+
+def _canonical_subjects(value):
+    require(type(value) is list and len(value) <= 64)
+    for item in value:
+        exact(item, {'launch_id', 'identity'})
+        require(controls.valid_id(item['launch_id']) and type(item['identity']) is str
+                and re.fullmatch('[a-f0-9]{64}', item['identity']) is not None)
+    require(len({item['launch_id'] for item in value}) == len(value))
+    return sorted(value, key=lambda item: item['launch_id'])
+
+
 @diagnostics.scoped('application_cleanup', 'cleanup_proof_invalid')
-def recover(registry, request, output_dir, *, discard_workspace=False):
+def recover(registry, request, output_dir, *, discard_workspace=False, reader=None):
     import registry_maintenance as maintenance
     require(discard_workspace is True, 'owner_discard_required')
     lease = lease_identity(registry)
-    record, related, reader, metadata, roots, physical = _prepare(registry, request)
+    record, related, reader, metadata, roots, physical = _prepare(registry, request, reader=reader)
     require(not os.path.lexists(_index(registry, record)))
+    runner = maintenance._runner_identity()
+    _no_foreign_holders(registry, record, related, reader, roots)
     _writers_absent(registry, physical)
     receipt = maintenance._new_receipt_directory(output_dir, registry.root.with_name(registry.root.name[:-9]), registry, registry.load())
     report = {'schema': 1, 'document_type': 'application_owner_cleanup_receipt', 'invocation_id': str(uuid.uuid4()),
@@ -683,7 +732,7 @@ def recover(registry, request, output_dir, *, discard_workspace=False):
               'method': 'retained_terminals', 'scope': 'owned_host_files_only',
               'global_actor_census': 'not_attested', 'credential_memory_erasure': 'not_attested',
               'subject': subject(record), 'lease': lease, 'request': request, 'metadata': metadata, 'roots': roots,
-              'runner_content_sha256': maintenance._runner_identity(),
+              'runner_content_sha256': runner,
               'related_subjects': [_resource_subject(r) for r in related],
               'new_containers': 0, 'participant_stages': 0, 'model_requests': 0, 'effects': 'may_have_occurred'}
     try:
@@ -695,8 +744,9 @@ def recover(registry, request, output_dir, *, discard_workspace=False):
                 if observation['state'] == 'present':report['effects'] = 'may_have_occurred'
                 _purge(observation)
             # Re-read the original evidence before committing acceptance.
-            repeated = _prepare(registry, request, replay=True)
+            repeated = _prepare(registry, request, replay=True, reader=reader)
             require(repeated[3] == metadata and all(r['state'] == 'absent' for r in repeated[4]))
+            _no_foreign_holders(registry, repeated[0], repeated[1], reader, repeated[4])
             report.update(status='CLEANED', cleanup_completed=True, finished_at=controls.now())
             receipt.publish(report)
             reference = {'path': str(receipt.path / 'recovery.json')}
@@ -843,8 +893,9 @@ def custody_identity(helper, cid):
     ticket.update(guard=ticket.witness('container-identity', guard))
 
 
-def _runtime_basis(registry, record):
-    reader = Reader(); custody, ref = reader.read(_custody_path(registry, record), private=True)
+def _runtime_basis(registry, record, *, reader=None):
+    reader = Reader() if reader is None else reader
+    custody, ref = reader.read(_custody_path(registry, record), private=True)
     exact(custody, CUSTODY_FIELDS)
     require(type(custody['schema']) is int and custody['schema'] == 1 and custody['document_type'] == 'application_helper_custody'
             and custody['subject'] == subject(record) and custody['lease'] == lease_identity(registry)
@@ -928,9 +979,9 @@ def _inventory(root, *, exclude=()):
     return result
 
 
-def _validate_runtime(registry, record, receipt):
+def _validate_runtime(registry, record, receipt, *, reader=None):
     require(record['status'] == 'released')
-    basis = _runtime_basis(registry, record)
+    basis = _runtime_basis(registry, record, reader=reader)
     require(basis == receipt['basis'])
 
 
@@ -1007,8 +1058,9 @@ def command(args):
             if args.op == 'application-owner-inspect':
                 report.update(status='OBSERVED', exit_code=0, helpers=inspect_helpers(registry, registry.load()))
             else:
-                request, unused = Reader().read(args.request, private=True)
-                result = recover(registry, request, args.output_dir, discard_workspace=args.discard_workspace)
+                reader = Reader()
+                request, unused = reader.read(args.request, private=True)
+                result = recover(registry, request, args.output_dir, discard_workspace=args.discard_workspace, reader=reader)
                 # Full paths/terminal witnesses stay in the owner-only receipt.
                 report.update(status=result['status'], exit_code=0, subject=result['subject'],
                               receipt_persistence=result['receipt_persistence'], effects=result['effects'],

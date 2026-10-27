@@ -61,6 +61,14 @@ A completed CLI, name/label absence, a PID observation or an expired deadline
 alone cannot exclude a delayed create and is insufficient. Missing original CID
 evidence remains blocked.
 
+Before discarding files, cleanup checks pending registered owners outside the
+selected run too. An overlapping mount or run root, including a read-only holder
+or path alias, blocks with `owner_writer_pending`; the command does not stop or
+repair that other owner. Resolve it through its supported cleanup procedure first.
+Disjoint pending owners do not expand the selected cleanup scope. Historical
+proof replay stays passive so ordinary reconciliation can stop later pending
+writers before a fresh dispatch.
+
 The recognized private scope consists of the owned workspace, the exact helper
 private root and helper evidence root, stage segment/inbox/outbox directories and the
 owned child-state tree. Original stage, process, credential and result metadata
@@ -172,6 +180,16 @@ metadata, missing/tampered proof and cross-record borrowing deny, including an
 otherwise all-released registry. Valid legacy cleanup remains available when
 no new proof was selected. This does not change the historical qualification
 service/preworker rules.
+Related launch identities are compared as a complete set, independent of
+directory iteration order; duplicates or missing subjects still reject. Once a
+proof is selected during a held operation, losing its index and selection witness
+cannot restore legacy fallback in that operation.
+
+When generic recovery later reconciles dependent ordinary records from the same
+run, it revalidates the accepted owner proof after writer/status transitions.
+It preserves the original failed credential accounting instead of invoking the
+legacy sensitive-file repair for that proven run. Runs without accepted owner
+proof retain the existing recovery requirements.
 
 Normal host helpers record custody before dispatch, CID binding before private
 bootstrap, and actual helper cleanup. The final host close publishes the same
@@ -199,7 +217,11 @@ during this migration. Never downgrade a record or discard proof to make an old
 client accept it.
 
 Evidence JSON is limited to 4 MiB per file, 128 references and 16 MiB in the
-aggregate. Private cleanup/inventory has 4,096 entries per root; retained
+aggregate for each complete proof graph, including its index, receipt, selected
+CLI request and transitive retained evidence. Nested validators share the same
+budget and retain the strongest privacy requirement for a reused path. A request
+inside a scope selected for discard rejects before cleanup.
+Private cleanup/inventory has 4,096 entries per root; retained
 workspace inventory additionally caps each file at 16 MiB and total bytes at
 256 MiB. Receipt publication retains its 4 MiB bound. Exceeding a bound rejects;
 it does not authorize a higher limit or an omitted scope.
