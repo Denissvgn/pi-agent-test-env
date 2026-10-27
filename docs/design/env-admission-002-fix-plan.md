@@ -7,7 +7,8 @@ one-release Copilot waiver. The subsequent owner-proof contract implementation i
 locally verified on `codex/pi-owner-proof-001`: 2,741 tests pass, with package and
 standalone checks. Real owner migration, native integration qualification and
 promotion remain deferred. The original exceptional-exit lifecycle behavior is
-unchanged. Follow-up review, implementation and final evidence are recorded below.
+unchanged. The subsequent local safety review fixes seven findings and passes
+2,757 tests. Review and exact candidate evidence are recorded below.
 Created: 27 October 2026. Updated: 27 October 2026.
 
 Affected release: `4.6.0`, tag `v4.6.0`, source commit
@@ -1188,3 +1189,97 @@ retained in a separate local tracking commit for reviewability.
 The branch remains `codex/pi-owner-proof-001`, with **no upstream configured**.
 Only the requested source/tests/reference/plan/evidence files are committed;
 unrelated untracked work remains untouched. No branch publication is performed.
+
+## Owner-proof correctness and safety review
+
+Review started on 28 October 2026 against branch head
+`ec1848b0ab685c1116a355962de33e43f5864aca`, with implementation
+`6d6067854e313fdc8cc4c8001352d18c3dd8bda6`. The comparison base remains
+`cb370043e28439927a44c117a025a9b246c909d9`. The user explicitly excluded live
+registry and downstream campaign operations. All reproductions below use
+temporary leases/registries, synthetic owner evidence and mocked Docker/model
+boundaries. No real owner proof is imported or changed.
+
+| Finding | Priority | Confirmed behavior | Correction | State |
+| --- | --- | --- | --- | --- |
+| OPR-01 | P1 | After owner proof was accepted, generic recovery of an ordinary record from the same run called legacy credential recovery, rewriting the original failed credential receipt and invalidating the new proof. Losing both selected index/witness mid-operation could also restore that raw-repair path. | Revalidate current history after writer/status transitions and skip legacy sensitive repair for a run with accepted owner cleanup; retain selected identities for the held operation so disappearance denies. Unproven runs keep legacy recovery. | Verified fixed; final evidence below |
+| OPR-02 | P2 | Reversing valid registry iteration order invalidated an otherwise unchanged retained proof. | Sort related records canonically; validate/compare saved subject sets independently of order, retaining duplicate/missing checks. | Verified fixed; final evidence below |
+| OPR-03 | P2 | Runner identity I/O failure after receipt allocation leaked the directory and parent descriptors. | Observe runner identity before allocating receipt resources. | Verified fixed; final evidence below |
+| OPR-04 | P2 | Nested replay readers separately passed budgets even when the transitive graph exceeded the aggregate cap. The CLI request was outside that graph and could be deleted with its workspace. | Share one reader across replay/runtime validators, repeated recovery validation and selected CLI input. Count the complete graph and reject discarded input references. | Verified fixed; final evidence below |
+| OPR-05 | P2 | Reusing a private reference through the default reader permitted weaker file/directory privacy after a mode change. | Keep the strongest observed privacy requirement for each path. | Verified fixed; final evidence below |
+| OPR-06 | P1 | The proof stage catalog used `browser-check`, while the actual runner emits `browser`; healthy browser/native-helper runs could fail finalization and future admission. | Match the actual worker stage kind and exercise finalization with browser plus complete agent cleanup metadata. | Verified fixed; final evidence below |
+
+Reproductions are retained under
+`env-admission-002-evidence/owner-proof-gap/review/`. `findings-before-final.log`
+contains seven failing cases (six failures and one error) for the first five
+findings. `proof-loss-before.log` separately reproduces selected-proof loss during
+generic recovery; `browser-kind-before.log` reproduces the browser catalog error.
+Earlier focused runs remain unchanged.
+
+The first corrections pass all seven initial cases in `findings-after-first.log`.
+Expanded tests also verify legacy recovery without new proof, canonical saved
+subject order with duplicate rejection, loss of selected proof, and browser
+finalization. The final affected set passes **336 tests**, no failures, errors or
+skips, in **56.548 seconds** (`affected-final.log`). Final full-suite and package
+verification is in progress. Original implementation evidence remains historical;
+its 2,741-test result is not substituted for this changed candidate.
+
+The schema versions, original ownership/daemon/CID/inference predicates, capacity
+limits and qualification-subtype checks remain enforced. No thresholds or proof
+requirements are relaxed. Existing valid unordered subject lists retain their
+meaning; a duplicate or omitted subject does not become equivalent. The separate
+read-only SDK policy still requires its explicitly qualified owner-proof scope.
+Native owner audit, Docker/browser/inference/application qualification, actual
+recovery, downstream activation and publication remain deferred.
+
+### Review overlap follow-up
+
+The six-finding candidate passed **2,752 tests**, no failures or skips, in
+535.416 seconds, with all 396 allowlisted source hashes unchanged. That coherent
+intermediate result is retained in `review/first-full-suite.json` and
+`review/unit-tests.log`; it is not reused as verification of the later overlap fix.
+
+One additional safety finding was confirmed:
+
+| Finding | Priority | Confirmed behavior | Correction | State |
+| --- | --- | --- | --- | --- |
+| OPR-07 | P1 | Owner cleanup ignored a pending registered container from a different run that mounted the selected workspace. It could delete shared files while that known holder remained unproven. Aliased run roots and read-only overlapping mounts had the same coverage gap. | Check pending external owners' canonical mount/run-root footprints against the selected run, discard scopes and proof inputs before cleanup and before acceptance. Overlap blocks; no unrelated container is stopped. Historical replay remains passive so subsequent ordinary reconciliation can resolve pending writers safely. | Verified fixed; final evidence below |
+
+`review/overlap-before.log` retains the first reproduction;
+`review/overlap-cases-before.log` contains three failing assertions. The expanded
+16-case review suite passes in `review/overlap-after.log`, including positive
+disjoint-owner and later generic-reconciliation cases. The original live registry
+and downstream campaign remain untouched. Final full-suite verification of all
+seven corrections is in progress.
+
+### Owner-proof review completion
+
+All seven findings OPR-01–OPR-07 are fixed and verified locally. The final suite
+passes **2,757 tests**, no failures, errors or skips, in **511.273 seconds** on
+native macOS ARM64 with Python 3.14.5. All **396** allowlisted candidate source
+hashes match the inventory saved before execution. The **16** new review
+regressions include negative proof-loss/overlap/budget/privacy cases and positive
+legacy-recovery, unordered-subject, browser-finalization and disjoint-owner cases.
+
+- [Review verification receipt](env-admission-002-evidence/owner-proof-gap/review/verification.json).
+- [Final complete test log](env-admission-002-evidence/owner-proof-gap/review/unit-tests-final.log).
+- [Exact tested candidate hashes](env-admission-002-evidence/owner-proof-gap/review/source-before-final-suite.json).
+- [Final package verification](env-admission-002-evidence/owner-proof-gap/review/package-check-final.json): 187 files with complete manifest coverage.
+- [Extracted standalone verification](env-admission-002-evidence/owner-proof-gap/review/standalone-package-final.json): four offline import/help/standard commands, seven standards checks, unchanged source/extraction and Python 3.10 syntax checks. Execution used Python 3.14.5.
+
+Earlier failing and intermediate review attempts remain unchanged. The initial
+six-finding full run and the implementation's older 2,741-test result are not
+substituted for the final candidate. Raw terminal logs retain their original
+bytes through scoped Git attributes; this does not relax source checks or runtime
+ownership predicates.
+
+No unresolved findings remain from this local review. Real owner-proof migration,
+native integration qualification and SDK proof-scope qualification remain the
+explicit deferred gates documented above. The live registry, original owner
+proofs, downstream installation/campaign and published release are untouched.
+No real containers, model requests or WorkChord workflows ran. The review fixes
+and plan/evidence are committed separately on `codex/pi-owner-proof-001`, which
+remains unpushed with **no upstream configured**.
+
+Review fixes committed as `59479eca953d4411a087a8d7f728606ca3cdec12`. A read-only Git archive comparison
+confirmed all 396 committed source files match the final tested candidate.
