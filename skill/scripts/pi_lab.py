@@ -1968,6 +1968,8 @@ def parser():
     sub = p.add_subparsers(dest='op', required=True)
     import registry_maintenance
     registry_maintenance.add_arguments(sub, default_lock_file())
+    import application_owner_cleanup
+    application_owner_cleanup.add_arguments(sub, default_lock_file())
     pr_review_gate.add_arguments(sub.add_parser('pr-review-gate', help='Read-only parent GitHub review readiness; no Docker/model execution'))
     experiments.add_parser(sub)
     profile=sub.add_parser('validate-agent-profile');profile.add_argument('--agent-profile',required=True)
@@ -2130,6 +2132,9 @@ def main(argv=None):
     if args.op in ('registry-inspect', 'registry-recover'):
         import registry_maintenance
         return registry_maintenance.command(args)
+    if args.op in ('application-owner-inspect', 'application-owner-recover'):
+        import application_owner_cleanup
+        return application_owner_cleanup.command(args)
     if args.op=='compile-application-plan':
         import application_preparation
         result=application_preparation.compile_artifact(args.spec,args.output_dir,args.runtime_receipt,

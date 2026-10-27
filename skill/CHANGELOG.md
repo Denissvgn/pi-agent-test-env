@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Add read-only application-owner inspection and explicit retained-terminal
+  cleanup for already released ordinary helpers. Preserve original failed
+  accounting and keep cleanup receipts separate from sealed results.
+- Record normal helper custody before dispatch and bootstrap, then publish
+  proof after final stage cleanup. Revalidate selected proof, private-path
+  absence and retained metadata, including all-released admission.
+- Refuse unsupported authority scopes and frozen SDK policies without proof
+  read authority. No new model, application or container dispatch is performed
+  by owner cleanup.
+
 ## 4.6.1
 
 - Diagnose blocked host-registry admission with closed phase, condition,

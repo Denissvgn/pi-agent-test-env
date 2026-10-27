@@ -437,12 +437,13 @@ def _startup_diagnostic(helper, phase, error):
 
 def _intent(registry, argv, name, image, private_root, binding, code_identity, mode='authority-only'):
     """Service-specific equivalent of Registry.intent; persist before Popen."""
-    record = {'schema': 1, 'launch_id': str(uuid.uuid4()), 'generation': registry.generation,
+    record = {'schema': 3, 'launch_id': str(uuid.uuid4()), 'generation': registry.generation,
               'registry': registry.registry_id, 'status': 'intent', 'container': name,
               'image': image, 'mounts': [], 'binding': {**copy.deepcopy(registry.binding), **copy.deepcopy(binding)},
               'runroot': str(private_root.parent.parent), 'created_at': controls.now(),
               'owner_pid': os.getpid(), 'daemon': registry.daemon,
               'application_helper': True, 'client_mode': mode, 'code_identity': copy.deepcopy(code_identity),
+              'owner_cleanup_contract': 1,
               # Generic gateway recovery refuses this prefix. Application recovery
               # must prove cleanup; it cannot silently purge/release this helper.
               'private_store': str(private_root)}
@@ -593,6 +594,8 @@ class OwnedHelper:
             argv += [image['id'], '/opt/pi-application/runtime/application_client_service.py', '--port', '8081']
             phase='launch_intent'
             helper.record, argv = _intent(registry, argv, helper.name, image['id'], root, binding, code_identity, spec['mode'])
+            import application_owner_cleanup
+            helper._owner_custody = application_owner_cleanup.begin_custody(helper, argv)
             item = helper.reservations[0]
             allocator.consume(item.identity, item.capability, item.binding, item.resources)
             authority.revalidate()
@@ -602,11 +605,14 @@ class OwnedHelper:
                                              state_root='/pi-client/state/private' if spec['mode'] == 'application-execution' else '/pi-client/state')
             helper._check_daemon()
             phase='process_launch';launch_attempted=True;identity_deadline=time.monotonic()+5
+            application_owner_cleanup.custody_event(helper, 'launch_attempted')
             helper.process = popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                    env=helper.docker_environment,
                                    start_new_session=True)
+            application_owner_cleanup.custody_launched(helper)
             phase='container_identity';helper._bind_container_identity(identity_deadline)
             phase='bootstrap_send';_send_bootstrap(helper.process, bootstrap)
+            application_owner_cleanup.custody_event(helper, 'bootstrap_sent')
             authority._launched = True
             phase='service_readiness';_ready(helper.process)
             phase='container_observation'
@@ -752,7 +758,11 @@ class OwnedHelper:
             identifier=self._verify_observation(observed[0])
             if time.monotonic()>=deadline:break
             self.container_id=identifier
+            import application_owner_cleanup
+            application_owner_cleanup.custody_identity(self, identifier)
             self.record['container_id']=self.container_id;self.registry.write(self.record)
+            application_owner_cleanup.custody_event(self, 'container_bound')
+            if time.monotonic() >= deadline:raise ClientError('cleanup_unconfirmed')
             return
         raise ClientError('cleanup_unconfirmed')
 
@@ -857,6 +867,8 @@ class OwnedHelper:
                                 'evidence': evidence_status,
                                 'evidence_root': str(self.evidence_root) if getattr(self, 'evidence_root', None) is not None else None,
                                 'safe_to_continue': physical and clean and workspace_status == 'clean'}
+        import application_owner_cleanup
+        application_owner_cleanup.custody_event(self, 'helper_cleanup')
         return copy.deepcopy(self.cleanup_receipt)
 
     def require_clean(self):

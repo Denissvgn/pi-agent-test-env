@@ -123,6 +123,9 @@ does not imply that successful physical cleanup was rolled back.
   owning cleanup procedure and retained evidence. A `released` label or missing
   container does not replace required proof. Generic recovery does not authorize
   unresolved application helpers.
+  [Retained application ownership cleanup](APPLICATION-OWNER-CLEANUP.md) describes
+  the explicit inspection, typed terminal/snapshot evidence and separately
+  retained ordinary-helper cleanup receipt. Unsupported owner scopes stay blocked.
 - For daemon, writer or inference uncertainty, establish the exact required
   identity and termination evidence. Never remove a mismatched writer.
 - For capacity failure, preserve history and request reviewed maintenance. This

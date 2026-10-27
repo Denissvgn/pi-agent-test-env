@@ -565,6 +565,13 @@ class AdmissionGate:
                 and type(lease_fd) is int, 'callback_not_original_context')
         self._begin()
         lease_identity = self._lease(lease_fd)
+        # This frozen policy has no authority to read the new ordinary-owner
+        # proof graph. Presence is a namespace observation, never an implicit
+        # policy extension or an all-released bypass.
+        owner_store = self.registry_root.with_name(self.registry_root.name + '.owner-proofs')
+        try:os.stat(owner_store, follow_symlinks=False)
+        except FileNotFoundError:pass
+        else:require(False, 'owner_cleanup_policy_extension_required')
         fd = self._directory(self.registry_root)
         total = self._initial_bytes; signatures = {}; kinds = {}; owners = set()
         try:

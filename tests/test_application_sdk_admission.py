@@ -42,6 +42,8 @@ PURE_AUTHORITY_SOURCE_SHA256 = {
 # Recovery diagnostics can change other functions without changing this pure
 # historical authority producer. Never replace the historical whole-file hash.
 LEGACY_CREDENTIAL_VALIDATOR_AST_SHA256 = 'c6c025e4331814f0715ca5c5bd46f1433728594b4eaba3d7709c134fc8b57b25'
+# The public authority projection is unchanged by host cleanup instrumentation.
+LEGACY_APPLICATION_LAUNCH_SPEC_AST_SHA256 = 'c2f64d14df8b8508fdc308dcb9b7d2179e0f305e76de6c215b1f203b25168784'
 
 
 # Exact Source039 _profile method fixture; normalized AST is pinned below.
@@ -88,10 +90,14 @@ def pure_authority_subset(relative,*,functions=(),classes=(),methods=None,bindin
             nodes.append(selected);found.add(node.name)
     assert found==set(functions)|set(classes)|set(methods)
     if hashlib.sha256(body).hexdigest()!=PURE_AUTHORITY_SOURCE_SHA256[relative]:
-        assert relative=='skill/scripts/application_credentials.py'
-        assert functions==('validate',) and classes==('CredentialError',) and not methods
         selected=ast.dump(ast.Module(body=nodes,type_ignores=[]),include_attributes=False).encode()
-        assert hashlib.sha256(selected).hexdigest()==LEGACY_CREDENTIAL_VALIDATOR_AST_SHA256
+        if relative=='skill/scripts/application_credentials.py':
+            assert functions==('validate',) and classes==('CredentialError',) and not methods
+            assert hashlib.sha256(selected).hexdigest()==LEGACY_CREDENTIAL_VALIDATOR_AST_SHA256
+        else:
+            assert relative=='skill/scripts/application_client.py'
+            assert methods=={'Authority':('launch_spec',)} and not functions and not classes
+            assert hashlib.sha256(selected).hexdigest()==LEGACY_APPLICATION_LAUNCH_SPEC_AST_SHA256
     subject=types.ModuleType('_pure_authority_public_fixture');subject.__file__=str(source)
     subject.__dict__.update(copy=copy,hashlib=hashlib,json=json,math=math,re=re)
     subject.__dict__.update(bindings or {})
@@ -335,6 +341,11 @@ class InertAdmission(unittest.TestCase):
 
     def test_bound_constructor_is_pure(self):
         with mock.patch('os.open',side_effect=forbidden),mock.patch('os.stat',side_effect=forbidden):M.AdmissionGate(self.policy)
+
+    def test_new_owner_proof_namespace_requires_explicit_policy_extension(self):
+        owner_store=self.rroot.with_name(self.rroot.name+'.owner-proofs');owner_store.mkdir(mode=0o700)
+        with self.assertRaisesRegex(M.AdmissionDenied,'owner_cleanup_policy_extension_required'):
+            M.AdmissionGate(self.policy)(lease_fd=self.lfd,lock_path=self.lock,registry_root=self.rroot)
 
     def test_fixed_closure_has_55_service_one_preworker_71_files_19_current_refs(self):
         gate=M.AdmissionGate(self.policy);self.assertEqual(len(gate.reads),71)
@@ -854,6 +865,14 @@ class InertAdmission(unittest.TestCase):
         with mock.patch.object(Path,'read_bytes',return_value=changed),self.assertRaises(AssertionError):
             pure_authority_subset(relative,classes=('CredentialError',),functions=('validate',))
 
+    def test_historical_launch_projection_pin_rejects_changed_authorities(self):
+        relative='skill/scripts/application_client.py'
+        source=next(parent/relative for parent in HERE.parents if (parent/relative).is_file())
+        body=source.read_bytes();changed=body.replace(b"'actors': sorted(",b"'actors': tuple(")
+        self.assertTrue(body!=changed,'Authority projection mutation was not applied')
+        with mock.patch.object(Path,'read_bytes',return_value=changed),self.assertRaises(AssertionError):
+            pure_authority_subset(relative,methods={'Authority':('launch_spec',)})
+
     def test_parallel_named_authorities_accept_only_declared_worker_role_forms(self):
         actor='application-actor:'+'a'*64
         for flags in ({},{'kind':'container'},{'application_helper':False},
@@ -1065,7 +1084,7 @@ class InertAdmission(unittest.TestCase):
                     self.call(gate)
                 self.assertEqual(events,['canonical_hash','profile']if match else['canonical_hash'])
 
-    def test_malformed_reference_shape_stays_before_profile_and_catalog_is_153(self):
+    def test_malformed_reference_shape_stays_before_profile_and_catalog_is_154(self):
         key=sorted(self.rows)[0]
         for reference in (None,{},'unclassified',{'path':'relative','sha256':'a'*64},
                           {'path':str(self.repo/'unread'),'sha256':'a'*64,'extra':True}):
@@ -1081,7 +1100,8 @@ class InertAdmission(unittest.TestCase):
             if isinstance(node,ast.Call)and isinstance(node.func,ast.Name):
                 item=node.args[1]if node.func.id=='require'and len(node.args)>1 else node.args[0]if node.func.id=='AdmissionDenied'and node.args else None
                 if isinstance(item,ast.Constant)and type(item.value)is str:codes.add(item.value)
-        self.assertEqual(len(codes),153);self.assertNotIn('unknown_qualification_reference',codes)
+        self.assertEqual(len(codes),154);self.assertNotIn('unknown_qualification_reference',codes)
+        self.assertIn('owner_cleanup_policy_extension_required',codes)
         self.assertTrue({'qualification_owner_missing_selected','qualification_owner_missing_outside_selected',
             'qualification_owner_subtype_mismatch','qualification_cleanup_reference_missing',
             'qualification_cleanup_path_mismatch','qualification_cleanup_digest_mismatch'}<=codes)

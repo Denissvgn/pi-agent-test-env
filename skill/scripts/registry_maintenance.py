@@ -52,8 +52,12 @@ class _Receipt:
         self.previous = None
 
     @classmethod
-    def create(cls, path):
-        receipt = cls(path, _directory_fd(path.parent))
+    def create(cls, path, *, parent_fd=None):
+        if parent_fd is not None and type(parent_fd) is not int:
+            raise diagnostics.RegistryError('Invalid retained receipt parent', condition='unsafe_path')
+        with diagnostics.operation('directory_open'):
+            parent = os.dup(parent_fd) if parent_fd is not None else _directory_fd(path.parent)
+        receipt = cls(path, parent)
         try:
             receipt.parent_identity = _identity(os.fstat(receipt.parent))
             with diagnostics.operation('directory_create', mutating=True):
@@ -342,6 +346,8 @@ def command(args, *, registry_factory=None):
                 report['pending_launch_ids'] = [r['launch_id'] for r in records if r['status'] != 'released']
                 report['historical_application_helper_ids'] = [r['launch_id'] for r in records
                     if r['status'] == 'released' and r.get('application_helper') is True]
+                import application_owner_cleanup
+                report['application_cleanup'] = application_owner_cleanup.inspect_helpers(registry, records)
                 registry.validate_history(records, quarantine=False)
                 report.update(status='OBSERVED', exit_code=0)
             else:

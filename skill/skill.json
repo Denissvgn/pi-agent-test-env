@@ -64,6 +64,16 @@
       "command": "python3 scripts/pi_lab.py registry-recover --lock-wait-seconds 30 --output-dir <NEW_RECOVERY_DIRECTORY>"
     },
     {
+      "name": "application-owner-inspect",
+      "description": "Offline inspection of ordinary application-helper cleanup shapes and retained proof under the original lease",
+      "command": "python3 scripts/pi_lab.py application-owner-inspect --lock-file <ORIGINAL_LOCK>"
+    },
+    {
+      "name": "application-owner-recover",
+      "description": "Explicit already-released ordinary-helper file cleanup from genuine retained terminal and snapshot custody, preserving failed results",
+      "command": "python3 scripts/pi_lab.py application-owner-recover --lock-file <ORIGINAL_LOCK> --request <OWNER_REQUEST> --output-dir <NEW_RECEIPT> --discard-workspace"
+    },
+    {
       "name": "status",
       "description": "Inspect live running child session, turns, tokens, elapsed time, and 80% budget warnings",
       "command": "python3 scripts/pi_lab.py status"

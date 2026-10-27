@@ -11,3 +11,5 @@
 # Retained terminal output is evidence, including its original line whitespace.
 /docs/design/env-admission-002-evidence/implementation/*.log -text -whitespace
 /docs/design/env-admission-002-evidence/review/*.log -text -whitespace
+/docs/design/env-admission-002-evidence/owner-proof-gap/*.log -text -whitespace
+/docs/design/env-admission-002-evidence/owner-proof-gap/implementation/*.log -text -whitespace

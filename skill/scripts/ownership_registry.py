@@ -614,7 +614,7 @@ class Registry:
         records=[]
         for path in self._paths(observe):
             record=read_private(path)
-            if (not isinstance(record,dict) or type(record.get('schema')) is not int or record.get('schema') not in (1,2)
+            if (not isinstance(record,dict) or type(record.get('schema')) is not int or record.get('schema') not in (1,2,3)
                 or not controls.valid_id(record.get('launch_id')) or path.stem!=record['launch_id']
                 or record.get('registry')!=self.registry_id or not controls.valid_id(record.get('generation'))
                 or record.get('status') not in ('intent','running','absent','released','quarantined')
@@ -623,6 +623,14 @@ class Registry:
                 or record.get('kind','container') not in ('container','network','builder')
                 or not isinstance(record.get('mounts'),list)):
                 raise RegistryError('Malformed launch registry', condition='malformed_record')
+            if record['schema']==3:
+                if (record.get('application_helper') is not True or type(record.get('owner_cleanup_contract')) is not int
+                        or record['owner_cleanup_contract']!=1
+                        or record.get('client_mode') not in ('application-execution','authority-only','budget-only')
+                        or any(k in record for k in ('qualification_role','qualification_service_cleanup','qualification_preworker_cleanup'))):
+                    raise RegistryError('Invalid application ownership contract', condition='malformed_record')
+            elif 'owner_cleanup_contract' in record:
+                raise RegistryError('Application ownership requires its versioned record format', condition='malformed_record')
             if record['schema']==2 and (not isinstance(record.get('binding'),dict) or type(record['binding'].get('indexed_host_generation')) is not int or record['binding']['indexed_host_generation']!=2):raise RegistryError('Invalid indexed registry generation', condition='malformed_record')
             if any(not isinstance(m,dict) or set(m)!={'source','target','rw'} or not isinstance(m['source'],str) or not Path(m['source']).is_absolute() or not isinstance(m['target'],str) or not m['target'].startswith('/') or type(m['rw']) is not bool for m in record['mounts']):
                 raise RegistryError('Malformed ownership mount bindings', condition='malformed_record')
@@ -672,9 +680,18 @@ class Registry:
                 validate_qualification_preworker_cleanup(record,historical_replay=record.get('status')=='released')
             elif record.get('application_helper') is True and qualification(record):
                 validate_qualification_service_cleanup(record)
+            elif record.get('application_helper') is True:
+                # Explicitly selected owner proof is checked even for all-released
+                # history; malformed new evidence never falls back to legacy.
+                import application_owner_cleanup
+                accepted = application_owner_cleanup.validate_accepted(self, record)
+                if application_owner_cleanup.requires_proof(self, record) and not accepted:
+                    raise RegistryError('Current helper cleanup proof was not finalized', condition='application_cleanup_pending')
         if not pending:return []
         for record in records:
             if record.get('application_helper') is not True or qualification(record) or 'qualification_preworker_cleanup' in record:continue
+            import application_owner_cleanup
+            if application_owner_cleanup.validate_accepted(self, record):continue
             if record.get('runroot') is None or _application_stage_pending(record['runroot']):
                 raise RegistryError('Application contexts or credential cleanup remain pending; generic recovery is prohibited',
                                     condition='application_cleanup_pending')
@@ -815,6 +832,8 @@ class Registry:
 
     @diagnostics.scoped('terminal_close')
     def close(self):
+        import application_owner_cleanup
+        application_owner_cleanup.finalize_current(self)
         current=[r for r in self.load() if r['generation']==self.generation and r['status']!='released']
         for root in {r['runroot'] for r in current if r['runroot']}:
             for receipt in (Path(root)/'stages').glob('*/application-credentials.json'):
