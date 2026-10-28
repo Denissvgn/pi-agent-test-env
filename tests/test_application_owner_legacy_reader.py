@@ -94,6 +94,21 @@ class LegacyReaderTests(unittest.TestCase):
         self.assertEqual(family['emitter_sha256'], hashlib.sha256(EMISSION_SOURCE).hexdigest())
         self.assertEqual(family['supervisor_sha256'], hashlib.sha256(SUPERVISOR_SOURCE).hexdigest())
 
+    def test_replaced_parent_is_not_the_same_reference_even_with_identical_bytes(self):
+        parent = self.root / 'proof'; parent.mkdir(mode=0o700)
+        target = parent / 'source.py'; target.write_bytes(b'source bytes'); target.chmod(0o600)
+        info = target.stat(); ref = {'path': str(target), 'sha256': hashlib.sha256(target.read_bytes()).hexdigest()}
+        original = os.fstat; replaced = [False]
+        def replace(fd):
+            observed = original(fd)
+            if (observed.st_dev, observed.st_ino) == (info.st_dev, info.st_ino) and not replaced[0]:
+                parent.rename(self.root / 'moved-proof'); parent.mkdir(mode=0o700)
+                target.write_bytes(b'source bytes'); target.chmod(0o600); replaced[0] = True
+            return observed
+        with mock.patch.object(os, 'fstat', side_effect=replace):
+            with self.assertRaises(cleanup.ownership.RegistryError):cleanup.Reader().reference_bytes(ref)
+        self.assertTrue(replaced[0])
+
 
 class LegacyVersionTests(LegacyContractTests):
     def test_unknown_fields_and_bool_versions_reject_at_each_new_boundary(self):

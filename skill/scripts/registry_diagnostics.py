@@ -17,6 +17,7 @@ PHASES = frozenset({
     'writer_inspection', 'writer_termination', 'persist_absent', 'network_cleanup',
     'sensitive_recovery', 'private_store_cleanup', 'persist_release',
     'registry_write', 'terminal_close', 'lease_observation', 'recovery_receipt',
+    'owner_legacy_validation', 'owner_legacy_scope', 'owner_legacy_publication', 'owner_legacy_replay',
 })
 CONDITIONS = frozenset({
     'validation_failed', 'filesystem_operation_failed', 'command_timeout',
@@ -29,6 +30,7 @@ CONDITIONS = frozenset({
     'sensitive_cleanup_pending', 'sensitive_identity_mismatch',
     'network_cleanup_failed', 'lease_changed',
     'owner_writer_pending', 'owner_scope_unsupported', 'owner_discard_required', 'owner_identity_required',
+    'owner_legacy_unsupported', 'owner_legacy_incomplete', 'owner_proof_publication_incomplete',
 })
 OPERATIONS = frozenset({
     'validate', 'directory_create', 'inventory_read', 'record_read', 'proof_read',

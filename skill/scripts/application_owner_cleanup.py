@@ -6,7 +6,9 @@ Unknown historical evidence formats require an owner-side adapter; they are not
 guessed from exception strings, PID absence or qualification classifications.
 """
 import hashlib
+import contextlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -83,10 +85,22 @@ def pairs(items):
 
 class Reader:
     def __init__(self):
-        self.references = {}; self.bytes = 0; self.private_paths = set()
+        self.references = {}; self.bytes = 0; self.private_paths = set(); self._scopes = []
+
+    @contextlib.contextmanager
+    def custody_scope(self):
+        """Track consulted evidence without resetting the shared graph budget."""
+        selected = set(); self._scopes.append(selected)
+        try:yield
+        finally:require(self._scopes.pop() is selected)
+
+    def scope_references(self):
+        require(bool(self._scopes))
+        return [self.references[name] for name in sorted(self._scopes[-1])]
 
     @diagnostics.observed('proof_read')
-    def read(self, value, *, private=False, parent_fd=None):
+    def read_bytes(self, value, *, private=False, parent_fd=None):
+        """Read one stable file; JSON and source bytes share custody and limits."""
         value = path(str(value))
         if private:self.private_paths.add(str(value))
         private = str(value) in self.private_paths
@@ -100,26 +114,54 @@ class Reader:
                 require(stat.S_ISREG(before.st_mode) and before.st_uid == os.getuid() and before.st_nlink == 1
                         and not stat.S_IMODE(before.st_mode) & (0o077 if private else 0o022)
                         and before.st_size <= MAX_BYTES, 'unsafe_record')
+                if str(value) not in self.references:
+                    require(len(self.references) < MAX_REFERENCES
+                            and self.bytes + before.st_size <= MAX_AGGREGATE_BYTES, 'inventory_unbounded')
                 body = stream.read(MAX_BYTES + 1); after = os.fstat(stream.fileno())
                 named = os.stat(value.name, dir_fd=parent, follow_symlinks=False)
                 signature = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns, s.st_nlink)
                 require(signature(before) == signature(after) == signature(named) and len(body) == before.st_size)
+            held = os.fstat(parent)
+            require(held.st_uid == os.getuid() and not stat.S_IMODE(held.st_mode) & (0o077 if private else 0o022),
+                    'unsafe_path')
+            current_parent = directory(value.parent)
+            try:require(identity(os.fstat(current_parent)) == identity(held), 'unsafe_path')
+            finally:os.close(current_parent)
             ref = {'path': str(value), 'sha256': hashlib.sha256(body).hexdigest()}
             if str(value) not in self.references:
                 self.bytes += len(body)
                 require(len(self.references) < MAX_REFERENCES and self.bytes <= MAX_AGGREGATE_BYTES, 'inventory_unbounded')
             else:require(self.references[str(value)] == ref)
             self.references[str(value)] = ref
-            result = json.loads(body, object_pairs_hook=pairs,
-                                parse_constant=lambda unused: require(False))
-            require(type(result) is dict)
-            return result, ref
+            for scope in self._scopes:scope.add(str(value))
+            return body, ref
         finally:os.close(parent)
 
-    def reference(self, ref):
+    @diagnostics.observed('proof_read')
+    def read(self, value, *, private=False, parent_fd=None):
+        body, ref = self.read_bytes(value, private=private, parent_fd=parent_fd)
+        def number(value):
+            result = float(value); require(math.isfinite(result), 'malformed_record')
+            return result
+        try:
+            result = json.loads(body, object_pairs_hook=pairs, parse_float=number,
+                                parse_constant=lambda unused: require(False, 'malformed_record'))
+        except ownership.RegistryError:raise
+        except (ValueError, UnicodeError, RecursionError, OverflowError):
+            require(False, 'malformed_record')
+        require(type(result) is dict)
+        return result, ref
+
+    def reference(self, ref, *, private=False):
         exact(ref, {'path', 'sha256'})
         require(type(ref['sha256']) is str and re.fullmatch('[a-f0-9]{64}', ref['sha256']) is not None)
-        result, observed = self.read(ref['path']); require(observed == ref)
+        result, observed = self.read(ref['path'], private=private); require(observed == ref)
+        return result
+
+    def reference_bytes(self, ref, *, private=False):
+        exact(ref, {'path', 'sha256'})
+        require(type(ref['sha256']) is str and re.fullmatch('[a-f0-9]{64}', ref['sha256']) is not None)
+        result, observed = self.read_bytes(ref['path'], private=private); require(observed == ref)
         return result
 
 
