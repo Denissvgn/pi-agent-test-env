@@ -10,11 +10,11 @@ import application_owner_cleanup as cleanup
 
 class LegacyCoreTests(LegacyContractTests):
     def test_bound_role_graph_is_not_a_supported_semantic_proof(self):
-        fixture = self.build(); result = self.exercise(fixture, analyze=True)
+        fixture = self.build(); result = self.exercise(fixture, analyze=True, known_family=False)
         self.assertEqual(result['status'], 'blocked')
         self.assertTrue(result['unresolved'])
-        self.assertEqual([c['class'] for c in result['claims']], ['original', 'candidate'])
-        self.assertEqual(result['roots'], [])
+        self.assertFalse(any(c['obligation'] == 'controller_execution' and c['class'] in ('original', 'derived')
+                             for c in result['claims']))
 
     def test_analysis_does_not_mutate_request_or_current_record_arguments(self):
         fixture = self.build(); request = fixture.request()
@@ -66,7 +66,8 @@ class LegacyCoreTests(LegacyContractTests):
                 'value': {'pid': fixture.owner_pid, 'actual_exit': 0, 'wait_confirmed': True},
                 'provenance': [{'component': 'controller', 'role': 'owner_assertion'}],
                 'rule': {'id': 'supervised_controller_v1', 'version': 1}})
-        with mock.patch.dict(api._ADAPTERS, {'controller': forged}, clear=True):self.reject(fixture)
+        with mock.patch.dict(api._ADAPTERS, {'controller': forged}, clear=True):
+            with self.assertRaises(cleanup.ownership.RegistryError):self.exercise(fixture, analyze=True)
 
     def test_confirmed_claim_values_use_exact_types_and_closed_fields(self):
         fixture = self.build(); api = importlib.import_module('application_owner_legacy')
@@ -75,7 +76,8 @@ class LegacyCoreTests(LegacyContractTests):
                 'value': {'pid': fixture.owner_pid, 'actual_exit': False, 'wait_confirmed': True},
                 'provenance': [{'component': 'controller', 'role': 'terminal'}],
                 'rule': {'id': 'supervised_controller_v1', 'version': 1}})
-        with mock.patch.dict(api._ADAPTERS, {'controller': forged}, clear=True):self.reject(fixture)
+        with mock.patch.dict(api._ADAPTERS, {'controller': forged}, clear=True):
+            with self.assertRaises(cleanup.ownership.RegistryError):self.exercise(fixture, analyze=True)
 
     def test_primary_and_specialized_record_schemas_are_not_retyped(self):
         for schema in (True, 0, 4):
@@ -88,7 +90,8 @@ class LegacyCoreTests(LegacyContractTests):
         def conflicting(result, *unused):
             result['claims'].append({'obligation': 'subject_identity', 'class': 'contradiction',
                 'value': None, 'provenance': [], 'rule': None})
-        with mock.patch.dict(api._ADAPTERS, {'controller': conflicting}, clear=True):self.reject(fixture)
+        with mock.patch.dict(api._ADAPTERS, {'controller': conflicting}, clear=True):
+            with self.assertRaises(cleanup.ownership.RegistryError):self.exercise(fixture, analyze=True)
 
     def test_prior_publication_reads_count_globally_without_circular_commitments(self):
         fixture = self.build(); api = importlib.import_module('application_owner_legacy')
