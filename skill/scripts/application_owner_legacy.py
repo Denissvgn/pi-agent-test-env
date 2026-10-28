@@ -63,7 +63,12 @@ def _root(*args):
     return validate_root(*args)
 
 
-_ADAPTERS = {'controller': _controller, 'launchers': _launchers, 'root': _root}
+def _namespace(*args):
+    from application_owner_legacy_namespace import validate_namespace
+    return validate_namespace(*args)
+
+
+_ADAPTERS = {'controller': _controller, 'launchers': _launchers, 'root': _root, 'namespace': _namespace}
 
 
 def require(value, condition='cleanup_proof_invalid'):

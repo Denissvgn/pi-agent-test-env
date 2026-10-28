@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import shutil
 import uuid
+from unittest import mock
 
 from tests.test_application_owner_legacy_support import LegacyContractTests
 from tests import test_application_owner_legacy_launchers as launcher_fixtures
@@ -11,6 +12,11 @@ import application_owner_cleanup as cleanup
 
 
 class LegacyRootTests(LegacyContractTests):
+    def exercise(self, *args, **kwargs):
+        api = __import__('application_owner_legacy')
+        selected = {key: value for key, value in api._ADAPTERS.items() if key != 'namespace'}
+        with mock.patch.dict(api._ADAPTERS, selected, clear=True):return super().exercise(*args, **kwargs)
+
     def artifact(self, name='artifact'):
         return launcher_fixtures.LegacyLauncherTests.artifact(self, name)
 

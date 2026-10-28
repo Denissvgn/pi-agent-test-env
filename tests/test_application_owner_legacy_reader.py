@@ -86,6 +86,12 @@ class LegacyReaderTests(unittest.TestCase):
         with mock.patch.object(cleanup, 'MAX_BYTES', 3):
             with self.assertRaises(cleanup.ownership.RegistryError):cleanup.Reader().reference_bytes(ref)
 
+    def test_role_specific_limit_only_tightens_the_shared_file_ceiling(self):
+        ref = self.put('bounded.json',b'{"schema":1}')
+        reader = cleanup.Reader()
+        with self.assertRaises(cleanup.ownership.RegistryError):reader.read_bytes(ref['path'],maximum=3)
+        with self.assertRaises(cleanup.ownership.RegistryError):reader.read_bytes(ref['path'],maximum=cleanup.MAX_BYTES+1)
+
     def test_fixed_reference_source_pins_do_not_depend_on_ast_serialization(self):
         from tests.test_application_owner_legacy_support import AcceptanceFixture
         from tests.test_application_owner_legacy_fixtures import CONTROLLER_SOURCE, EMISSION_SOURCE, SUPERVISOR_SOURCE

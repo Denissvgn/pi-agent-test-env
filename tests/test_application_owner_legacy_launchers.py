@@ -3,6 +3,7 @@ import copy
 import importlib
 import uuid
 from pathlib import Path
+from unittest import mock
 
 from tests.test_application_owner_legacy_support import LegacyContractTests
 from tests import test_application_owner_legacy_controller as controller_fixtures
@@ -29,6 +30,11 @@ def artifact_base_command(fixture, uid=0, gid=0):
 
 
 class LegacyLauncherTests(LegacyContractTests):
+    def exercise(self, *args, **kwargs):
+        api = importlib.import_module('application_owner_legacy')
+        selected = {key: value for key, value in api._ADAPTERS.items() if key != 'namespace'}
+        with mock.patch.dict(api._ADAPTERS, selected, clear=True):return super().exercise(*args, **kwargs)
+
     def artifact(self, name='artifact'):
         fixture = controller_fixtures.LegacyControllerTests.artifact(self, name)
         command = artifact_base_command(fixture)

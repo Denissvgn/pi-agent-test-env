@@ -187,13 +187,16 @@ def _qualification_cleanup_payload(record,value):
 
 @diagnostics.scoped('qualification_service_cleanup', 'cleanup_proof_invalid')
 @diagnostics.observed('proof_read')
-def validate_qualification_service_cleanup(record,reference=None):
+def validate_qualification_service_cleanup(record,reference=None,*,reader=None):
     """Read a closed owner receipt; never infer service cleanup from agent files."""
     fd=parent=None
     try:
         if type(record) is not dict:raise RegistryError('Invalid qualification service record')
         if record.get('status') not in ('absent','released'):raise RegistryError('Qualification service is not absent')
         reference=record.get('qualification_service_cleanup') if reference is None else reference
+        if reader is not None:
+            value=_qualification_reference(reference,private=True,reader=reader,limit=65536)
+            return _qualification_cleanup_payload(record,value)
         if (type(reference) is not dict or set(reference)!={'path','sha256'} or type(reference['sha256']) is not str
                 or re.fullmatch(r'[a-f0-9]{64}',reference['sha256']) is None):raise RegistryError('Missing qualification cleanup reference')
         path=_qualification_path(reference['path']);parent=_qualification_directory(path.parent);info=os.fstat(parent)
@@ -250,10 +253,20 @@ def write_qualification_service_cleanup(record,path,*,private_identity,physical_
 
 
 @diagnostics.observed('proof_read')
-def _qualification_reference(reference,private=False,*,_current=False):
+def _qualification_reference(reference,private=False,*,_current=False,reader=None,limit=None):
     if (type(reference) is not dict or set(reference)!={'path','sha256'} or type(reference['sha256']) is not str
             or re.fullmatch(r'[a-f0-9]{64}',reference['sha256']) is None) and not (_current and type(reference) is dict and set(reference)=={'path','sha256'} and reference['sha256'] is None):raise RegistryError('Invalid qualification evidence reference')
     maximum=262144 if private else 4194304
+    if limit is not None:
+        if type(limit) is not int or not 0<=limit<=maximum:raise RegistryError('Invalid qualification evidence bound')
+        maximum=limit
+    if reader is not None:
+        path=_qualification_path(reference['path'])
+        body,observed=reader.read_bytes(path,private=private,maximum=maximum)
+        if len(body)>maximum or reference['sha256'] is not None and observed!=reference:
+            raise RegistryError('Qualification evidence changed or exceeds its original bound')
+        value,unused=reader.read(path,private=private)
+        return value
     path=_qualification_path(reference['path']);parent=_qualification_directory(path.parent);fd=None
     try:
         info=os.fstat(parent)
@@ -317,7 +330,7 @@ def _preworker_fd(value,*,removed=False):
             or removed and (value['removed'] is not True or not _qualification_absent(value['path']))):raise RegistryError('Invalid qualification preworker FD evidence')
 
 
-def _preworker_control(value,descriptor,segment):
+def _preworker_control(value,descriptor,segment,*,reader=None):
     _preworker_exact(value,{'path','device','inode','retained_files','directories','private_contexts_absent','all_parent_authorities_scanned'})
     _preworker_fd({k:value[k] for k in ('path','device','inode')})
     if value['path']!=descriptor['control'] or value['private_contexts_absent'] is not True or value['all_parent_authorities_scanned'] is not True:
@@ -341,8 +354,11 @@ def _preworker_control(value,descriptor,segment):
                 else:
                     if relative not in ('task.json','endpoint.json','stage.json') or not stat.S_ISREG(info.st_mode) or info.st_nlink!=1 or info.st_size>4194304:
                         raise RegistryError('Unexpected qualification preworker control file')
-                    filefd=os.open(name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=folder)
-                    with os.fdopen(filefd,'rb') as stream:body=stream.read(4194305)
+                    if reader is not None:
+                        body,unused=reader.read_bytes(Path(value['path'])/relative)
+                    else:
+                        filefd=os.open(name,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=folder)
+                        with os.fdopen(filefd,'rb') as stream:body=stream.read(4194305)
                     if len(body)>4194304:raise RegistryError('Unbounded qualification preworker controls')
                     files[relative]={'path':relative,'sha256':hashlib.sha256(body).hexdigest(),'bytes':len(body)}
         inventory(fd)
@@ -352,10 +368,15 @@ def _preworker_control(value,descriptor,segment):
             if type(item['bytes']) is not int or not 0<=item['bytes']<=4194304:raise RegistryError('Invalid retained qualification metadata size')
         if set(files)!={'task.json','endpoint.json','stage.json'} or type(value['retained_files']) is not list or value['retained_files']!=[files[k] for k in sorted(files)]:raise RegistryError('Qualification preworker retained inputs changed')
         if type(value['directories']) is not list or value['directories']!=sorted(directories) or 'segments/'+segment not in directories:raise RegistryError('Qualification preworker contexts changed')
+        if reader is not None:
+            named=_qualification_directory(value['path'])
+            try:
+                if (os.fstat(named).st_dev,os.fstat(named).st_ino)!=(st.st_dev,st.st_ino):raise RegistryError('Qualification preworker control directory changed')
+            finally:os.close(named)
     finally:os.close(fd)
 
 
-def _preworker_payload(record,value,*,historical_replay=False):
+def _preworker_payload(record,value,*,historical_replay=False,reader=None):
     if type(historical_replay) is not bool or historical_replay and record.get('status')!='released':
         raise RegistryError('Historical qualification cleanup requires a released record')
     identity=_preworker_identity(record)
@@ -373,7 +394,7 @@ def _preworker_payload(record,value,*,historical_replay=False):
         roots.add(str(root))
         for key,relative in (('manifest','manifest.json'),('state','state.json'),('ledger','launch-ledger/ledger.json')):
             if entry[key].get('path')!=str(root/relative):raise RegistryError('Qualification preworker evidence rerooted')
-        manifest=_qualification_reference(entry['manifest']);state=_qualification_reference(entry['state']);ledger=_qualification_reference(entry['ledger'])
+        manifest=_qualification_reference(entry['manifest'],reader=reader);state=_qualification_reference(entry['state'],reader=reader);ledger=_qualification_reference(entry['ledger'],reader=reader)
         if (manifest.get('document_type')!='application_client_qualification' or manifest.get('prepared_root')!=str(root) or len(manifest.get('cells',[]))!=28
                 or state.get('phase')!='blocked' or ledger.get('poisoned') is not True or type(ledger.get('launches')) is not list
                 or len(ledger['launches'])!=(7 if index==0 else 12)):raise RegistryError('Invalid qualification preworker frozen campaign')
@@ -392,9 +413,9 @@ def _preworker_payload(record,value,*,historical_replay=False):
     runroot=Path(record['runroot']);expected={'descriptor':runroot/'stages'/stage['stage_id']/'descriptor.json','state':runroot/'stages'/stage['stage_id']/'state.json','result':runroot/'result.json'}
     for key,path in expected.items():
         if stage[key].get('path')!=str(path):raise RegistryError('Qualification preworker stage rerooted')
-    descriptor=_qualification_reference(stage['descriptor']);stage_state=_qualification_reference(stage['state']);result=_qualification_reference(stage['result'])
+    descriptor=_qualification_reference(stage['descriptor'],reader=reader);stage_state=_qualification_reference(stage['state'],reader=reader);result=_qualification_reference(stage['result'],reader=reader)
     if stage['process'].get('path')!=str(runroot/descriptor.get('label','')/'process.json'):raise RegistryError('Qualification preworker process rerooted')
-    process=_qualification_reference(stage['process'])
+    process=_qualification_reference(stage['process'],reader=reader)
     if (descriptor.get('kind')!='agent' or descriptor.get('stage_id')!=stage['stage_id'] or descriptor.get('label')!='agent-1-participant'
             or stage_state.get('status')!='finalized' or stage_state.get('cleanup_confirmed') is not False or stage_state.get('segment_id')!=stage['segment_id']
             or result.get('sealed') is not True or result.get('status')!='FAIL' or result.get('agents')!=[] or result.get('invocation')!={'status':'invalid','attempted_stages':1}
@@ -404,7 +425,7 @@ def _preworker_payload(record,value,*,historical_replay=False):
             or any(result.get(k)!=active.get(k) or descriptor.get(k)!=active.get(k) or record['binding'].get(k)!=active.get(k) for k in ('run_id','attempt_id'))):raise RegistryError('Qualification preworker original failure changed')
     controller=value['controller'];_preworker_exact(controller,{'pid','parent_terminal','original_invocation','pid_absence_observed','provenance'})
     if controller['pid']!=active['pid'] or type(controller['pid']) is not int or controller['pid_absence_observed'] is not True or controller['provenance']!='terminal_parent_and_pid_absence':raise RegistryError('Qualification preworker controller uncertain')
-    terminal=_qualification_reference(controller['parent_terminal']);invocation=_qualification_reference(controller['original_invocation']);argv=invocation.get('argv')
+    terminal=_qualification_reference(controller['parent_terminal'],reader=reader);invocation=_qualification_reference(controller['original_invocation'],reader=reader);argv=invocation.get('argv')
     if (type(terminal.get('actual_exit')) is not int or terminal['actual_exit']!=2 or type(argv) is not list or len(argv)!=9
             or argv[2:8]!=['_cell-run','--root',lineage[-1]['root'],'--cell-id',active['id'],'--private-envelope']
             or terminal.get('argv')!=['python3','tools/qualification/application_client.py','collect','--root',lineage[-1]['root'],'--group','N02','--release','0.87.1']
@@ -423,7 +444,7 @@ def _preworker_payload(record,value,*,historical_replay=False):
     if private['helper']!={'source':record['private_store'],'provenance':'prior_owned_cleanup','removed':True,'container_id_provenance':'original_guard_ledger'} or private['helper']['removed'] is not True or not _qualification_absent(record['private_store']):raise RegistryError('Qualification preworker helper cleanup uncertain')
     _preworker_fd(private['parent_bootstrap'],removed=True)
     if str(Path(argv[-1]).parent)!=private['parent_bootstrap']['path'] or Path(argv[-1]).name!='initial.json' or not Path(private['parent_bootstrap']['path']).name.startswith('pi-qualification-cell-'):raise RegistryError('Qualification preworker parent authority rerooted')
-    _preworker_control(private['control'],descriptor,stage['segment_id'])
+    _preworker_control(private['control'],descriptor,stage['segment_id'],reader=reader)
     workspace=private['workspace'];_preworker_exact(workspace,{'path','device','inode','status','provenance','all_parent_authorities_scanned'})
     _preworker_fd({k:workspace[k] for k in ('path','device','inode')})
     if (workspace['path']!=descriptor['workspace'] or [workspace['device'],workspace['inode']]!=descriptor.get('workspace_identity')
@@ -437,14 +458,14 @@ def _preworker_payload(record,value,*,historical_replay=False):
     for row in allrows:
         proof=rows.get(row['launch_id']);_preworker_exact(proof,{'registry','generation','launch_id','container_id','physical_absence_confirmed','private_cleanup_confirmed'})
         if (any(proof[k]!=row[k] for k in ('registry','generation','launch_id','container_id')) or proof['physical_absence_confirmed'] is not True or proof['private_cleanup_confirmed'] is not True):raise RegistryError('Qualification preworker launch cleanup uncertain')
-        current=_qualification_reference({'path':str(registry_root/(row['launch_id']+'.json')),'sha256':None},_current=True)
+        current=_qualification_reference({'path':str(registry_root/(row['launch_id']+'.json')),'sha256':None},_current=True,reader=reader)
         immutable={k:v for k,v in current.items() if k not in ('status','container_id','qualification_service_cleanup','qualification_preworker_cleanup')}
         if (current.get('status') not in ('absent','released') or current.get('container_id') not in (None,row['container_id']) or current.get('daemon')!=ledger['daemon']
                 or hashlib.sha256(_qualification_canonical(immutable)).hexdigest()!=row['intent_sha256']):raise RegistryError('Qualification preworker current ownership changed')
         if row['role'] in ('fixture','scripted-inference'):
             reference=current.get('qualification_service_cleanup')
             if reference not in service_refs:raise RegistryError('Qualification preworker service cleanup missing')
-            validate_qualification_service_cleanup(current,reference);used.append(reference)
+            validate_qualification_service_cleanup(current,reference,reader=reader);used.append(reference)
         elif row['role']=='application-helper':
             helper_rows.append(row)
             if row['launch_id']!=record['launch_id'] or row['private_cleanup'] is not True or row['container_id']!=record['container_id'] or row['cell']!=active['id']:raise RegistryError('Qualification preworker helper history changed')
@@ -456,7 +477,7 @@ def _preworker_payload(record,value,*,historical_replay=False):
 
 @diagnostics.scoped('qualification_preworker_cleanup', 'cleanup_proof_invalid')
 @diagnostics.observed('proof_read')
-def validate_qualification_preworker_cleanup(record,reference=None,*,historical_replay=False):
+def validate_qualification_preworker_cleanup(record,reference=None,*,historical_replay=False,reader=None):
     """Validate the full owner proof; replay only a released, attached receipt.
 
     Historical replay avoids probing a reusable PID. It still verifies the
@@ -468,7 +489,7 @@ def validate_qualification_preworker_cleanup(record,reference=None,*,historical_
         if (type(historical_replay) is not bool or historical_replay and
                 (record.get('status')!='released' or reference!=record.get('qualification_preworker_cleanup'))):
             raise RegistryError('Historical qualification cleanup requires the attached released receipt')
-        return _preworker_payload(record,_qualification_reference(reference,private=True),historical_replay=historical_replay)
+        return _preworker_payload(record,_qualification_reference(reference,private=True,reader=reader),historical_replay=historical_replay,reader=reader)
     except (OSError,ValueError,TypeError,KeyError,AttributeError,IndexError) as exc:raise RegistryError('Qualification preworker cleanup cannot be established', cause=exc) from None
 
 

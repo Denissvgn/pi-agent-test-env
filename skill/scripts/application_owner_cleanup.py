@@ -99,9 +99,11 @@ class Reader:
         return [self.references[name] for name in sorted(self._scopes[-1])]
 
     @diagnostics.observed('proof_read')
-    def read_bytes(self, value, *, private=False, parent_fd=None, private_parent=None):
+    def read_bytes(self, value, *, private=False, parent_fd=None, private_parent=None, maximum=None):
         """Read one stable file; JSON and source bytes share custody and limits."""
         value = path(str(value))
+        limit = MAX_BYTES if maximum is None else maximum
+        require(type(limit) is int and 0 <= limit <= MAX_BYTES, 'inventory_unbounded')
         require(type(private) is bool and (private_parent is None or type(private_parent) is bool))
         requested_parent = private if private_parent is None else private_parent
         if private:self.private_paths.add(str(value))
@@ -117,11 +119,11 @@ class Reader:
                 before = os.fstat(stream.fileno())
                 require(stat.S_ISREG(before.st_mode) and before.st_uid == os.getuid() and before.st_nlink == 1
                         and not stat.S_IMODE(before.st_mode) & (0o077 if private else 0o022)
-                        and before.st_size <= MAX_BYTES, 'unsafe_record')
+                        and before.st_size <= limit, 'unsafe_record')
                 if str(value) not in self.references:
                     require(len(self.references) < MAX_REFERENCES
                             and self.bytes + before.st_size <= MAX_AGGREGATE_BYTES, 'inventory_unbounded')
-                body = stream.read(MAX_BYTES + 1); after = os.fstat(stream.fileno())
+                body = stream.read(limit + 1); after = os.fstat(stream.fileno())
                 named = os.stat(value.name, dir_fd=parent, follow_symlinks=False)
                 signature = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns, s.st_nlink)
                 require(signature(before) == signature(after) == signature(named) and len(body) == before.st_size)
