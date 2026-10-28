@@ -559,16 +559,21 @@ def _writers_absent(registry, records):
     require(final.returncode == 0 and all(r['daemon'] == final.stdout.strip() for r in records), 'daemon_changed')
 
 
-def _purge_names(fd, count):
+def _bounded_names(fd, maximum, count=None):
     """Bound directory enumeration before retaining names in memory."""
+    require(type(maximum) is int and 0 <= maximum <= MAX_ENTRIES, 'inventory_unbounded')
+    count = [0] if count is None else count
     names = []; scan = os.open('.', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
     try:
         with os.scandir(scan) as entries:
             for entry in entries:
-                count[0] += 1; require(count[0] <= MAX_ENTRIES, 'inventory_unbounded')
+                count[0] += 1; require(count[0] <= maximum, 'inventory_unbounded')
                 names.append(entry.name)
     finally:os.close(scan)
     return sorted(names)
+
+
+def _purge_names(fd, count):return _bounded_names(fd, MAX_ENTRIES, count)
 
 
 def _purge_signature(info):
@@ -586,9 +591,11 @@ def _purge(observation, *, parent_fd=None, root_fd=None, checkpoint=None):
         try:require(identity(os.fstat(named)) == identity(os.fstat(parent)), 'sensitive_identity_mismatch')
         finally:os.close(named)
         require(identity(os.stat(value.name, dir_fd=parent, follow_symlinks=False)) == observation['identity'], 'sensitive_identity_mismatch')
-        for ancestor, name, child, expected in chain:
-            require(identity(os.fstat(child)) == expected
-                    and identity(os.stat(name, dir_fd=ancestor, follow_symlinks=False)) == expected, 'sensitive_identity_mismatch')
+        for ancestor, name, child, expected, mode, uid in chain:
+            held = os.fstat(child); named = os.stat(name, dir_fd=ancestor, follow_symlinks=False)
+            require(identity(held) == expected == identity(named), 'sensitive_identity_mismatch')
+            require(held.st_mode == named.st_mode == mode and held.st_uid == named.st_uid == uid
+                    and uid == os.getuid() and not stat.S_IMODE(mode) & 0o022, 'unsafe_path')
         if checkpoint is not None:checkpoint(parts, info, mutating)
     def empty(fd, prefix=()):
         names = _purge_names(fd, count)
@@ -601,7 +608,7 @@ def _purge(observation, *, parent_fd=None, root_fd=None, checkpoint=None):
                 child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
                 try:
                     require(identity(os.fstat(child)) == identity(info), 'sensitive_identity_mismatch')
-                    chain.append((fd, name, child, identity(info))); verify(parts, info)
+                    chain.append((fd, name, child, identity(info), info.st_mode, info.st_uid)); verify(parts, info)
                     empty(child, parts)
                     require(identity(os.stat(name, dir_fd=fd, follow_symlinks=False)) == identity(info), 'sensitive_identity_mismatch')
                     verify(parts, os.fstat(child), True)

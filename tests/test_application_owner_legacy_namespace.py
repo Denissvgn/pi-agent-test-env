@@ -210,14 +210,14 @@ class LegacyNamespaceTests(LegacyContractTests):
         folder = self.root / 'observed'; folder.mkdir(mode=0o700)
         leaf = folder / 'metadata.json'; leaf.write_bytes(b'{"schema":1}'); leaf.chmod(0o600)
         known = [{'path':str(leaf),'sha256':hashlib.sha256(leaf.read_bytes()).hexdigest()}]
-        identity = folder.stat(); original = os.listdir; changed = [False]
-        def replace(fd):
-            result = original(fd)
+        identity = folder.stat(); original = cleanup._bounded_names; changed = [False]
+        def replace(fd,*args,**kwargs):
+            result = original(fd,*args,**kwargs)
             info = os.fstat(fd)
             if (info.st_dev,info.st_ino)==(identity.st_dev,identity.st_ino) and not changed[0]:
                 folder.rename(self.root / 'saved-observed'); folder.mkdir(mode=0o700); changed[0] = True
             return result
-        with mock.patch.object(os,'listdir',side_effect=replace):
+        with mock.patch.object(cleanup,'_bounded_names',side_effect=replace):
             with self.assertRaises(cleanup.ownership.RegistryError):api._scan(cleanup.Reader(),folder,[],known)
         self.assertTrue(changed[0])
 

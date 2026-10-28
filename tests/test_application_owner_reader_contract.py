@@ -73,6 +73,9 @@ class ReaderContractTests(unittest.TestCase):
                 case.fixture=AcceptanceFixture(case.root/'diagnostic',scope='diagnostic_disposable',
                     registry_id=case.owner.registry_id,generation=case.owner.generation)
                 case.owner.write(case.fixture.record)
+            if vector['mutation']=='contradict_original_absence':
+                case.fixture.rewrite('diagnostic-terminal.json',lambda body:body.update(disposable_root_removed=True))
+                shutil.rmtree(case.fixture.private)
             legacy=importlib.import_module('application_owner_legacy')
             with mock.patch.dict(legacy.SOURCE_FAMILIES,case.fixture.family(),clear=True):
                 terminal=case.graph();mutation=vector['mutation'];stack=contextlib.ExitStack()
@@ -98,7 +101,7 @@ class ReaderContractTests(unittest.TestCase):
                     elif mutation=='unknown_index_schema':case.put(index_path,{**case.index,'schema':999})
                     elif mutation=='mixed_selection_schema':
                         target=cleanup._selection(case.owner,case.fixture.record);value=json.loads(target.read_bytes());value['schema']=1;case.put(target,value)
-                    elif mutation in ('duplicate_related','missing_related','extra_related','unknown_rule'):
+                    elif mutation in ('duplicate_related','missing_related','extra_related','unknown_rule','contradict_original_absence'):
                         intent_path=Path(terminal['intent']['path']);intent=json.loads(intent_path.read_bytes())
                         if mutation=='unknown_rule':
                             target=Path(case.fixture.refs['legacy-evidence.json']['path']);value=json.loads(target.read_bytes())
@@ -107,6 +110,9 @@ class ReaderContractTests(unittest.TestCase):
                                 body['request']['evidence']=reference
                                 body['metadata']=[reference if item['path']==reference['path'] else item for item in body['metadata']]
                             terminal['evidence_sha256']=reference['sha256']
+                        elif mutation=='contradict_original_absence':
+                            for row in terminal['roots']:row.update(state='present',identity=case.fixture.original_identity)
+                            intent['roots']=terminal['roots']
                         else:
                             subjects=terminal['related_subjects']
                             subjects=[] if mutation=='missing_related' else subjects+subjects if mutation=='duplicate_related' else subjects+[{'launch_id':str(uuid.uuid4()),'identity':'a'*64}]

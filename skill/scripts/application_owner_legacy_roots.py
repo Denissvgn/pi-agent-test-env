@@ -138,4 +138,4 @@ def validate_root(result, components, evidence, request, record, related, reader
     result['roots'] = observations
     result['root_plan'] = {'variant': variant, 'retained_root': str(retained),
         'original_path': str(original_path), 'original_identity': original_identity,
-        'discard_roots': observations}
+        'original_removed': already_removed, 'discard_roots': observations}

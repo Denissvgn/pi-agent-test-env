@@ -99,7 +99,9 @@ variants remain distinct; a campaign parent is never a diagnostic discard root.
 
 Current private scopes must be absent. Preserve pre-effect root observations and
 original custody in intent/terminal/evidence; absence is not a substitute original
-snapshot. Recompute canonical related subjects from current typed records, ignoring
+snapshot. If the original terminal already recorded removal, pre-effect root
+observations must also be absent; a later receipt cannot assert recreation even
+with the same numeric inode. Recompute canonical related subjects from current typed records, ignoring
 only their specified mutable status field. Order is immaterial; duplicates,
 missing or extra subjects deny. Revalidate protected original stage/process/
 credential/result bytes. Later cleanup never repairs failed accounting.

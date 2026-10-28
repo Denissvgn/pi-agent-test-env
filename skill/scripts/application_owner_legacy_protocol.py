@@ -119,6 +119,8 @@ def validate_accepted(registry, record, index, anchor, reader):
     cleanup.require(cleanup._canonical_subjects(receipt['related_subjects']) == [cleanup._resource_subject(row) for row in related])
     custody = next(claim['value'] for claim in plan['claims'] if claim['obligation'] == 'original_root_custody')
     for row in receipt['roots']:
+        if row['path'] == custody['path'] and plan['root_plan']['original_removed']:
+            cleanup.require(row['state'] == 'absent', 'sensitive_identity_mismatch')
         if row['path'] == custody['path'] and row['state'] == 'present':
             cleanup.require(row['identity'] == custody['identity'], 'sensitive_identity_mismatch')
     _outside_output(registry, record, index['receipt'], receipt['intent'], plan)

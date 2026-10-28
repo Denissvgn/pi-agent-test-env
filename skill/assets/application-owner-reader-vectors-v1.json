@@ -298,6 +298,14 @@
       "scope": "owned_host_files_only",
       "mutation": "none",
       "expected": "extension_required"
+    },
+    {
+      "id": "original-removal-cannot-be-recreated-by-receipt",
+      "fixture": "diagnostic",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "contradict_original_absence",
+      "expected": "invalid_proof"
     }
   ]
 }

@@ -131,7 +131,10 @@ class _BoundCleanup:
         cleanup.require(not self.closed, 'cleanup_proof_invalid')
         for name, (fd, expected) in self.held.items():
             named = cleanup.directory(cleanup.path(name))
-            try:cleanup.require(cleanup.identity(os.fstat(named)) == cleanup.identity(os.fstat(fd)) == expected, 'sensitive_identity_mismatch')
+            try:
+                cleanup.require(cleanup.identity(os.fstat(named)) == cleanup.identity(os.fstat(fd)) == expected, 'sensitive_identity_mismatch')
+                if name == str(self.registry.root):
+                    cleanup.require(not stat.S_IMODE(os.fstat(named).st_mode) & 0o077, 'unsafe_path')
             finally:os.close(named)
         for root in self.roots:root.verify()
 

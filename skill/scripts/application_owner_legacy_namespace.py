@@ -50,7 +50,7 @@ def _stage_metadata(reader, root, record, identity):
     try:fd = cleanup.directory(stages)
     except FileNotFoundError:return descriptors, known
     try:
-        names = sorted(os.listdir(fd)); _require(len(names) <= 256, 'inventory_unbounded')
+        names = cleanup._bounded_names(fd, 256)
         for stage_id in names:
             _require(cleanup.controls.valid_id(stage_id))
             path = stages / stage_id / 'descriptor.json'; body, ref = _read(reader, path)
@@ -109,18 +109,18 @@ def _controls(root, descriptors):
     allowed = {stage_id for stage_id, body in descriptors}
     recognized = {folder}
     try:
-        stages = os.listdir(fd); _require(len(stages) <= 256, 'inventory_unbounded')
+        stages = cleanup._bounded_names(fd, 256)
         for name in stages:
             _require(name in allowed)
             recognized.add(folder / name)
             child = cleanup.directory(folder / name)
             try:
-                leaves = os.listdir(child); _require(len(leaves) <= 16, 'inventory_unbounded')
+                leaves = cleanup._bounded_names(child, 16)
                 for leaf in leaves:
                     _require(leaf in ('segments', 'inbox', 'outbox'))
                     recognized.add(folder / name / leaf)
                     queue = cleanup.directory(folder / name / leaf)
-                    try:_require(not os.listdir(queue))
+                    try:_require(not cleanup._bounded_names(queue, 0))
                     finally:os.close(queue)
             finally:os.close(child)
     finally:os.close(fd)
@@ -133,8 +133,7 @@ def _scan(reader, root, discard, known, *, counter=None, allowed_dirs=()):
     count = [0] if counter is None else counter
     allowed_dirs = set(allowed_dirs)
     def walk(fd, path):
-        names = sorted(os.listdir(fd)); count[0] += len(names)
-        _require(count[0] <= cleanup.MAX_ENTRIES, 'inventory_unbounded')
+        names = cleanup._bounded_names(fd, cleanup.MAX_ENTRIES, count)
         for name in names:
             target = path / name
             if target in skipped:continue

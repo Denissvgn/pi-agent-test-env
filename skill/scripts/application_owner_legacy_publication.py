@@ -110,11 +110,25 @@ class _Publisher:
     def __init__(self, registry, reader):
         self.registry = registry; self.reader = reader; self.directories = []; self.output = None
         self.effects = 'none_observed'; self.intent = None; self.invocation = str(uuid.uuid4())
+        self.registry_fd = None; self.registry_identity = None; self.records = None
 
     def mutating(self):self.effects = 'may_have_occurred'
 
+    def bind_registry(self):
+        self.registry_fd = cleanup.directory(self.registry.root)
+        self.registry_identity = cleanup.identity(os.fstat(self.registry_fd))
+        cleanup.require(not stat.S_IMODE(os.fstat(self.registry_fd).st_mode) & 0o077, 'unsafe_path')
+        self.records = copy.deepcopy(native._records(self.registry.load()))
+
     def verify(self, *, full=False, inventory=True):
         native._lease(self.registry)
+        named = cleanup.directory(self.registry.root)
+        try:
+            cleanup.require(cleanup.identity(os.fstat(named)) == cleanup.identity(os.fstat(self.registry_fd))
+                            == self.registry_identity, 'sensitive_identity_mismatch')
+            cleanup.require(not stat.S_IMODE(os.fstat(named).st_mode) & 0o077, 'unsafe_path')
+        finally:os.close(named)
+        if full:cleanup.require(cleanup.canonical(native._records(self.registry.load())) == cleanup.canonical(self.records))
         for directory in self.directories:directory.verify(full=full, inventory=inventory)
 
     def guard(self):self.verify(inventory=False)
@@ -131,6 +145,8 @@ class _Publisher:
 
     def begin(self, operation, output_dir, runner):
         record = operation.observation['record']; plan = operation.observation['plan']
+        cleanup.require(operation.observation['commitment']['directories'][str(self.registry.root)] == self.registry_identity
+                        and cleanup.canonical(operation.observation['commitment']['records']) == cleanup.canonical(self.records))
         target = Path(output_dir).expanduser().absolute()
         for excluded in (cleanup.store_path(self.registry), cleanup._anchor(self.registry, record).parent):
             cleanup.require(not discard._overlap(target.resolve(strict=False), excluded), 'unsafe_path')
@@ -198,6 +214,10 @@ class _Publisher:
             try:directory.close()
             except OSError as error:errors.append(error)
         self.directories.clear()
+        fd = self.registry_fd; self.registry_fd = None
+        if fd is not None:
+            try:os.close(fd)
+            except OSError as error:errors.append(error)
         if errors:raise errors[0]
 
 
@@ -208,6 +228,7 @@ def recover(registry, request, output_dir, *, discard_workspace=False, reader=No
     native._lease(registry); record, unused, unused = protocol._plan(registry, request, reader)
     publisher = _Publisher(registry, reader); primary = None
     try:
+        publisher.bind_registry()
         publisher.unselected(record)
         runner = maintenance._runner_identity()
         with discard._BoundCleanup(registry, request, discard_workspace=True, reader=reader) as operation:

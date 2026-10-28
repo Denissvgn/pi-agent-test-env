@@ -176,7 +176,7 @@ def _artifact_children(result, components, evidence, record, reader):
     # source-created namespace. Inspect names only, never private file payloads.
     fd = cleanup.directory(root)
     try:
-        names = os.listdir(fd); _require(len(names) <= cleanup.MAX_ENTRIES, 'inventory_unbounded')
+        names = cleanup._bounded_names(fd, cleanup.MAX_ENTRIES)
         actual = {name for name in names if re.fullmatch(r'process-[0-9]+-(?:start|terminal)\.json', name)}
         _require(actual == expected_names)
         current = cleanup.directory(root)
