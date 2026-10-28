@@ -451,7 +451,25 @@ def _owned_snapshot(reader, reference, record):
     return snapshot
 
 
+def _request_method(request):
+    require(type(request) is dict and type(request.get('schema')) is int)
+    if request['schema'] == 1:
+        exact(request, REQUEST_FIELDS)
+        return 'retained_terminals'
+    require(request['schema'] == 2, 'owner_legacy_unsupported')
+    import application_owner_legacy_protocol as legacy_protocol
+    legacy_protocol.request_shape(request)
+    return 'legacy_derived_v1'
+
+
 def _prepare(registry, request, *, replay=False, reader=None):
+    if _request_method(request) == 'legacy_derived_v1':
+        import application_owner_legacy_protocol as legacy_protocol
+        return legacy_protocol.prepare(registry, request, reader=reader)
+    return _prepare_retained(registry, request, replay=replay, reader=reader)
+
+
+def _prepare_retained(registry, request, *, replay=False, reader=None):
     exact(request, REQUEST_FIELDS)
     exact(request['subject'], {'registry', 'generation', 'launch_id', 'intent_sha256', 'container_id'})
     require(type(request['schema']) is int and request['schema'] == 1
@@ -581,6 +599,47 @@ def _selection(registry, record):
     return store_path(registry) / 'selected' / (record['launch_id'] + '.json')
 
 
+def _anchor(registry, record):
+    return registry.root.with_name(registry.root.name + '.owner-selected') / (record['launch_id'] + '.json')
+
+
+def _read_anchor(registry, record, reader):
+    try:value, unused = reader.read(_anchor(registry, record), private=True)
+    except FileNotFoundError:
+        require(not os.path.lexists(_anchor(registry, record)))
+        return None
+    return value
+
+
+def _retained_selection(registry, record, reader):
+    """A selected new method cannot be retried through the old native path."""
+    require(_read_anchor(registry, record, reader) is None, 'owner_proof_publication_incomplete')
+    try:fd = directory(store_path(registry))
+    except FileNotFoundError:
+        require(getattr(registry, '_owner_proof_store_identity', None) is None, 'unsafe_path')
+        return
+    parent = None
+    try:
+        require(not stat.S_IMODE(os.fstat(fd).st_mode) & 0o077, 'unsafe_path')
+        _bind_directory(registry, '_owner_proof_store_identity', fd)
+        try:parent = _descendant(fd, ('selected',))
+        except FileNotFoundError:
+            require(getattr(registry, '_owner_selected_identity', None) is None, 'unsafe_path')
+            return
+        _bind_directory(registry, '_owner_selected_identity', parent)
+        try:selection, unused = reader.read(_selection(registry, record), private=True, parent_fd=parent)
+        except FileNotFoundError:require(not os.path.lexists(_selection(registry, record)))
+        else:
+            expected = {'schema': 1, 'document_type': 'application_owner_cleanup_selection', 'subject': subject(record)}
+            require(canonical(selection) == canonical(expected), 'owner_proof_publication_incomplete')
+        named = directory(_selection(registry, record).parent)
+        try:require(identity(os.fstat(named)) == identity(os.fstat(parent)), 'unsafe_path')
+        finally:os.close(named)
+    finally:
+        if parent is not None:os.close(parent)
+        os.close(fd)
+
+
 def _remember_selection(registry, record):
     selected = getattr(registry, '_owner_proof_selected_ids', None)
     if selected is None:
@@ -678,8 +737,10 @@ def _publish_index(registry, record, reference):
 @diagnostics.scoped('application_cleanup', 'cleanup_proof_invalid')
 def validate_accepted(registry, record):
     reader = Reader()
+    anchor = _read_anchor(registry, record, reader)
     try:index, unused = reader.read(_index(registry, record), private=True)
     except FileNotFoundError:
+        require(anchor is None, 'owner_proof_publication_incomplete')
         require(record['launch_id'] not in getattr(registry, '_owner_proof_selected_ids', set()))
         if getattr(registry, '_owner_proof_store_identity', None) is not None:
             bound = directory(store_path(registry))
@@ -698,6 +759,11 @@ def validate_accepted(registry, record):
         require(not stat.S_IMODE(os.fstat(store).st_mode) & 0o077, 'unsafe_path')
         _bind_directory(registry, '_owner_proof_store_identity', store)
     finally:os.close(store)
+    require(type(index) is dict)
+    if type(index.get('schema')) is int and index['schema'] == 2:
+        import application_owner_legacy_protocol as legacy_protocol
+        return legacy_protocol.validate_accepted(registry, record, index, anchor, reader)
+    require(anchor is None, 'owner_proof_publication_incomplete')
     exact(index, {'schema', 'document_type', 'subject', 'receipt'})
     require(type(index['schema']) is int and index['schema'] == 1
             and index['document_type'] == 'application_owner_cleanup_index' and index['subject'] == subject(record))
@@ -773,9 +839,13 @@ def _canonical_subjects(value):
 def recover(registry, request, output_dir, *, discard_workspace=False, reader=None):
     import registry_maintenance as maintenance
     require(discard_workspace is True, 'owner_discard_required')
+    # The new method cannot borrow schema-1 native gates or mutable publication.
+    # Its dedicated native lifecycle must be installed before recovery is enabled.
+    require(_request_method(request) == 'retained_terminals', 'owner_proof_publication_incomplete')
     lease = lease_identity(registry)
     record, related, reader, metadata, roots, physical = _prepare(registry, request, reader=reader)
     require(not os.path.lexists(_index(registry, record)))
+    _retained_selection(registry, record, reader)
     runner = maintenance._runner_identity()
     _no_foreign_holders(registry, record, related, reader, roots)
     _writers_absent(registry, physical)
