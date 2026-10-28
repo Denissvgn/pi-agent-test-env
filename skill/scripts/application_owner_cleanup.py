@@ -1237,6 +1237,8 @@ def add_arguments(sub, default_lock):
         parser = sub.add_parser(name, help='Inspect or clean exact historical application ownership without dispatch')
         parser.add_argument('--lock-file', default=default_lock)
         parser.add_argument('--lock-wait-seconds', type=float, default=0)
+        if name == 'application-owner-inspect':
+            parser.add_argument('--summary', action='store_true', help='Emit closed inspection counts without identifiers')
         if name == 'application-owner-recover':
             parser.add_argument('--request', required=True, help='Owner-only typed custody request with original terminal references')
             parser.add_argument('--output-dir', required=True, help='New private receipt directory outside retained execution paths')
@@ -1251,28 +1253,53 @@ def _owner_docker(argv):
                           env=application_client._docker_environment())
 
 
+def _operation_diagnostic(error):
+    if type(error) not in (ownership.RegistryError, ownership.RegistryCapacityError):
+        error = ownership.RegistryError('Owner operation did not complete', condition='cleanup_proof_invalid', cause=error)
+    return diagnostics.diagnostic(error)
+
+
+@diagnostics.scoped('application_cleanup', 'cleanup_proof_invalid')
 def command(args):
     import registry_maintenance as maintenance
     report = {'schema': 1, 'document_type': 'application_owner_operation', 'status': 'RUNNING',
-              'exit_code': 2, 'admission_authorized': False, 'new_containers': 0, 'participant_stages': 0, 'model_requests': 0}
+              'exit_code': 2, 'admission_authorized': False, 'cleanup_completed': False,
+              'receipt_persistence': 'not_started', 'effects': 'none_observed',
+              'new_containers': 0, 'participant_stages': 0, 'model_requests': 0}
+    safe = args.op != 'application-owner-inspect' or getattr(args, 'summary', False)
     try:
         with maintenance.existing_lease(args.lock_file, args.lock_wait_seconds) as (fd, lease, selected):
             registry = ownership.Registry(Path(str(selected) + '.registry'), command=_owner_docker, create=False); registry.lease_fd = fd
             if args.op == 'application-owner-inspect':
-                report.update(status='OBSERVED', exit_code=0, helpers=inspect_helpers(registry, registry.load()))
+                rows = inspect_helpers(registry, registry.load())
+                report.update(status='OBSERVED', exit_code=0)
+                if getattr(args, 'summary', False):report['summary'] = inspection_summary(rows)
+                else:report['helpers'] = rows
             else:
                 reader = Reader()
                 request, unused = reader.read(args.request, private=True)
+                safe = not (type(request.get('schema')) is int and request['schema'] == 1
+                            and set(request) == REQUEST_FIELDS and request.get('document_type') == 'application_owner_cleanup_request')
                 result = recover(registry, request, args.output_dir, discard_workspace=args.discard_workspace, reader=reader)
+                require(result['status'] == 'CLEANED' and result['cleanup_completed'] is True
+                        and result['receipt_persistence'] == 'confirmed', 'owner_proof_publication_incomplete')
                 # Full paths/terminal witnesses stay in the owner-only receipt.
                 report.update(status=result['status'], exit_code=0,
-                              receipt_persistence=result['receipt_persistence'], effects=result['effects'])
+                              receipt_persistence=result['receipt_persistence'], effects=result['effects'], cleanup_completed=True)
                 if result['method'] != 'legacy_derived_v1':
                     report.update(subject=result['subject'], runner_content_sha256=result['runner_content_sha256'])
-    except KeyboardInterrupt:
+    except KeyboardInterrupt as exc:
         report.update(status='INTERRUPTED', exit_code=130)
+        report['diagnostic'] = _operation_diagnostic(exc)
     except Exception as exc:
-        maintenance._failure(report, exc)
+        if safe:
+            report.update(status='BLOCKED', exit_code=2, diagnostic=_operation_diagnostic(exc))
+        else:
+            maintenance._failure(report, exc)
+            report['diagnostic'] = _operation_diagnostic(exc)
+    if report['exit_code'] != 0:
+        report.update(cleanup_completed=False, effects=report['diagnostic']['effects'])
+        report['receipt_persistence'] = 'unconfirmed' if report['effects'] == 'may_have_occurred' else 'not_started'
     print(json.dumps(report, indent=2))
     return report['exit_code']
 
@@ -1283,15 +1310,33 @@ def inspect_helpers(registry, records):
         if record.get('application_helper') is not True:continue
         if ('qualification_role' in record or 'qualification_service_cleanup' in record
                 or 'qualification_preworker_cleanup' in record):continue
-        shape = 'unknown'
+        shape = 'unknown'; proof = 'not_selected'; diagnostic = None
         try:
-            stages, unused = _stages(Reader(), path(record['runroot']))
-            shape = 'interrupted' if record.get('container_id') is None else 'agent' if stages else 'helper_only'
             accepted = validate_accepted(registry, record)
             pending = False if accepted else ownership._application_stage_pending(record['runroot'])
-            condition = 'owner_proof_required' if pending else 'cleanup_observed'
-        except (ownership.RegistryError, OSError, ValueError):condition = 'cleanup_proof_invalid'
-        observations.append({'launch_id': record['launch_id'], 'condition': condition,
+            proof = 'accepted' if accepted else 'not_selected'
+            condition = 'owner_proof_accepted' if accepted else 'owner_proof_required' if pending else 'cleanup_observed'
+            try:
+                stages, unused = _stages(Reader(), path(record['runroot']))
+                shape = 'interrupted' if record.get('container_id') is None else 'agent' if stages else 'helper_only'
+            except (ownership.RegistryError, OSError, ValueError):pass
+        except (ownership.RegistryError, OSError, ValueError) as exc:
+            proof = 'invalid'; condition = 'cleanup_proof_invalid'; diagnostic = _operation_diagnostic(exc)
+        row = {'launch_id': record['launch_id'], 'condition': condition, 'proof_status': proof,
                              'execution_shape': shape,
-                             'container_id_recorded': record.get('container_id') is not None})
+                             'container_id_recorded': record.get('container_id') is not None}
+        if diagnostic is not None:row['diagnostic'] = diagnostic
+        observations.append(row)
     return observations
+
+
+def inspection_summary(rows):
+    conditions = {'owner_proof_accepted', 'owner_proof_required', 'cleanup_observed', 'cleanup_proof_invalid'}
+    require(type(rows) is list and len(rows) <= ownership.MAX_RECORDS)
+    require(all(type(row) is dict and row.get('condition') in conditions
+                and row.get('proof_status') in ('accepted', 'not_selected', 'invalid') for row in rows))
+    return {'helpers_total': len(rows), 'accepted_proofs': sum(row['proof_status'] == 'accepted' for row in rows),
+            'proof_required': sum(row['condition'] == 'owner_proof_required' for row in rows),
+            'proof_invalid': sum(row['proof_status'] == 'invalid' for row in rows),
+            'metadata_observed': sum(row['condition'] == 'cleanup_observed' for row in rows),
+            'conditions': sorted({row['condition'] for row in rows})}

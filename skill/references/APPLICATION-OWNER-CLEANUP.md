@@ -19,11 +19,21 @@ by an installed skill.
 
 Inspection is offline and read-only. It lists ordinary helper launch UUIDs,
 agent/helper-only/interrupted shapes, recorded CID availability and the closed
-conditions `cleanup_observed`, `owner_proof_required` or `cleanup_proof_invalid`.
+conditions `cleanup_observed`, `owner_proof_required`, `owner_proof_accepted` or
+`cleanup_proof_invalid`. `proof_status` distinguishes `not_selected`, `accepted`
+and `invalid`. Accepted means the stored graph passed passive verification;
+it is separate from admission permission. Execution shape can remain `unknown`
+when the older shape reader does not recognize an otherwise valid proof format.
 It does not query Docker, read keys, purge files, create missing leases or
 registry directories, or dispatch an agent. `OBSERVED`/0 means inspection
 completed; individual helpers can still require proof. Every report retains
 `admission_authorized: false`.
+
+For a summary without launch identifiers, use the same command with `--summary`.
+The `summary` object contains helper totals, accepted-proof, required-proof,
+invalid-proof and metadata-only counts, plus sorted inspection conditions.
+`OBSERVED`/0 still means the observation completed. `cleanup_completed` remains
+false because inspection performs no cleanup, even when stored proof is accepted.
 
 `registry-inspect` also includes these per-helper observations, before applying
 the ordinary history gates. An old `released` label or an absent container does
@@ -232,3 +242,48 @@ existing task-scoped file proof cannot satisfy a broader requirement. Frozen SDK
 admission policies without authority for this proof store explicitly refuse its
 presence; qualify a new policy/read scope before using one with these receipts.
 Keep old campaign results, flags and frozen runner identities unchanged.
+
+## Derived legacy requests and operation output
+
+The closed schema-2 request selects `method: legacy_derived_v1`,
+`cohort: application_owner_legacy_1` and a declared `variant`:
+`standard_workspace_v1` or `diagnostic_disposable_v1`. Its exact fields are
+`schema, document_type, method, subject, shape, variant, cohort, evidence, stages,
+extra_private_roots`. The document type remains `application_owner_cleanup_request`;
+`evidence` is an absolute `{path, sha256}` reference to the private evidence
+assembly. The subject preserves the original registry/generation/launch/intent/CID
+identity. Do not fabricate original witnesses or copy missing facts into a new
+original-looking document. Only installed reviewed source families qualify;
+unknown rules or source identities remain unsupported. The complete SDK reader
+and qualification contract is separate from a request or release version.
+
+This method uses the existing recover command and explicit discard flag. It
+publishes an immutable RUNNING intent, independent anchor and selected-method
+witness before any removal, then a create-only CLEANED terminal and acceptance
+index. Later failure uses a separate failure record. There is no overwrite,
+automatic retry or adoption. A lost/partial selected graph blocks, including after
+all primary records are released. Independent-anchor loss detection requires
+the new reader; an older binary cannot discover that new namespace after the
+entire store is lost. Use a qualified reader/SDK before consuming this method.
+
+New-method cleanup stdout contains closed status, completion, authority, zero
+container/participant/model dispatch counters, persistence and effects. It omits
+private subject/runner hashes, paths and command bodies. Invalid/unclassified
+requests also use a closed diagnostic rather than an exception message/digest.
+Original schema-1 compatibility output remains available for that method.
+
+| Result | Exit | Meaning |
+| --- | --- | --- |
+| OBSERVED | 0 | Offline inspection completed; counts may still show required or invalid proof. No cleanup ran. |
+| CLEANED | 0 | The cleanup operation verified the complete durable graph; `cleanup_completed:true`, persistence `confirmed`. |
+| BLOCKED | 2 | Cleanup is not confirmed. Persistence is `not_started` before effects, otherwise `unconfirmed`. |
+| INTERRUPTED | 130 | The operation was interrupted; completion stays false and possible effects remain visible. |
+
+`effects` is `none_observed` or `may_have_occurred`; metadata publication alone
+can make effects possible. A terminal can remain CLEANED after a later index or
+close failure while the originating command reports BLOCKED/INTERRUPTED. Inspect
+passively to determine which graph survived; never rewrite the terminal. Every
+result retains `admission_authorized:false`. Historical nonzero exits and failed
+credential/process/result accounting remain unchanged in the private originals.
+Neither structural eligibility, stored cleanup proof nor command success alone
+qualifies a downstream campaign, model integration or credential-memory erasure.
