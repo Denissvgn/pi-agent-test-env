@@ -11,3 +11,7 @@ __pycache__/
 /plans/
 /reports/
 /tools/release-hardening/
+
+# Private incident plans and raw evidence stay local.
+/docs/design/*-evidence/
+/docs/design/env-admission-002-fix-plan.md
