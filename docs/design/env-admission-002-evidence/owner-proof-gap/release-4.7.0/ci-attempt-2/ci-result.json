@@ -1,0 +1,101 @@
+{
+  "status": "FAIL",
+  "jobs": [
+    {
+      "label": "origin",
+      "argv": [
+        "/usr/bin/python3",
+        "-I",
+        "-B",
+        "-c",
+        "import sys,json;from pathlib import Path;r=Path(sys.argv[1]);sys.path[:0]=[str(r/'skill/scripts'),str(r/'skill/runtime')];import application_owner_cleanup as p;assert Path(p.__file__)==r/'skill/scripts/application_owner_cleanup.py';print(json.dumps({'owner_module_origin':str(p.__file__)}))",
+        "/home/node/ci-work/source"
+      ],
+      "cwd": "/home/node/ci-work/source",
+      "exit_code": 0,
+      "timeout_seconds": 30,
+      "seconds": 0.1207251249870751,
+      "stdout_sha256": "69dc206d81d900cef31c87a01b6333384055e941613ba3242cd28d1af7944fe9",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "runtimes",
+      "argv": [
+        "/usr/bin/python3",
+        "-B",
+        "-c",
+        "import json,subprocess;print(json.dumps({p:subprocess.check_output([p,'--version'],text=True).strip() for p in ('python3','node','git','bash','ps')}))"
+      ],
+      "cwd": "/home/node/ci-work/source",
+      "exit_code": 0,
+      "timeout_seconds": 30,
+      "seconds": 0.06751070899190381,
+      "stdout_sha256": "8652fa99ee5da02afa07c470a46b7c8bb6c7210b5e23a05ef244c52bbc25cf15",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "package",
+      "argv": [
+        "/usr/bin/python3",
+        "-B",
+        "tools/check_package.py",
+        "--source",
+        "skill"
+      ],
+      "cwd": "/home/node/ci-work/source",
+      "exit_code": 0,
+      "timeout_seconds": 60,
+      "seconds": 0.12040366700966842,
+      "stdout_sha256": "38c92c456d19ccab7031392efda0abe8042d8c393786febdd6d74a48331b7e19",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "standard-self-test",
+      "argv": [
+        "/usr/bin/python3",
+        "-B",
+        "tools/validation/validate_standard.py",
+        "--self-test"
+      ],
+      "cwd": "/home/node/ci-work/source",
+      "exit_code": 0,
+      "timeout_seconds": 180,
+      "seconds": 2.554499917983776,
+      "stdout_sha256": "9fb48de5f93039cc0631486f17b76066be245d7c51271083ab3e22bc4d18f916",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "release-verification",
+      "argv": [
+        "/usr/bin/python3",
+        "-B",
+        "tools/verify_release.py",
+        "--archives",
+        "/ci-seed/archives",
+        "--report",
+        "/home/node/ci-work/reports/release-verification.json",
+        "--test-timeout-seconds",
+        "1800"
+      ],
+      "cwd": "/home/node/ci-work/source",
+      "exit_code": 2,
+      "timeout_seconds": 2100,
+      "seconds": 380.0281929660123,
+      "stdout_sha256": "1a8ae3b2163785c0ffe11ad27e68cf1581dc72746dc4ff72b63f2ae7a4c0eb24",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "real_model_requests": 0,
+  "real_application_workflows": 0,
+  "live_registry_mounted": false,
+  "docker_socket_mounted": false,
+  "platform": "Linux-7.0.14-linuxkit-aarch64-with-glibc2.36",
+  "machine": "aarch64",
+  "uid": 1000,
+  "python": "3.11.2 (main, Oct  7 2026, 12:35:07) [GCC 12.2.0]",
+  "candidate_commit": "47437aa3402bd85e04ada659648301e2b787298b",
+  "version": "4.7.0",
+  "installed_candidate_files": 396,
+  "failure_type": "ValueError",
+  "reason": "CI job failed: release-verification"
+}

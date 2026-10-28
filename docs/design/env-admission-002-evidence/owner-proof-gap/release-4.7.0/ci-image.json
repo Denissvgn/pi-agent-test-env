@@ -1,0 +1,18 @@
+{
+  "image_id": "sha256:62347d2d82f49ee2d4a51e72a74e01e234f830d153a769647e434a236ae6cb3e",
+  "base_id": "sha256:71d15ec40d8b1151ec7ff8b767fab90e60ab278d6af8aa249f8c0e0c21606ee0",
+  "architecture": "arm64",
+  "os": "linux",
+  "user": "node",
+  "base_layers_match": true,
+  "environment_names": [
+    "PATH",
+    "NODE_VERSION",
+    "YARN_VERSION",
+    "PUPPETEER_SKIP_DOWNLOAD",
+    "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD",
+    "PUPPETEER_EXECUTABLE_PATH",
+    "CHROME_BIN",
+    "PYTHONDONTWRITEBYTECODE"
+  ]
+}

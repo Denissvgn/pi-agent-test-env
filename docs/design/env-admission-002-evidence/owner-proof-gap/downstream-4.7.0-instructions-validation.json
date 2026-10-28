@@ -1,0 +1,25 @@
+{
+  "status": "PASS",
+  "document": "downstream-4.7.0-instructions.md",
+  "sha256": "80731c011b0937c4daafd8fe262101c46ad86eb12421553a312a8c1bc1e945a7",
+  "validation": "bash -n for every shell block; no commands executed",
+  "shell_blocks": [
+    {
+      "block": 1,
+      "exit_code": 0,
+      "stderr": ""
+    },
+    {
+      "block": 2,
+      "exit_code": 0,
+      "stderr": ""
+    },
+    {
+      "block": 3,
+      "exit_code": 0,
+      "stderr": ""
+    }
+  ],
+  "commands_executed": false,
+  "downstream_modified": false
+}

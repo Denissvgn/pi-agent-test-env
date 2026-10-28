@@ -1283,3 +1283,86 @@ remains unpushed with **no upstream configured**.
 
 Review fixes committed as `59479eca953d4411a087a8d7f728606ca3cdec12`. A read-only Git archive comparison
 confirmed all 396 committed source files match the final tested candidate.
+
+## Owner-proof PR publication and 4.7.0 prerelease preparation
+
+On 28 October 2026 the user authorized pushing `codex/pi-owner-proof-001` and
+opening a PR with hosted CI skipped **after local ARM64 Docker CI passes**.
+This supersedes the earlier publication deferral for this branch. It does not
+authorize merge, tagging, publishing a release, live owner recovery, downstream
+installation or campaign activation. The live registry and downstream campaign
+remain untouched.
+
+The next experimental prerelease candidate is **4.7.0**, reflecting the new
+schema-3 / owner-contract-1 compatibility boundary. Version metadata, manifest
+and changelog are prepared in `47437aa3402bd85e04ada659648301e2b787298b`.
+The final code candidate is
+`26d3e4aba43a64ef074ac59a83cff2df4c9a94c8`; subsequent plan/evidence commits must
+keep all **398** published-source files identical to that tested candidate.
+
+### Local CI attempts and corrections
+
+All containers explicitly selected `linux/arm64`; image inspection verified
+native ARM64 before launch. The CI image derives from the existing package-owned
+native image, adding only `procps`. It uses Python 3.11.2, Node 24.21.0, Git 2.39.5
+and Bash 5.2.15. CI runs non-root with two CPUs, 4 GiB memory, 1,024 processes,
+bounded commands, a read-only root, no external network and only a fresh volume
+plus a read-only public candidate seed. Neither the live registry, downstream
+workspace, host home, Docker socket nor credentials are mounted.
+
+| Attempt | Actual result | Resolution |
+| --- | --- | --- |
+| CI image build 1 | BuildKit treated the raw local image ID as a remote repository; access failed. | Use the inspected local image tag with pulling disabled, then verify the derivative's ARM64 architecture and base layers. Build 2 passed. |
+| Container CI 1 | Origin, runtimes and package passed; standards failed because the temporary venv could not execute on a no-exec tmpfs. | Permit executable temporary test files within the isolated container's bounded tmpfs; keep the root read-only and all other isolation. |
+| Container CI 2 | Full discovery ran 2,757 tests: 14 failures, 298 errors and one native-filesystem skip. No OOM occurred. | Fix macOS-only test temp paths, Python-version-dependent AST rendering and a request-ceiling test racing its separate handler ceiling. Preserve this failed output. |
+| Native portability check 1 | 313 affected tests ran with 50 failures and 117 errors because macOS's default temp path contains an alias. | Resolve temporary fixture roots before passing them to production no-follow checks. Do not relax those checks. |
+| Native portability check 2 | All 313 affected tests passed in 18.109 seconds. | Retain the corrected native result separately from the failed attempt. |
+| Native pinned-source check | All 191 tests passed in 32.714 seconds. | Original pin constants remain unchanged. |
+| Native filesystem/serializer checks | Four tests passed, including the exact case-alias test inapplicable on Linux. | Retain native ARM64 evidence; do not infer this outcome from Docker. |
+| Container CI 3, final | All CI jobs passed. Full extracted-source discovery ran 2,760 tests in 383.890 seconds: 2,759 passed, one Linux-inapplicable case-alias test skipped, zero unexpected skips. | Its exact native counterpart passed above. All package/archive/source checks passed and candidate bytes remained unchanged. |
+
+Portability corrections are committed in the final code candidate. The AST
+adapter normalizes only empty-list rendering in a detached AST to Python 3.14's
+existing format; no historical hash constant changes. Regression tests check
+semantic changes and input preservation. The retained-check normalization accepts
+only the exact stronger compatibility serialization at the known pin guard.
+The request test still exhausts the same request limit and waits for prior
+independent handlers to settle; runtime request/concurrency ceilings are unchanged.
+
+### Completed preparation and remaining promotion work
+
+- [x] Run actual local native ARM64 Docker CI against a clean extraction of the
+  exact candidate, including complete maintainer tests, package checks, pinned
+  standards checks and full release verification for five skill layouts.
+- [x] Verify image architecture, extracted code origin, all 398 source hashes,
+  permissions, seven asset hashes and before/after byte identity. A read-only
+  `git archive HEAD` comparison also matches all 398 tested files.
+- [x] Preserve failed attempts, CI drivers, image/container isolation facts,
+  native counterparts and final results in
+  `env-admission-002-evidence/owner-proof-gap/release-4.7.0/`.
+- [x] Prepare seven verified assets in
+  `dist/pi-agent-test-env-4.7.0-candidate-r2/`, checksums and separate release
+  notes. No release/tag is created; published 4.6.1 remains unchanged.
+- [x] Write the separate downstream handoff
+  `env-admission-002-evidence/owner-proof-gap/downstream-4.7.0-instructions.md`.
+  Its shell examples are syntax-checked only. No downstream command is executed.
+- [ ] Push with an explicit same-name refspec and verify upstream is
+  `origin/codex/pi-owner-proof-001`; do not target the base/default branch.
+- [ ] Open a draft PR with `[skip ci]`, verify hosted Actions observations and
+  attach the PR to this chat. No workflow configuration is disabled or added.
+- [ ] Complete the configured exact-head review before any later authorized
+  merge/publication. The earlier Copilot waiver applied only to 4.6.1.
+- [ ] Upon separate merge/publication authorization, rebuild/verify from the
+  final reviewed tree and publish a new immutable experimental prerelease.
+
+The candidate ZIP SHA-256 is
+`7e64444f30975232eb656aae871af6359e53faac682fa2ca8144d2f9bd7f9318`;
+the `SHA256SUMS` SHA-256 is
+`42abe41cc1416d53af0c0a9357efb46bb3e471a425fc6ab9fe17aaa8ac7f7567`.
+The detailed receipt is `release-4.7.0/candidate-verification.json`; raw CI/native
+outputs and their integrity inventory are retained separately there.
+
+The real six-owner audit/adapters, native Docker/browser/inference/application
+qualification, extended frozen-SDK proof-read scope and original API refusal
+remain independent unresolved integration gates. Package CI does not qualify
+them. No real Pi/model request or downstream application workflow is dispatched.

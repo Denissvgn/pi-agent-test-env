@@ -1,0 +1,7 @@
+FROM pi-qualification-c012:core-1.2.0-arm64
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends procps \
+ && rm -rf /var/lib/apt/lists/*
+USER node
+ENTRYPOINT ["python3"]
