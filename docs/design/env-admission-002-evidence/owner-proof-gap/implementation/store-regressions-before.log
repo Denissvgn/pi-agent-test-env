@@ -1,0 +1,35 @@
+test_regular_proof_store_replacement_never_receives_an_index (test_application_owner_cleanup.OwnerCleanupTests.test_regular_proof_store_replacement_never_receives_an_index) ... FAIL
+test_custody_creation_after_store_swap_cannot_write_into_foreign_directory (test_application_owner_cleanup.OwnerCleanupTests.test_custody_creation_after_store_swap_cannot_write_into_foreign_directory) ... FAIL
+test_selected_directory_swap_cannot_redirect_selection_publication (test_application_owner_cleanup.OwnerCleanupTests.test_selected_directory_swap_cannot_redirect_selection_publication) ... FAIL
+
+======================================================================
+FAIL: test_regular_proof_store_replacement_never_receives_an_index (test_application_owner_cleanup.OwnerCleanupTests.test_regular_proof_store_replacement_never_receives_an_index)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bramen/Projects/pi-agentic-development/tests/test_application_owner_cleanup.py", line 480, in test_regular_proof_store_replacement_never_receives_an_index
+    with mock.patch.object(self.api, '_publish_index', side_effect=replaced), self.assertRaises(registry.RegistryError):
+                                                                              ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: RegistryError not raised
+
+======================================================================
+FAIL: test_custody_creation_after_store_swap_cannot_write_into_foreign_directory (test_application_owner_cleanup.OwnerCleanupTests.test_custody_creation_after_store_swap_cannot_write_into_foreign_directory)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bramen/Projects/pi-agentic-development/tests/test_application_owner_cleanup.py", line 492, in test_custody_creation_after_store_swap_cannot_write_into_foreign_directory
+    with self.held(), mock.patch.object(self.api, '_store', side_effect=swap), self.assertRaises(registry.RegistryError):
+                                                                               ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: RegistryError not raised
+
+======================================================================
+FAIL: test_selected_directory_swap_cannot_redirect_selection_publication (test_application_owner_cleanup.OwnerCleanupTests.test_selected_directory_swap_cannot_redirect_selection_publication)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bramen/Projects/pi-agentic-development/tests/test_application_owner_cleanup.py", line 506, in test_selected_directory_swap_cannot_redirect_selection_publication
+    with mock.patch.object(self.api.Reader, 'read', new=read), self.assertRaises(registry.RegistryError):self.recover(request)
+                                                               ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: RegistryError not raised
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.060s
+
+FAILED (failures=3)

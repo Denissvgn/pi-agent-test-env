@@ -1,0 +1,74 @@
+{
+  "scope": "Synthetic temporary-registry contract observation only",
+  "python": "3.14.5 (v3.14.5:5607950ef23, May 10 2026, 07:38:09) [Clang 21.0.0 (clang-2100.0.123.102)]",
+  "report_manifest_verified": {
+    "report.json": "c0711692a57de02b8cf1d6b5e9e6a76735d1ac426efacc1bb5c7b8cb731a1335",
+    "physical-observations.json": "45f799996916aa5bb19097aa33c583b92d076e679df4f34235d78be58e7e21fe",
+    "safe-owner-summary.json": "3fcf63bfa6950a0e69dca4d6b423df88ccce49b39d9b39e7626c67846e52b1b9",
+    "issue.md": "37312ad6607cab53e082bcfca7f8ba31a60bd559c7fde29600456ca68aad960d"
+  },
+  "source_sha256": {
+    "skill/scripts/ownership_registry.py": "a01599004d80e75b9ca93f8730ea8672a73936f5ef0eb7afc054c2cf66c91401",
+    "skill/scripts/application_client.py": "3d949abdbc90b3943c1525ab4225e4fc708d4de24747ff1af8fdb2c5b4992cf8",
+    "skill/scripts/application_credentials.py": "83fcca7824e6a916ef6c04866c50be36c0f714a07b131103051b7e4d654cebf7",
+    "skill/scripts/application_execution.py": "7d0454c30b53c19081e88d2396f0fcf198d4792f19efcb778f74a40687862d75",
+    "tools/qualification/application_diagnostic_cleanup.py": "a19255e06305f03ff5ae67ecddf9a015b09413ec9a9db20715dd248ad9f72dec",
+    "tools/qualification/application_operational_replay.py": "9ddc4e355c981a9444773c625dd5a9a8080e91090672a903d5de3683a50ee873",
+    "tools/qualification/application_sdk_admission.py": "b417beaf74cfa9789ec29e53987f061a7e3d9622371c6fe5dcc549299ed0327c"
+  },
+  "reproducer_sha256": "9e3bf31582819efd126d12229c2d85da11b732f8e63fea8d113fffb8f043152c",
+  "cases": [
+    {
+      "shape": "failed_agent",
+      "stage_cleanup_pending": true,
+      "all_released_history_returns_without_ordinary_check": true,
+      "pending_dependent_record_diagnostic": {
+        "schema": 1,
+        "phase": "application_cleanup",
+        "condition": "application_cleanup_pending",
+        "operation": "validate",
+        "os_error": "none",
+        "effects": "none_observed"
+      },
+      "validation_preserved_retained_bytes": true,
+      "ordinary_release_accepts_sensitive_clean_boolean": true,
+      "external_calls": 0
+    },
+    {
+      "shape": "helper_only",
+      "stage_cleanup_pending": true,
+      "all_released_history_returns_without_ordinary_check": true,
+      "pending_dependent_record_diagnostic": {
+        "schema": 1,
+        "phase": "application_cleanup",
+        "condition": "application_cleanup_pending",
+        "operation": "validate",
+        "os_error": "none",
+        "effects": "none_observed"
+      },
+      "validation_preserved_retained_bytes": true,
+      "ordinary_release_accepts_sensitive_clean_boolean": true,
+      "external_calls": 0
+    },
+    {
+      "shape": "interrupted_agent_without_cid",
+      "stage_cleanup_pending": true,
+      "all_released_history_returns_without_ordinary_check": true,
+      "pending_dependent_record_diagnostic": {
+        "schema": 1,
+        "phase": "application_cleanup",
+        "condition": "application_cleanup_pending",
+        "operation": "validate",
+        "os_error": "none",
+        "effects": "none_observed"
+      },
+      "validation_preserved_retained_bytes": true,
+      "ordinary_release_accepts_sensitive_clean_boolean": true,
+      "external_calls": 0
+    }
+  ],
+  "live_registry_accessed": false,
+  "downstream_modified": false,
+  "owner_proof_published": false,
+  "native_integration_qualification": false
+}

@@ -1,0 +1,21 @@
+test_orphan_context_without_descriptor_denies (__main__.ScopeRegressions.test_orphan_context_without_descriptor_denies) ... FAIL
+test_uninspected_retained_file_denies (__main__.ScopeRegressions.test_uninspected_retained_file_denies) ... FAIL
+
+======================================================================
+FAIL: test_orphan_context_without_descriptor_denies (__main__.ScopeRegressions.test_orphan_context_without_descriptor_denies)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<stdin>", line 7, in test_orphan_context_without_descriptor_denies
+AssertionError: RegistryError not raised
+
+======================================================================
+FAIL: test_uninspected_retained_file_denies (__main__.ScopeRegressions.test_uninspected_retained_file_denies)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<stdin>", line 11, in test_uninspected_retained_file_denies
+AssertionError: RegistryError not raised
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.023s
+
+FAILED (failures=2)

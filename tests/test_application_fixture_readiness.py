@@ -34,7 +34,7 @@ REFUSALS=(qualifier.QualificationError,ValueError,OSError)
 
 class FixtureReadinessPublicationTests(unittest.TestCase):
     def setUp(self):
-        temporary=tempfile.TemporaryDirectory(dir='/private/tmp');self.addCleanup(temporary.cleanup)
+        temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
         self.root=Path(temporary.name).resolve();self.store=self.root/'FAKE-store'
         secret_store.write_secret('TEST_ALICE',FAKE_A,self.store);secret_store.write_secret('TEST_BOB',FAKE_B,self.store)
         self.nonce=str(uuid.uuid4());self.server=None

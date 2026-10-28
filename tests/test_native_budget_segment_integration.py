@@ -43,8 +43,8 @@ class SyntheticProcess:
 
 class SegmentWiringTests(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(dir='/private/tmp'); self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name); self.run = self.root / 'run'; self.run.mkdir()
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve(); self.run = self.root / 'run'; self.run.mkdir()
         self.workspace = self.run / 'workspace'; self.workspace.mkdir()
         self.project = self.root / 'project'; self.project.mkdir()
         self.args = control_fixtures.args(network='bridge', profile='core', native_platform='linux/arm64',

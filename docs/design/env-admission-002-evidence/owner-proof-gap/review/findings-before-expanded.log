@@ -1,0 +1,73 @@
+test_cli_does_not_delete_its_request_from_a_discarded_workspace (test_application_owner_cleanup_review.OwnerProofReviewTests.test_cli_does_not_delete_its_request_from_a_discarded_workspace) ... FAIL
+test_generic_recovery_preserves_original_failed_credentials_under_accepted_owner_proof (test_application_owner_cleanup_review.OwnerProofReviewTests.test_generic_recovery_preserves_original_failed_credentials_under_accepted_owner_proof) ... FAIL
+test_related_record_iteration_order_is_not_proof_identity (test_application_owner_cleanup_review.OwnerProofReviewTests.test_related_record_iteration_order_is_not_proof_identity) ... ERROR
+test_retained_replay_applies_one_aggregate_budget_to_the_transitive_read_graph (test_application_owner_cleanup_review.OwnerProofReviewTests.test_retained_replay_applies_one_aggregate_budget_to_the_transitive_read_graph) ... FAIL
+test_runner_identity_failure_does_not_leak_a_created_receipt (test_application_owner_cleanup_review.OwnerProofReviewTests.test_runner_identity_failure_does_not_leak_a_created_receipt) ... FAIL
+test_runtime_replay_applies_one_aggregate_budget_to_the_transitive_read_graph (test_application_owner_cleanup_review.OwnerProofReviewTests.test_runtime_replay_applies_one_aggregate_budget_to_the_transitive_read_graph) ... FAIL
+
+======================================================================
+ERROR: test_related_record_iteration_order_is_not_proof_identity (test_application_owner_cleanup_review.OwnerProofReviewTests.test_related_record_iteration_order_is_not_proof_identity)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bramen/Projects/pi-agentic-development/tests/test_application_owner_cleanup_review.py", line 62, in test_related_record_iteration_order_is_not_proof_identity
+    self.assertTrue(self.api.validate_accepted(f.owner, f.helper))
+                    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/Users/bramen/Projects/pi-agentic-development/skill/scripts/registry_diagnostics.py", line 181, in call
+    return fn(*args, **kwargs)
+  File "/Users/bramen/Projects/pi-agentic-development/skill/scripts/application_owner_cleanup.py", line 663, in validate_accepted
+    require(receipt['related_subjects'] == [_resource_subject(r) for r in related])
+    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/bramen/Projects/pi-agentic-development/skill/scripts/application_owner_cleanup.py", line 37, in require
+    raise ownership.RegistryError('Application owner cleanup proof is incomplete or changed', condition=condition)
+registry_diagnostics.RegistryError: Application owner cleanup proof is incomplete or changed
+
+======================================================================
+FAIL: test_cli_does_not_delete_its_request_from_a_discarded_workspace (test_application_owner_cleanup_review.OwnerProofReviewTests.test_cli_does_not_delete_its_request_from_a_discarded_workspace)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bramen/Projects/pi-agentic-development/tests/test_application_owner_cleanup_review.py", line 115, in test_cli_does_not_delete_its_request_from_a_discarded_workspace
+    self.assertEqual(code, 2); self.assertTrue(Path(source['path']).exists())
+    ~~~~~~~~~~~~~~~~^^^^^^^^^
+AssertionError: 0 != 2
+
+======================================================================
+FAIL: test_generic_recovery_preserves_original_failed_credentials_under_accepted_owner_proof (test_application_owner_cleanup_review.OwnerProofReviewTests.test_generic_recovery_preserves_original_failed_credentials_under_accepted_owner_proof)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bramen/Projects/pi-agentic-development/tests/test_application_owner_cleanup_review.py", line 54, in test_generic_recovery_preserves_original_failed_credentials_under_accepted_owner_proof
+    self.assertEqual(f.metadata(), before)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {Posi[1309 chars]s": "removed",\n  "workspace": "discarded",\n [19 chars]}\n'} != {Posi[1309 chars]s": "cleanup_unconfirmed",\n  "workspace": "quarantined"\n}\n'}
+Diff is 28571 characters long. Set self.maxDiff to None to see it.
+
+======================================================================
+FAIL: test_retained_replay_applies_one_aggregate_budget_to_the_transitive_read_graph (test_application_owner_cleanup_review.OwnerProofReviewTests.test_retained_replay_applies_one_aggregate_budget_to_the_transitive_read_graph)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bramen/Projects/pi-agentic-development/tests/test_application_owner_cleanup_review.py", line 97, in test_retained_replay_applies_one_aggregate_budget_to_the_transitive_read_graph
+    with self.assertRaises(fixtures.registry.RegistryError):self.api.validate_accepted(f.owner, f.helper)
+         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: RegistryError not raised
+
+======================================================================
+FAIL: test_runner_identity_failure_does_not_leak_a_created_receipt (test_application_owner_cleanup_review.OwnerProofReviewTests.test_runner_identity_failure_does_not_leak_a_created_receipt)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bramen/Projects/pi-agentic-development/tests/test_application_owner_cleanup_review.py", line 75, in test_runner_identity_failure_does_not_leak_a_created_receipt
+    with self.assertRaises(OSError):os.fstat(descriptor)
+         ~~~~~~~~~~~~~~~~~^^^^^^^^^
+AssertionError: OSError not raised
+
+======================================================================
+FAIL: test_runtime_replay_applies_one_aggregate_budget_to_the_transitive_read_graph (test_application_owner_cleanup_review.OwnerProofReviewTests.test_runtime_replay_applies_one_aggregate_budget_to_the_transitive_read_graph)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/bramen/Projects/pi-agentic-development/tests/test_application_owner_cleanup_review.py", line 106, in test_runtime_replay_applies_one_aggregate_budget_to_the_transitive_read_graph
+    with self.assertRaises(fixtures.registry.RegistryError):self.api.validate_accepted(f.owner, f.helper)
+         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: RegistryError not raised
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.241s
+
+FAILED (failures=5, errors=1)

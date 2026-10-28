@@ -1,0 +1,11 @@
+{
+  "tests": 2752,
+  "seconds": 535.416,
+  "failures": 0,
+  "skips": 0,
+  "candidate_files": 396,
+  "source_inventory_unchanged": true,
+  "scope": "Intermediate six-finding review candidate before cross-run overlap guard",
+  "log": "unit-tests.log",
+  "log_sha256": "83c361286aed3e72ecab537de4393da5003acfb2c724decacafd83eb35451d68"
+}

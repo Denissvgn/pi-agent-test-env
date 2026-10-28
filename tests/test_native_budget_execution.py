@@ -90,9 +90,9 @@ class FakeHelper:
 
 class CoordinatorTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir='/private/tmp')
+        self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name); self.run = self.root / 'run'; self.run.mkdir()
+        self.root = Path(self.temp.name).resolve(); self.run = self.root / 'run'; self.run.mkdir()
         self.workspace = self.run / 'workspace'; self.workspace.mkdir()
         self.project = self.root / 'project'; self.project.mkdir()
         self.control = self.run / 'controls' / fresh(); self.control.mkdir(parents=True)

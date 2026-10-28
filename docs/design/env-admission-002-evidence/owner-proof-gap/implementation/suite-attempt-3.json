@@ -1,0 +1,11 @@
+{
+  "tests": 2732,
+  "seconds": 498.212,
+  "failures": 0,
+  "skips": 0,
+  "source_inventory_unchanged": true,
+  "candidate_files": 395,
+  "log": "unit-tests-scope-final.log",
+  "log_sha256": "bc71f3ab46c319b5e2a6f9bd7cfe3d4bc79a3290249bb619510389464519325c",
+  "scope": "Coherent namespace candidate before proof-store replacement hardening; no live qualification"
+}

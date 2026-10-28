@@ -1,6 +1,6 @@
 {
   "name": "pi-agent-test-env",
-  "version": "4.6.1",
+  "version": "4.7.0",
   "description": "Evaluate frozen local-agent tasks and typed authenticated application plans with scoped helper-owned credentials, independent completion validation, native tool budgets, bounded Docker resources and retained evidence; also supports coding delegation and the reviewed fixture_lookup integration.",
   "language": "en",
   "license": "MIT",
@@ -62,6 +62,16 @@
       "name": "registry-recover",
       "description": "Explicit prior-ownership reconciliation with a separate recovery receipt; no fresh probe, participant or model request",
       "command": "python3 scripts/pi_lab.py registry-recover --lock-wait-seconds 30 --output-dir <NEW_RECOVERY_DIRECTORY>"
+    },
+    {
+      "name": "application-owner-inspect",
+      "description": "Offline inspection of ordinary application-helper cleanup shapes and retained proof under the original lease",
+      "command": "python3 scripts/pi_lab.py application-owner-inspect --lock-file <ORIGINAL_LOCK>"
+    },
+    {
+      "name": "application-owner-recover",
+      "description": "Explicit already-released ordinary-helper file cleanup from genuine retained terminal and snapshot custody, preserving failed results",
+      "command": "python3 scripts/pi_lab.py application-owner-recover --lock-file <ORIGINAL_LOCK> --request <OWNER_REQUEST> --output-dir <NEW_RECEIPT> --discard-workspace"
     },
     {
       "name": "status",

@@ -1,5 +1,6 @@
 """Prepared synthetic pure scoped-method controls; Root runs after entry review."""
 import ast
+import sys
 import contextlib
 import copy
 import hashlib
@@ -18,6 +19,8 @@ if __name__=='__main__':
     _old=signal.signal(signal.SIGALRM,lambda *_:os._exit(124))
     signal.setitimer(signal.ITIMER_REAL,30)
 HERE=Path(__file__).resolve().parent
+sys.path.insert(0,str(HERE.parent/'tools/qualification'))
+from ast_compat import pinned_dump
 SUBJECT_ROOT = HERE if (HERE/'application_scoped_retained_checks.py').is_file() else HERE.parent/'tools/qualification'
 SOURCE=(SUBJECT_ROOT/'application_scoped_retained_checks.py').read_bytes()
 HELPER_SHA='0daef9e6b7763d5a4cef6333d5a4cb7c07652e67f515339a3ead60ace9743f96'
@@ -25,6 +28,16 @@ UNCHANGED_DEFINITIONS_SHA='4f7e0f226468fa7ed8e3204ddb05946874eb66c3c21472e78f574
 ORIGINAL_REPLAY_AST_SHA='afe033e39d4d1b2ad9b50492f6adc7c48baa6e97a08ffd1fbb923e98f6fecf81'
 if hashlib.sha256(SOURCE).hexdigest()!=HELPER_SHA:raise RuntimeError('source_changed')
 NEW=(SUBJECT_ROOT/'application_operational_replay.py').read_bytes()
+
+
+def normalize_reviewed_ast_renderer(node):
+    """Undo only the exact serializer adaptation before the historical pin."""
+    if node.name != 'matrix_cells':return node
+    detached=copy.deepcopy(node)
+    expected=ast.parse('need(hashlib.sha256(pinned_dump(fn).encode()).hexdigest()==MATRIX_AST_SHA256)').body[0]
+    assert len(detached.body)>5 and pinned_dump(detached.body[5])==pinned_dump(expected)
+    detached.body[5]=ast.parse('need(hashlib.sha256(ast.dump(fn,include_attributes=False).encode()).hexdigest()==MATRIX_AST_SHA256)').body[0]
+    return detached
 
 
 def forbidden(*a,**k):raise AssertionError('inert_IO_or_native_effect_forbidden')
@@ -124,6 +137,16 @@ def proof(c,event,name):
 
 
 class Checks(unittest.TestCase):
+    def test_serializer_adaptation_normalizes_only_its_exact_reviewed_guard(self):
+        original=next(n for n in ast.parse(NEW).body if isinstance(n,ast.FunctionDef)and n.name=='matrix_cells')
+        before=pinned_dump(original)
+        normalized=normalize_reviewed_ast_renderer(original)
+        self.assertEqual(pinned_dump(original),before)
+        self.assertIn('ast.dump',ast.unparse(normalized.body[5]))
+        for statement in ('need(True)', 'need(hashlib.sha256(pinned_dump(fn).encode()).hexdigest()!=MATRIX_AST_SHA256)'):
+            changed=copy.deepcopy(original);changed.body[5]=ast.parse(statement).body[0]
+            with self.subTest(statement=statement),self.assertRaises(AssertionError):normalize_reviewed_ast_renderer(changed)
+
     def setUp(self):self.guard=denied();self.guard.__enter__();self.addCleanup(self.guard.__exit__,None,None,None)
 
     def test_complete_scoped_metadata_branch_preserves_false_unknowns(self):
@@ -185,8 +208,8 @@ class Checks(unittest.TestCase):
             self.assertEqual(len(manifests),1)
             body=manifests[0].body
             self.assertTrue(body)
-            self.assertEqual(ast.dump(body[0],include_attributes=False),
-                             ast.dump(expected_guard,include_attributes=False))
+            self.assertEqual(pinned_dump(body[0]),
+                             pinned_dump(expected_guard))
             del body[0]
             return normalized
         normalized=without_exact_retained_guard(newtree)
@@ -201,7 +224,7 @@ class Checks(unittest.TestCase):
             else:manifest.body.append(manifest.body.pop(0))
             with self.subTest(guard_fault=fault),self.assertRaises(AssertionError):
                 without_exact_retained_guard(mutant)
-        def defs(tree):return {n.name:ast.dump(n,include_attributes=False)for n in tree.body
+        def defs(tree):return {n.name:pinned_dump(normalize_reviewed_ast_renderer(n))for n in tree.body
             if isinstance(n,(ast.FunctionDef,ast.ClassDef))and n.name not in ('retained_predicates','replay','later_retained_physical_absence')}
         fingerprint=hashlib.sha256(json.dumps(defs(normalized),sort_keys=True,separators=(',',':')).encode()).hexdigest()
         self.assertEqual(fingerprint,UNCHANGED_DEFINITIONS_SHA)
@@ -217,7 +240,7 @@ class Checks(unittest.TestCase):
                         value[i-1:i+1]=ast.parse("need(row['physical'] == 'absent' and row['container_id'] is not None)").body
                         altered+=1
         self.assertEqual(altered,1)
-        self.assertEqual(hashlib.sha256(ast.dump(replay,include_attributes=False).encode()).hexdigest(),ORIGINAL_REPLAY_AST_SHA)
+        self.assertEqual(hashlib.sha256(pinned_dump(replay).encode()).hexdigest(),ORIGINAL_REPLAY_AST_SHA)
 
         allowed=('validate_predecessor','_validate_first_predecessor','_native_prior','_current_cleanup',
                  '_replay_prior','verify','validate_qualification_preworker_cleanup')

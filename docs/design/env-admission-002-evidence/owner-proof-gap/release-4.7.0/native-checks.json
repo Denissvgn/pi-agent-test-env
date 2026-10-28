@@ -1,0 +1,9 @@
+{
+  "status": "PASS",
+  "platform": "Darwin",
+  "architecture": "arm64",
+  "case_alias_passed": true,
+  "test": "test_publishing.PublishingTests.test_case_alias_report_cannot_bypass_input_guard",
+  "log_sha256": "26da629b5c56d41450378bdd0876a348a8cb23d2d112d65d69f5079f755aefdc",
+  "scope": "Applicable native filesystem counterpart; not inferred from Linux Docker"
+}

@@ -1,0 +1,9 @@
+{
+  "attached_exit_code": 2,
+  "container_exit_code": 2,
+  "oom_killed": false,
+  "reports_copy_exit_code": 0,
+  "name": "pi-owner-proof-ci-470-b712959f2f",
+  "volume": "pi-owner-proof-ci-470-b712959f2f-home",
+  "result_root": "/Users/bramen/Projects/pi-agentic-development/dist/pi-owner-proof-4.7.0-ci/attempt-1"
+}

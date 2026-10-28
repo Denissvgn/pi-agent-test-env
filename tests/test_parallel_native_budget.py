@@ -57,8 +57,8 @@ class TopologyTests(unittest.TestCase):
 
     def test_native_nonindexed_gateway_uses_monitored_revocation_file_and_legacy_does_not(self):
         for opted in (False,True):
-            with self.subTest(native=opted),tempfile.TemporaryDirectory(dir='/private/tmp') as directory:
-                path=Path(directory)/'active-tokens.json';captured={};revision=0
+            with self.subTest(native=opted),tempfile.TemporaryDirectory() as directory:
+                path=Path(directory).resolve()/'active-tokens.json';captured={};revision=0
                 @contextmanager
                 def owner(lab,args,root,registry,pool,weight,config,*unused):
                     nonlocal revision
@@ -76,7 +76,7 @@ class TopologyTests(unittest.TestCase):
                 work=[{'trial_id':'one','endpoint':'endpoint.json'},{'trial_id':'two','endpoint':'endpoint.json'}]
                 metadata={'execution':{'image':'frozen-image'},'concurrency':{'gateway':{}}}
                 with mock.patch.object(inference_broker,'owner',owner):
-                    with parallel_execution.gateway_owner(Mock(),Mock(),Path(directory),metadata,work,registry,Mock(),{},'synthetic-original') as result:
+                    with parallel_execution.gateway_owner(Mock(),Mock(),Path(directory).resolve(),metadata,work,registry,Mock(),{},'synthetic-original') as result:
                         inference=result[0]
                         self.assertEqual('active_tokens_file' in captured,opted)
                         if not opted:

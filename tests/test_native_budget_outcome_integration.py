@@ -115,8 +115,8 @@ class OutcomeGateTests(unittest.TestCase):
 
 class SuiteProjectionTests(unittest.TestCase):
     def suite(self, native, process):
-        temporary = tempfile.TemporaryDirectory(dir='/private/tmp'); self.addCleanup(temporary.cleanup)
-        root = Path(temporary.name); args = result_fixture.fixture(root)
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name).resolve(); args = result_fixture.fixture(root)
         if native:
             source = controls.read(args.plan)
             source['agents'][0].update(max_tool_calls=8, reporting_reserve_calls=2, reporting_reserve_seconds=10)

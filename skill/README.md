@@ -1,4 +1,4 @@
-# Pi Agent Test Environment 4.6.1
+# Pi Agent Test Environment 4.7.0
 
 **English, project-adaptable, resource-bounded workflows for real local-LLM agents.**
 

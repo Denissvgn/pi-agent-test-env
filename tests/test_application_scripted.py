@@ -186,7 +186,7 @@ class StateMachineTests(HelperFixture):
 
 class ProtocolTests(unittest.TestCase):
     def setUp(self):
-        temporary=tempfile.TemporaryDirectory(dir='/private/tmp');self.addCleanup(temporary.cleanup);self.root=Path(temporary.name).resolve();self.server=None
+        temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup);self.root=Path(temporary.name).resolve();self.server=None
         self.addCleanup(self.cleanup)
     def cleanup(self):
         if self.server:self.server.stop()

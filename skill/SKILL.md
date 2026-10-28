@@ -14,7 +14,7 @@ description: >-
 
 # Local agent evaluation with Pi
 
-Package version: 4.6.1. Instructions are in English.
+Package version: 4.7.0. Instructions are in English.
 
 Exact reviewed Pi releases: 0.87.1 and 1.2.0. Use
 [PI-1.2.0.md](references/PI-1.2.0.md) for the newer contract and migration limits;
@@ -345,6 +345,11 @@ inspection/recovery contracts in [REGISTRY-RECOVERY.md](references/REGISTRY-RECO
 `registry-inspect` is offline and does not mutate the existing lease or registry.
 `registry-recover` reconciles prior ownership and records a separate receipt; it
 never dispatches a fresh probe or participant and has no force-release option.
+For ordinary historical application helpers, use
+[retained owner cleanup](references/APPLICATION-OWNER-CLEANUP.md): inspect exact
+subjects first, establish genuine terminal/snapshot custody, and preserve failed
+raw accounting when publishing separate cleanup proof. Unknown proof or authority
+scope stays blocked; later cleanup never resumes an old campaign.
 
 Use explicit run/stage identity when multiple records exist. Parent-owned controls
 are outside the project and mounted read-only at /opt/pi-control; runtime state is

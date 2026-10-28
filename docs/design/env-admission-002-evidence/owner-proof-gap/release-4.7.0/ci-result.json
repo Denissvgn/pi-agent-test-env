@@ -1,0 +1,117 @@
+{
+  "status": "PASS",
+  "jobs": [
+    {
+      "label": "origin",
+      "argv": [
+        "/usr/bin/python3",
+        "-I",
+        "-B",
+        "-c",
+        "import sys,json;from pathlib import Path;r=Path(sys.argv[1]);sys.path[:0]=[str(r/'skill/scripts'),str(r/'skill/runtime')];import application_owner_cleanup as p;assert Path(p.__file__)==r/'skill/scripts/application_owner_cleanup.py';print(json.dumps({'owner_module_origin':str(p.__file__)}))",
+        "/home/node/ci-work/source"
+      ],
+      "cwd": "/home/node/ci-work/source",
+      "exit_code": 0,
+      "timeout_seconds": 30,
+      "seconds": 0.041363833006471395,
+      "stdout_sha256": "69dc206d81d900cef31c87a01b6333384055e941613ba3242cd28d1af7944fe9",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "runtimes",
+      "argv": [
+        "/usr/bin/python3",
+        "-B",
+        "-c",
+        "import json,subprocess;print(json.dumps({p:subprocess.check_output([p,'--version'],text=True).strip() for p in ('python3','node','git','bash','ps')}))"
+      ],
+      "cwd": "/home/node/ci-work/source",
+      "exit_code": 0,
+      "timeout_seconds": 30,
+      "seconds": 0.07209804200101644,
+      "stdout_sha256": "8652fa99ee5da02afa07c470a46b7c8bb6c7210b5e23a05ef244c52bbc25cf15",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "package",
+      "argv": [
+        "/usr/bin/python3",
+        "-B",
+        "tools/check_package.py",
+        "--source",
+        "skill"
+      ],
+      "cwd": "/home/node/ci-work/source",
+      "exit_code": 0,
+      "timeout_seconds": 60,
+      "seconds": 0.07905133400345221,
+      "stdout_sha256": "38c92c456d19ccab7031392efda0abe8042d8c393786febdd6d74a48331b7e19",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "standard-self-test",
+      "argv": [
+        "/usr/bin/python3",
+        "-B",
+        "tools/validation/validate_standard.py",
+        "--self-test"
+      ],
+      "cwd": "/home/node/ci-work/source",
+      "exit_code": 0,
+      "timeout_seconds": 180,
+      "seconds": 1.84781775099691,
+      "stdout_sha256": "493f6e9a34a6c4d673cb034387fa65b083b61d3d210402cd79b0d13af7dedcf4",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "label": "release-verification",
+      "argv": [
+        "/usr/bin/python3",
+        "-B",
+        "tools/verify_release.py",
+        "--archives",
+        "/ci-seed/archives",
+        "--report",
+        "/home/node/ci-work/reports/release-verification.json",
+        "--test-timeout-seconds",
+        "1800"
+      ],
+      "cwd": "/home/node/ci-work/source",
+      "exit_code": 0,
+      "timeout_seconds": 2100,
+      "seconds": 390.43483826200827,
+      "stdout_sha256": "c68dccd6d9491b7af8882dcf71971ca531cff60ca99154a71e59e9e0a8e57203",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "real_model_requests": 0,
+  "real_application_workflows": 0,
+  "live_registry_mounted": false,
+  "docker_socket_mounted": false,
+  "platform": "Linux-7.0.14-linuxkit-aarch64-with-glibc2.36",
+  "machine": "aarch64",
+  "uid": 1000,
+  "python": "3.11.2 (main, Oct  7 2026, 12:35:07) [GCC 12.2.0]",
+  "candidate_commit": "26d3e4aba43a64ef074ac59a83cff2df4c9a94c8",
+  "version": "4.7.0",
+  "installed_candidate_files": 398,
+  "platform_inapplicable_tests": [
+    "test_case_alias_report_cannot_bypass_input_guard (test_publishing.PublishingTests.test_case_alias_report_cannot_bypass_input_guard) ... skipped 'Case-sensitive filesystem has no native path alias'"
+  ],
+  "native_platform_check": {
+    "status": "PASS",
+    "platform": "Darwin",
+    "architecture": "arm64",
+    "case_alias_passed": true,
+    "test": "test_publishing.PublishingTests.test_case_alias_report_cannot_bypass_input_guard",
+    "log_sha256": "26da629b5c56d41450378bdd0876a348a8cb23d2d112d65d69f5079f755aefdc",
+    "scope": "Applicable native filesystem counterpart; not inferred from Linux Docker"
+  },
+  "unexpected_skips": 0,
+  "tests": 2760,
+  "skipped": 1,
+  "test_seconds": 383.89,
+  "layouts": 5,
+  "candidate_unchanged": true
+}

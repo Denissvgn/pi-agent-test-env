@@ -24,8 +24,8 @@ FIXTURE = json.loads((ROOT / 'tests/fixtures/application-contracts/completion.js
 
 class CompletionTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir='/private/tmp')
-        self.base = Path(self.temp.name)
+        self.temp = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp.name).resolve()
         self.outputs = self.base / 'outputs'
         self.evidence = self.base / 'private'
         self.outputs.mkdir(mode=0o700)

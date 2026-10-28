@@ -28,6 +28,7 @@ CONDITIONS = frozenset({
     'writer_cleanup_failed', 'writer_absence_unconfirmed',
     'sensitive_cleanup_pending', 'sensitive_identity_mismatch',
     'network_cleanup_failed', 'lease_changed',
+    'owner_writer_pending', 'owner_scope_unsupported', 'owner_discard_required', 'owner_identity_required',
 })
 OPERATIONS = frozenset({
     'validate', 'directory_create', 'inventory_read', 'record_read', 'proof_read',

@@ -1,5 +1,29 @@
 # Changelog
 
+## 4.7.0
+
+- New ordinary helper records use schema 3 with owner cleanup contract 1.
+  Older readers reject these records; use one compatible controller cohort.
+  Historical records and outcomes remain unchanged. Native integration and
+  extended SDK proof-read qualification remain separate requirements.
+
+- Add read-only application-owner inspection and explicit retained-terminal
+  cleanup for already released ordinary helpers. Preserve original failed
+  accounting and keep cleanup receipts separate from sealed results.
+- Record normal helper custody before dispatch and bootstrap, then publish
+  proof after final stage cleanup. Revalidate selected proof, private-path
+  absence and retained metadata, including all-released admission.
+- Refuse unsupported authority scopes and frozen SDK policies without proof
+  read authority. No new model, application or container dispatch is performed
+  by owner cleanup.
+- Preserve failed credential accounting through dependent generic recovery,
+  compare related identities independently of directory order, and enforce
+  read limits/privacy across complete proof graphs. Recognize the runner's
+  browser stage and avoid allocating receipts before runner identity is available.
+- Block file cleanup while another pending registered owner holds an overlapping
+  run root or mount, including read-only and aliased paths, without taking over
+  unrelated cleanup.
+
 ## 4.6.1
 
 - Diagnose blocked host-registry admission with closed phase, condition,

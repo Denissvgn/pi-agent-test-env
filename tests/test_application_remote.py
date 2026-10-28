@@ -36,8 +36,8 @@ def fresh():return str(uuid.uuid4())
 
 class RemoteTests(unittest.TestCase):
     def setUp(self):
-        self.temp=tempfile.TemporaryDirectory(dir='/private/tmp');self.addCleanup(self.temp.cleanup)
-        self.root=Path(self.temp.name);self.experiment=self.root/'experiment'
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name).resolve();self.experiment=self.root/'experiment'
         self.run,self.attempt,self.trial,self.stageid,self.session=fresh(),fresh(),fresh(),fresh(),fresh()
         self.runroot=self.experiment/'runs'/self.run;self.runroot.mkdir(parents=True,mode=0o700)
         self.workspace=self.runroot/'workspace';self.workspace.mkdir(mode=0o700)

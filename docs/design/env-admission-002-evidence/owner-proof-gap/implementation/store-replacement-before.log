@@ -1,0 +1,13 @@
+test_store_replacement_does_not_receive_an_acceptance_index (__main__.StoreRegression.test_store_replacement_does_not_receive_an_acceptance_index) ... FAIL
+
+======================================================================
+FAIL: test_store_replacement_does_not_receive_an_acceptance_index (__main__.StoreRegression.test_store_replacement_does_not_receive_an_acceptance_index)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "<stdin>", line 12, in test_store_replacement_does_not_receive_an_acceptance_index
+AssertionError: RegistryError not raised
+
+----------------------------------------------------------------------
+Ran 1 test in 0.016s
+
+FAILED (failures=1)
