@@ -643,15 +643,30 @@ def _anchor(registry, record):
 
 
 def _read_anchor(registry, record, reader):
-    try:value, unused = reader.read(_anchor(registry, record), private=True)
+    target = _anchor(registry, record)
+    try:parent = directory(target.parent)
     except FileNotFoundError:
-        require(not os.path.lexists(_anchor(registry, record)))
+        require(getattr(registry, '_owner_anchor_identity', None) is None, 'unsafe_path')
+        require(not os.path.lexists(target))
         return None
-    return value
+    try:
+        require(not stat.S_IMODE(os.fstat(parent).st_mode) & 0o077, 'unsafe_path')
+        _bind_directory(registry, '_owner_anchor_identity', parent)
+        try:os.stat(target.name, dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:value = None
+        else:
+            _remember_legacy_selection(registry, record)
+            value, unused = reader.read(target, private=True, parent_fd=parent)
+        named = directory(target.parent)
+        try:require(identity(os.fstat(named)) == identity(os.fstat(parent)), 'unsafe_path')
+        finally:os.close(named)
+        return value
+    finally:os.close(parent)
 
 
 def _retained_selection(registry, record, reader):
     """A selected new method cannot be retried through the old native path."""
+    require(record['launch_id'] not in getattr(registry, '_owner_legacy_selected_ids', set()), 'owner_proof_publication_incomplete')
     require(_read_anchor(registry, record, reader) is None, 'owner_proof_publication_incomplete')
     try:fd = directory(store_path(registry))
     except FileNotFoundError:
@@ -684,6 +699,20 @@ def _remember_selection(registry, record):
     if selected is None:
         selected = set(); registry._owner_proof_selected_ids = selected
     selected.add(record['launch_id'])
+
+
+def _remember_legacy_selection(registry, record):
+    _remember_selection(registry, record)
+    selected = getattr(registry, '_owner_legacy_selected_ids', None)
+    if selected is None:
+        selected = set(); registry._owner_legacy_selected_ids = selected
+    selected.add(record['launch_id'])
+
+
+def _remember_document_selection(registry, record, value):
+    if value.get('schema') == 2 or value.get('method') == 'legacy_derived_v1' or value.get('cohort') == 'application_owner_legacy_1':
+        _remember_legacy_selection(registry, record)
+    else:_remember_selection(registry, record)
 
 
 def _mark_selected(registry, record):
@@ -797,9 +826,11 @@ def validate_accepted(registry, record):
         try:selection, unused = reader.read(_selection(registry, record), private=True)
         except FileNotFoundError:
             require(not os.path.lexists(_selection(registry, record)))
-        else:require(False)
+        else:
+            _remember_document_selection(registry, record, selection)
+            require(False)
         return False
-    _remember_selection(registry, record)
+    _remember_document_selection(registry, record, index)
     require(subject(record)['registry'] == registry.registry_id)
     store = directory(store_path(registry))
     try:
@@ -808,6 +839,7 @@ def validate_accepted(registry, record):
     finally:os.close(store)
     require(type(index) is dict)
     if type(index.get('schema')) is int and index['schema'] == 2:
+        _remember_legacy_selection(registry, record)
         import application_owner_legacy_protocol as legacy_protocol
         return legacy_protocol.validate_accepted(registry, record, index, anchor, reader)
     require(anchor is None, 'owner_proof_publication_incomplete')

@@ -779,10 +779,16 @@ class Registry:
                 record['status']='absent';self.write(record)
         for record in pending:
             if record.get('kind')=='network':self.remove_network(record)
+        # Every selected proof remains mandatory after writer/status changes,
+        # even when the recovered writer belongs to a different retained run.
+        self.validate_history(self.load(),quarantine=False)
         with diagnostics.phase('sensitive_recovery'):
             for runroot in {r.get('runroot') for r in pending if r.get('runroot')}:
                 path=Path(runroot)
-                if not path.is_absolute() or path.is_symlink():
+                try:canonical=path.resolve(strict=False)
+                except (OSError,RuntimeError) as exc:
+                    raise RegistryError('Sensitive recovery scope is unknown',condition='owner_scope_unsupported',cause=exc) from None
+                if not path.is_absolute() or path.is_symlink() or str(path)!=runroot or path!=canonical:
                     raise RegistryError('Unsafe sensitive recovery root',condition='unsafe_path')
                 import application_owner_cleanup
                 owners=[r for r in records if r.get('runroot')==runroot and r.get('application_helper') is True
@@ -809,6 +815,8 @@ class Registry:
                         with diagnostics.operation('purge',mutating=True):shutil.rmtree(path)
             with diagnostics.phase('persist_release'):
                 record['status']='released';self.write(record)
+        # A successful return cannot hide proof loss during final publication.
+        self.validate_history(self.load(),quarantine=False)
         return pending
 
     def intent(self,argv,name,binding=None,runroot=None):

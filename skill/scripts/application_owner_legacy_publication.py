@@ -121,10 +121,13 @@ class _Publisher:
 
     def unselected(self, record):
         cleanup.require(record['launch_id'] not in getattr(self.registry, '_owner_proof_selected_ids', set()), 'owner_proof_publication_incomplete')
-        for path in (cleanup._index(self.registry, record), cleanup._selection(self.registry, record), cleanup._anchor(self.registry, record)):
-            try:self.reader.read(path, private=True)
+        cleanup.require(cleanup._read_anchor(self.registry, record, self.reader) is None, 'owner_proof_publication_incomplete')
+        for path in (cleanup._index(self.registry, record), cleanup._selection(self.registry, record)):
+            try:value, unused = self.reader.read(path, private=True)
             except FileNotFoundError:cleanup.require(not os.path.lexists(path))
-            else:cleanup.require(False, 'owner_proof_publication_incomplete')
+            else:
+                cleanup._remember_document_selection(self.registry, record, value)
+                cleanup.require(False, 'owner_proof_publication_incomplete')
 
     def begin(self, operation, output_dir, runner):
         record = operation.observation['record']; plan = operation.observation['plan']
@@ -153,7 +156,7 @@ class _Publisher:
         self.directories.append(self.store)
         self.anchor = _Directory.open(cleanup._anchor(self.registry, record).parent, self, '_owner_anchor_identity')
         self.directories.append(self.anchor)
-        cleanup._remember_selection(self.registry, record)
+        cleanup._remember_legacy_selection(self.registry, record)
         self.anchor.create(record['launch_id'] + '.json', {'schema': 1, 'document_type': 'application_owner_cleanup_anchor',
             'subject': common['subject'], 'method': legacy.METHOD, 'cohort': legacy.COHORT, 'intent': self.intent})
         self.selected = _Directory.open(cleanup._selection(self.registry, record).parent, self, '_owner_selected_identity')
