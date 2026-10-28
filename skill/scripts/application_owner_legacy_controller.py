@@ -41,7 +41,7 @@ def validate_descriptor(family):
     hashes = {'supervisor_sha256'}
     if family['binding_format'] == 'supervised_source_v1':hashes.add('emitter_sha256')
     else:hashes |= {'host_source_pins_sha256', 'runtime_source_pins_sha256', 'probe_sha256', 'prior_validator_sha256'}
-    required = common | hashes; optional = {'public_source_roles', 'readable_metadata_parent_roles'}
+    required = common | hashes; optional = {'public_source_roles', 'readable_metadata_parent_roles', 'execution_rule'}
     _require(required <= set(family) <= required | optional and family['family_id'] == family['binding_format'])
     for field in hashes:
         _require(type(family[field]) is str and len(family[field]) == 64
@@ -51,6 +51,9 @@ def validate_descriptor(family):
              and all(type(v) is str and v in legacy.VARIANTS for v in variants)
              and len(set(variants)) == len(variants))
     if family['binding_format'] == 'artifact_diagnostic_v1':_require(set(variants) == {'diagnostic_disposable_v1'})
+    if 'execution_rule' in family:
+        _require(family['binding_format']=='artifact_diagnostic_v1'
+                 and family['execution_rule']=='absolute_owned_host_paths_v1')
     for field, allowed in (('public_source_roles', legacy.BYTE_ROLES | {'probe', 'prior_validator'}),
                            ('readable_metadata_parent_roles', {'inputs', 'source_binding', 'authority'})):
         values = family.get(field, ())
@@ -162,26 +165,47 @@ def _reference_family(bodies, components, evidence, originals, record, related):
     return context, expected
 
 
+def source_paths(source, producer):
+    """Interpret the approved source's small path algebra as data, never eval."""
+    tree = ast.parse(source, feature_version=(3, 10)); values = {}
+    original = cleanup.path(producer['path'])
+    def path(node):
+        if isinstance(node, ast.Name) and node.id in values:return values[node.id]
+        if isinstance(node, ast.Call) and not node.keywords:
+            if (isinstance(node.func, ast.Name) and node.func.id == 'Path' and len(node.args) == 1
+                    and isinstance(node.args[0], ast.Name) and node.args[0].id == '__file__'):return original
+            if isinstance(node.func, ast.Attribute) and node.func.attr == 'resolve' and not node.args:
+                # The Reader already checked the original path no-follow; no
+                # source-selected filesystem resolution or function call occurs.
+                return path(node.func.value)
+        if isinstance(node, ast.Attribute) and node.attr == 'parent':return path(node.value).parent
+        if (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute) and node.value.attr == 'parents'
+                and isinstance(node.slice, ast.Constant) and legacy.integer(node.slice.value, 0, 64)):
+            try:return path(node.value.value).parents[node.slice.value]
+            except IndexError:_require(False)
+        if (isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div)
+                and isinstance(node.right, ast.Constant) and type(node.right.value) is str):
+            leaf = node.right.value
+            _require(leaf and not Path(leaf).is_absolute() and '..' not in Path(leaf).parts and str(Path(leaf)) == leaf)
+            return cleanup.path(str(path(node.left) / leaf))
+        _require(False, 'owner_legacy_unsupported')
+    for node in tree.body:
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id in ('REPO', 'HERE', 'ROOT', 'CLAIM', 'OUT', 'INPUT_PATH', 'REVIEW_PATH')):
+            name = node.targets[0].id; _require(name not in values)
+            values[name] = path(node.value)
+    return values
+
+
 def _source_parameters(source, producer):
     """Read constants from already catalog-matched source, without evaluating it."""
-    tree = ast.parse(source, feature_version=(3, 10)); here = Path(producer['path']).parent
-    values = {}
+    tree = ast.parse(source, feature_version=(3, 10)); locations = source_paths(source, producer)
+    _require(locations.get('HERE') == Path(producer['path']).parent, 'owner_scope_unsupported')
+    values = {name:locations[name] for name in ('ROOT', 'INPUT_PATH', 'REVIEW_PATH') if name in locations}
     for node in tree.body:
         if not isinstance(node, ast.Assign) or len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):continue
         name = node.targets[0].id
-        if name in ('ROOT', 'INPUT_PATH', 'REVIEW_PATH'):
-            value = node.value
-            _require(isinstance(value, ast.BinOp) and isinstance(value.op, ast.Div)
-                     and isinstance(value.right, ast.Constant) and type(value.right.value) is str)
-            if isinstance(value.left, ast.Name) and value.left.id == 'HERE':parent = here
-            else:
-                _require(isinstance(value.left, ast.Attribute) and value.left.attr == 'parent'
-                         and isinstance(value.left.value, ast.Name) and value.left.value.id == 'HERE')
-                parent = here.parent
-            leaf = value.right.value
-            _require(leaf and not Path(leaf).is_absolute() and '..' not in Path(leaf).parts and str(Path(leaf)) == leaf)
-            values[name] = cleanup.path(str(parent / leaf))
-        elif name in ('AUTHORITY_ID', 'IMAGE'):
+        if name in ('AUTHORITY_ID', 'IMAGE'):
             _require(isinstance(node.value, ast.Constant) and type(node.value.value) is str)
             values[name] = node.value.value
     _require(set(values) == {'ROOT', 'INPUT_PATH', 'REVIEW_PATH', 'AUTHORITY_ID', 'IMAGE'})
@@ -285,7 +309,9 @@ def validate_controller(result, components, evidence, request, record, related, 
                                             'wait_confirmed': False}, provenance, 'candidate')
     execution = {'pid': start['pid'], 'parent_pid': start['wrapper_pid'], 'argv': start['argv'],
                  'cwd': None if context is None else context['cwd'], 'launch_ids': [r['launch_id'] for r in related]}
-    _fact(result, 'controller_execution', execution, provenance, 'candidate' if context is None else 'derived',
+    source_scoped = family.get('execution_rule') == 'absolute_owned_host_paths_v1'
+    if source_scoped:execution['cwd_rule']=family['execution_rule']
+    _fact(result, 'controller_execution', execution, provenance, 'candidate' if context is None and not source_scoped else 'derived',
           'not_located' if context is None else 'incomplete_binding')
-    if context is not None and terminal['child_wait_confirmed']:
+    if (context is not None or source_scoped) and terminal['child_wait_confirmed']:
         result['controller'] = {**execution, 'actual_exit': terminal['actual_exit'], 'wait_confirmed': True}

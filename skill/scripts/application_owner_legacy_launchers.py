@@ -221,7 +221,9 @@ def validate_launchers(result, components, evidence, request, record, related, r
         legacy._argv(argv); cleanup.validate_launcher_arguments(argv, row_record)
         execution = {'launch_id': launch_id, 'pid': bodies['start']['pid'], 'parent_pid': row_record['owner_pid'],
                      'ordinal': bodies['start']['ordinal'], 'argv': argv, 'cwd': cwd}
-        _fact(result, launch_id, 'launcher_execution', execution, 'candidate' if cwd is None else 'derived',
+        source_scoped=family.get('execution_rule')=='absolute_owned_host_paths_v1'
+        if source_scoped:execution['cwd_rule']=family['execution_rule']
+        _fact(result, launch_id, 'launcher_execution', execution, 'candidate' if cwd is None and not source_scoped else 'derived',
               'not_located' if cwd is None else 'incomplete_binding')
         terminal = {'launch_id': launch_id, 'pid': bodies['terminal']['pid'], 'ordinal': bodies['terminal']['ordinal'],
                     'actual_exit': bodies['terminal']['returncode'], 'wait_confirmed': bodies['terminal']['wait_confirmed']}

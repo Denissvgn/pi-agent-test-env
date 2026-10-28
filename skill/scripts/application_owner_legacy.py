@@ -12,6 +12,7 @@ import re
 
 import application_owner_cleanup as cleanup
 import registry_diagnostics as diagnostics
+from application_owner_legacy_catalog import source_families
 
 METHOD = 'legacy_derived_v1'
 COHORT = 'application_owner_legacy_1'
@@ -45,7 +46,7 @@ CLAIM_CLASSES = frozenset({'original', 'derived', 'candidate', 'unknown', 'diffe
 
 # Only reviewed installed identities and functions belong here. Neither catalog
 # can be populated by a request, a locator, a source file or an external PASS.
-SOURCE_FAMILIES = {}
+SOURCE_FAMILIES = source_families()
 
 
 def _controller(*args):
@@ -311,15 +312,26 @@ def _known_refs(value, reader):
     require(names == sorted(set(names)))
 
 
-def _typed_value(claim, record, related, request, reader):
+def _execution_cwd(claim,request,evidence):
+    value=claim['value']
+    if value['cwd'] is not None:
+        require('cwd_rule' not in value);cleanup.path(value['cwd']);return
+    require(value.get('cwd_rule')=='absolute_owned_host_paths_v1' and claim['class']=='derived'
+            and request['variant']=='diagnostic_disposable_v1')
+    source=evidence['controller']['originals']['producer']['sha256'];family=SOURCE_FAMILIES.get(source)
+    require(family is not None and family['binding_format']=='artifact_diagnostic_v1'
+            and family.get('execution_rule')==value['cwd_rule'])
+
+
+def _typed_value(claim, record, related, request, reader,evidence=None):
     value = claim['value']; obligation = claim['obligation']
     if obligation == 'subject_identity':require(value == cleanup.subject(record))
     elif obligation == 'related_closure':require(value == [cleanup._resource_subject(r) for r in related])
     elif obligation == 'controller_execution':
-        cleanup.exact(value, {'pid', 'parent_pid', 'argv', 'cwd', 'launch_ids'})
+        cleanup.exact(value, {'pid', 'parent_pid', 'argv', 'cwd', 'launch_ids'} | ({'cwd_rule'} if value.get('cwd') is None else set()))
         require(type(value['pid']) is int and value['pid'] == record['owner_pid']
                 and integer(value['parent_pid'], 1, 2**31 - 1) and value['parent_pid'] != value['pid'])
-        _argv(value['argv']); cleanup.path(value['cwd'])
+        _argv(value['argv']); _execution_cwd(claim,request,evidence)
         require(value['launch_ids'] == [r['launch_id'] for r in related])
     elif obligation in ('controller_terminal', 'launcher_terminal'):
         fields = {'pid', 'actual_exit', 'wait_confirmed'}
@@ -330,12 +342,12 @@ def _typed_value(claim, record, related, request, reader):
         if obligation == 'controller_terminal':require(value['pid'] == record['owner_pid'])
         else:require(integer(value['ordinal'], 1, 4096))
     elif obligation == 'launcher_execution':
-        cleanup.exact(value, {'launch_id', 'pid', 'parent_pid', 'ordinal', 'argv', 'cwd'})
+        cleanup.exact(value, {'launch_id', 'pid', 'parent_pid', 'ordinal', 'argv', 'cwd'} | ({'cwd_rule'} if value.get('cwd') is None else set()))
         row = next(r for r in related if r['launch_id'] == value['launch_id'])
         require(integer(value['pid'], 1, 2**31 - 1) and integer(value['parent_pid'], 1, 2**31 - 1)
                 and value['parent_pid'] == row['owner_pid'] and value['parent_pid'] != value['pid']
                 and integer(value['ordinal'], 1, 4096))
-        _argv(value['argv']); cleanup.path(value['cwd'])
+        _argv(value['argv']); _execution_cwd(claim,request,evidence)
     elif obligation == 'helper_guard_identity':
         cleanup.exact(value, {'launch_id', 'container_id', 'intent_sha256'})
         row = next(r for r in related if r['launch_id'] == value['launch_id'])
@@ -394,7 +406,7 @@ def _check_claims(result, evidence, record, related, request, reader):
                 result['unresolved'].append({'obligation': key[0], 'launch_id': key[1], 'reason': 'incomplete_binding'})
             continue
         require(key in required)
-        _typed_value(claim, record, related, request, reader); confirmed.add(key)
+        _typed_value(claim, record, related, request, reader,evidence); confirmed.add(key)
     require(type(result['unresolved']) is list and len(result['unresolved']) <= 256)
     for item in result['unresolved']:
         cleanup.exact(item, {'obligation', 'launch_id', 'reason'})
@@ -475,3 +487,19 @@ def prepare(request, record, related, *, reader=None):
     result = analyze(request, record, related, reader=reader)
     require(result['status'] == 'eligible_for_native_checks' and not result['unresolved'], 'owner_legacy_incomplete')
     return result
+
+
+def public_summary(result):
+    """Closed nonsecret structural-planning projection, never admission proof."""
+    require(type(result) is dict and result.get('status') in ('blocked','eligible_for_native_checks'))
+    claims=result.get('claims');unresolved=result.get('unresolved')
+    require(type(claims) is list and type(unresolved) is list)
+    conditions=sorted({item['obligation'] for item in unresolved})
+    require(all(type(value) is str and value in OBLIGATIONS for value in conditions))
+    return {'schema':1,'document_type':'application_owner_legacy_plan_summary','status':result['status'],
+        'admission_authorized':False,'cleanup_authorized':False,'cleanup_completed':False,
+        'obligations_satisfied':sum(c['class'] in ('original','derived') for c in claims),
+        'obligations_unresolved':len(unresolved),'unresolved_obligations':conditions,
+        'remaining_native_checks':['original_lease_and_current_records','daemon_and_owned_resource_absence',
+            'owned_writer_absence','overlapping_pending_holders','exact_discard_authority','durable_publication_and_passive_replay'],
+        'new_containers':0,'participant_stages':0,'model_requests':0}

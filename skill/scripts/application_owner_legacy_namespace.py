@@ -3,7 +3,6 @@
 Unknown files remain untouched and unsupported. An eligible metadata plan is
 neither cleanup acceptance nor permission for native participant dispatch.
 """
-import ast
 import os
 from pathlib import Path
 import re
@@ -264,21 +263,9 @@ def _probe(value, manifest):
 
 
 def _declared_path(source, reference, variable):
-    here = Path(reference['path']).parent; values = []
-    for node in ast.parse(source, feature_version=(3, 10)).body:
-        if not (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
-                and node.targets[0].id == variable):continue
-        value = node.value
-        _require(isinstance(value, ast.BinOp) and isinstance(value.op, ast.Div)
-                 and isinstance(value.right, ast.Constant) and type(value.right.value) is str)
-        if isinstance(value.left, ast.Name) and value.left.id == 'HERE':parent = here
-        else:
-            _require(isinstance(value.left, ast.Attribute) and value.left.attr == 'parent'
-                     and isinstance(value.left.value, ast.Name) and value.left.value.id == 'HERE')
-            parent = here.parent
-        leaf = value.right.value; _require(leaf == Path(leaf).name and leaf not in ('', '.', '..'))
-        values.append(cleanup.path(str(parent / leaf)))
-    _require(len(values) == 1); return values[0]
+    values = controller.source_paths(source, reference)
+    _require(values.get('HERE') == Path(reference['path']).parent and variable in values)
+    return values[variable]
 
 
 def _artifact(result, components, evidence, request, record, related, reader):
