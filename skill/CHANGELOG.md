@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## 4.7.0
+
+- New ordinary helper records use schema 3 with owner cleanup contract 1.
+  Older readers reject these records; use one compatible controller cohort.
+  Historical records and outcomes remain unchanged. Native integration and
+  extended SDK proof-read qualification remain separate requirements.
 
 - Add read-only application-owner inspection and explicit retained-terminal
   cleanup for already released ordinary helpers. Preserve original failed

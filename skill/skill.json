@@ -1,6 +1,6 @@
 {
   "name": "pi-agent-test-env",
-  "version": "4.6.1",
+  "version": "4.7.0",
   "description": "Evaluate frozen local-agent tasks and typed authenticated application plans with scoped helper-owned credentials, independent completion validation, native tool budgets, bounded Docker resources and retained evidence; also supports coding delegation and the reviewed fixture_lookup integration.",
   "language": "en",
   "license": "MIT",
