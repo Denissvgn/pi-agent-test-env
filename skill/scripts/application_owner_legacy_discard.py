@@ -136,9 +136,10 @@ class _BoundCleanup:
         for root in self.roots:root.verify()
 
     @cleanup.diagnostics.scoped('owner_legacy_scope', 'cleanup_proof_invalid')
-    def purge(self):
+    def purge(self, *, publication_guard=None):
         cleanup.require(not self.attempted and not self.closed); self.attempted = True
         self._verify(); self._protect()
+        if publication_guard is not None:publication_guard()
         native.observe(self.registry, self.request, reader=self.reader, expected=self.observation)
         self._verify(); self._protect()
         for root in self.roots:
@@ -147,6 +148,7 @@ class _BoundCleanup:
             if root.fd is None:continue
             def checkpoint(parts, info, mutating):
                 self._verify()
+                if publication_guard is not None:publication_guard()
                 cleanup.require(parts in root.inventory and _node(info, root.observation['identity'][0]) == root.inventory[parts], 'sensitive_identity_mismatch')
                 if mutating:self.effects = 'may_have_occurred'
             cleanup._purge(root.observation, parent_fd=root.parent, root_fd=root.fd, checkpoint=checkpoint)

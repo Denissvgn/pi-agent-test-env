@@ -755,21 +755,29 @@ def _store(registry):
     return fd
 
 
-def _publish_index(registry, record, reference):
+def _publish_index(registry, record, reference, *, method=None, cohort=None):
+    require((method is None and cohort is None) or
+            (method == 'legacy_derived_v1' and cohort == 'application_owner_legacy_1'), 'owner_legacy_unsupported')
     root = store_path(registry)
     fd = _store(registry)
     try:
         require(not stat.S_IMODE(os.fstat(fd).st_mode) & 0o077, 'unsafe_path')
-        value = {'schema': 1, 'document_type': 'application_owner_cleanup_index', 'subject': subject(record), 'receipt': reference}
+        value = {'schema': 2 if method else 1, 'document_type': 'application_owner_cleanup_index', 'subject': subject(record), 'receipt': reference}
+        if method:value.update(method=method, cohort=cohort)
         with diagnostics.operation('temporary_create', mutating=True):
             output = os.open(record['launch_id'] + '.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
         with os.fdopen(output, 'wb') as stream:
             with diagnostics.operation('file_write', mutating=True):stream.write(canonical(value)); stream.flush()
             with diagnostics.operation('file_fsync', mutating=True):os.fsync(stream.fileno())
+            signature = _purge_signature(os.fstat(stream.fileno()))
         with diagnostics.operation('directory_fsync', mutating=True):os.fsync(fd)
         named = directory(root)
         try:require(identity(os.fstat(named)) == identity(os.fstat(fd)), 'unsafe_path')
         finally:os.close(named)
+        require(_purge_signature(os.stat(record['launch_id'] + '.json', dir_fd=fd, follow_symlinks=False)) == signature, 'unsafe_record')
+        if method:
+            return {'reference': {'path': str(root / (record['launch_id'] + '.json')), 'sha256': digest(value)},
+                    'signature': signature}
     finally:os.close(fd)
 
 
@@ -878,9 +886,9 @@ def _canonical_subjects(value):
 def recover(registry, request, output_dir, *, discard_workspace=False, reader=None):
     import registry_maintenance as maintenance
     require(discard_workspace is True, 'owner_discard_required')
-    # The new method cannot borrow schema-1 native gates or mutable publication.
-    # Its dedicated native lifecycle must be installed before recovery is enabled.
-    require(_request_method(request) == 'retained_terminals', 'owner_proof_publication_incomplete')
+    if _request_method(request) == 'legacy_derived_v1':
+        import application_owner_legacy_publication as legacy_publication
+        return legacy_publication.recover(registry, request, output_dir, discard_workspace=discard_workspace, reader=reader)
     lease = lease_identity(registry)
     record, related, reader, metadata, roots, physical = _prepare(registry, request, reader=reader)
     require(not os.path.lexists(_index(registry, record)))
@@ -1225,9 +1233,10 @@ def command(args):
                 request, unused = reader.read(args.request, private=True)
                 result = recover(registry, request, args.output_dir, discard_workspace=args.discard_workspace, reader=reader)
                 # Full paths/terminal witnesses stay in the owner-only receipt.
-                report.update(status=result['status'], exit_code=0, subject=result['subject'],
-                              receipt_persistence=result['receipt_persistence'], effects=result['effects'],
-                              runner_content_sha256=result['runner_content_sha256'])
+                report.update(status=result['status'], exit_code=0,
+                              receipt_persistence=result['receipt_persistence'], effects=result['effects'])
+                if result['method'] != 'legacy_derived_v1':
+                    report.update(subject=result['subject'], runner_content_sha256=result['runner_content_sha256'])
     except KeyboardInterrupt:
         report.update(status='INTERRUPTED', exit_code=130)
     except Exception as exc:

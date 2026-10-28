@@ -104,10 +104,13 @@ class LegacyDispatchTests(LegacyContractTests):
                 with self.assertRaises(ownership.RegistryError):cleanup._prepare(self.owner,{**request,**update})
 
     def test_new_request_cannot_use_old_mutating_recovery_path(self):
+        publisher=importlib.import_module('application_owner_legacy_publication')
         with self.held():
-            with mock.patch.object(cleanup,'_purge',side_effect=AssertionError('Premature purge')):
-                with self.assertRaises(ownership.RegistryError):
-                    cleanup.recover(self.owner,self.fixture.request(),self.root/'no-output',discard_workspace=True)
+            with (mock.patch.object(cleanup,'_prepare_retained',side_effect=AssertionError('Old preparation')),
+                 mock.patch.object(cleanup,'_writers_absent',side_effect=AssertionError('Old native gate')),
+                 mock.patch.object(publisher,'recover',return_value={'dedicated':True}) as dedicated):
+                result=cleanup.recover(self.owner,self.fixture.request(),self.root/'no-output',discard_workspace=True)
+                self.assertEqual(result,{'dedicated':True});self.assertEqual(dedicated.call_count,1)
         self.assertFalse((self.root/'no-output').exists());self.assertTrue(self.fixture.private.exists())
         self.owner.command.assert_not_called()
 

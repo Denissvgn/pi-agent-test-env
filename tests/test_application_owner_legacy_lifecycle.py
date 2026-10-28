@@ -1,6 +1,7 @@
 """Red-first persistence/fresh-consumer faults in disposable synthetic registries."""
 import contextlib
 import argparse
+import errno
 import importlib
 import io
 import json
@@ -31,7 +32,7 @@ class LegacyLifecycleTests(unittest.TestCase):
         for name in ('run', 'Popen'):
             patch = mock.patch.object(subprocess, name, side_effect=AssertionError('No real native process allowed'))
             patch.start(); self.addCleanup(patch.stop)
-        patch = mock.patch.object(os, 'kill', side_effect=ProcessLookupError)
+        patch = mock.patch.object(os, 'kill', side_effect=ProcessLookupError(errno.ESRCH, 'synthetic absent PID'))
         patch.start(); self.addCleanup(patch.stop)
 
     @staticmethod
@@ -42,7 +43,7 @@ class LegacyLifecycleTests(unittest.TestCase):
         self.calls.append(list(argv))
         if argv == ['docker', 'info', '--format', '{{.ID}}']:return self.reply(0, 'synthetic-daemon\n')
         if argv[:3] == ['docker', 'container', 'inspect']:
-            return self.reply(1, '[]\n', 'Error response from daemon: No such container: ' + argv[-1])
+            return self.reply(1, '' if '--format' in argv else '[]\n', 'Error response from daemon: No such container: ' + argv[-1])
         if argv[:2] == ['docker', 'ps']:return self.reply(0)
         raise AssertionError('Unapproved/effectful native call: ' + repr(argv))
 
@@ -118,8 +119,8 @@ class LegacyLifecycleTests(unittest.TestCase):
 
     def test_partial_purge_intent_without_terminal_never_becomes_accepted(self):
         purge = cleanup._purge; count = [0]
-        def interrupted(observation):
-            purge(observation)
+        def interrupted(observation, **kwargs):
+            purge(observation, **kwargs)
             if observation['state'] == 'present':
                 count[0] += 1
                 raise KeyboardInterrupt()
@@ -132,12 +133,12 @@ class LegacyLifecycleTests(unittest.TestCase):
 
     def test_replaced_scope_is_not_deleted_via_held_authority_for_old_inode(self):
         original = cleanup._purge; replaced = [False]; sentinel = [None]
-        def replace(observation):
+        def replace(observation, **kwargs):
             if observation['state'] == 'present' and not replaced[0]:
                 target = Path(observation['path']); target.rename(self.root / 'saved-scope')
                 target.mkdir(mode=0o700); sentinel[0] = target / 'sentinel'; sentinel[0].write_text('keep')
                 replaced[0] = True
-            return original(observation)
+            return original(observation, **kwargs)
         with mock.patch.object(cleanup, '_purge', side_effect=replace):
             with self.assertRaises(ownership.RegistryError):self.recover()
         self.assertTrue(replaced[0]); self.assertEqual(sentinel[0].read_text(), 'keep')
