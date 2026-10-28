@@ -27,6 +27,13 @@ def original_digest(value):
 
 
 class LegacyControllerTests(LegacyContractTests):
+    def exercise(self, *args, **kwargs):
+        # These are controller-component tests; later launcher/scope adapters
+        # must not mask a controller predicate with an unrelated rejection.
+        api = importlib.import_module('application_owner_legacy')
+        with mock.patch.dict(api._ADAPTERS, {'controller': api._controller}, clear=True):
+            return super().exercise(*args, **kwargs)
+
     def artifact(self, name='artifact'):
         """Model actual retained field sets, without importing an original program."""
         fixture = self.build(name, scope='diagnostic_disposable', exit_code=0)

@@ -53,7 +53,12 @@ def _controller(*args):
     return validate_controller(*args)
 
 
-_ADAPTERS = {'controller': _controller}
+def _launchers(*args):
+    from application_owner_legacy_launchers import validate_launchers
+    return validate_launchers(*args)
+
+
+_ADAPTERS = {'controller': _controller, 'launchers': _launchers}
 
 
 def require(value, condition='cleanup_proof_invalid'):
@@ -68,8 +73,9 @@ def _set_claim(result, obligation, value, *, classification, component, roles,
                rule_id='supervised_controller_v1', launch_id=None, reason='incomplete_binding'):
     """Install one reviewed adapter output; input never supplies this function."""
     def same(claim):
+        if claim['obligation'] != obligation:return False
         key = claim['value'].get('launch_id') if obligation in PER_LAUNCH and claim['value'] is not None else None
-        return claim['obligation'] == obligation and key == launch_id
+        return key == launch_id
     result['claims'] = [claim for claim in result['claims'] if not same(claim)]
     result['claims'].append({'obligation': obligation, 'class': classification, 'value': value,
         'provenance': [{'component': component, 'role': role} for role in sorted(set(roles))],

@@ -88,11 +88,16 @@ class AcceptanceFixture(LegacyFixture):
     def rewrite(self, name, change):
         """Change one semantic premise and update all reference edges, not facts."""
         value = self.body(name); change(value)
-        old = copy.deepcopy(self.refs[name]); new = self.put(name, value)
+        old = copy.deepcopy(self.refs[name]); target = Path(old['path'])
+        new = self.put(name, value) if target.parent == self.originals else self.put_retained(name, target, value)
         self._rebind(old, new)
 
     def rewrite_bytes(self, name, data):
-        old = copy.deepcopy(self.refs[name]); new = self.put_raw(name, data)
+        old = copy.deepcopy(self.refs[name]); target = Path(old['path'])
+        if target.parent == self.originals:new = self.put_raw(name, data)
+        else:
+            mode = target.stat().st_mode & 0o777; target.write_bytes(data); target.chmod(mode)
+            new = {'path': str(target), 'sha256': hashlib.sha256(data).hexdigest()}; self.refs[name] = new
         self._rebind(old, new)
 
     def _rebind(self, old, new):

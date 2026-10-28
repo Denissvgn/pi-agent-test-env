@@ -205,6 +205,45 @@ def lease_identity(registry):
     return observed
 
 
+def validate_launcher_arguments(argv, record):
+    """Validate original or source-derived argv without making a witness."""
+    require(argv[:2] == ['docker', 'run'] and argv.count('--name') == 1
+            and argv[argv.index('--name') + 1] == record['container']
+            and record['image'] in argv)
+    labels = [argv[i + 1] for i, arg in enumerate(argv[:-1]) if arg == '--label']
+    require(sorted(labels) == sorted([ownership.LABEL + '=' + record['launch_id'],
+                                     ownership.REGISTRY_LABEL + '=' + record['registry']]))
+    image_at = argv.index(record['image']); require(argv.count(record['image']) == 1 and image_at + 1 < len(argv)
+                                                   and argv[image_at + 1] in (
+                                                       '/opt/pi-application/runtime/application_client_service.py',
+                                                       '/opt/pi-lab/worker.py'))
+    switches = {'--pull=never', '--interactive', '--init', '--read-only', '--cap-drop=ALL',
+                '--security-opt=no-new-privileges=true', '--ipc=none', '--entrypoint=python3',
+                '--workdir=/pi-client/state'}
+    valued = {'--name', '--label', '--mount', '--platform', '--user', '--security-opt', '--pids-limit',
+              '--memory', '--memory-swap', '--cpus', '--network', '--network-alias', '--publish',
+              '--workdir', '--env', '--tmpfs', '--ulimit', '--add-host'}
+    position = 2
+    while position < image_at:
+        option = argv[position]
+        if option in switches:position += 1; continue
+        require(option in valued and position + 1 < image_at)
+        value = argv[position + 1]
+        if option == '--platform':require(value == 'linux/arm64')
+        if option == '--network':require(value not in ('host', 'container'))
+        if option == '--env' and record.get('application_helper') is True:
+            require(value in ('PYTHONDONTWRITEBYTECODE=1', 'PYTHONUNBUFFERED=1',
+                              'HOME=/pi-client/state/private/home', 'TMPDIR=/pi-client/state/private/tmp'))
+        position += 2
+    mounts = []
+    for i, option in enumerate(argv[:-1]):
+        if option != '--mount':continue
+        parts = argv[i + 1].split(','); fields = dict(p.split('=', 1) for p in parts if '=' in p)
+        require(fields.get('type') == 'bind' and set(fields) <= {'type', 'src', 'dst', 'bind-recursive'})
+        mounts.append({'source': fields.get('src'), 'target': fields.get('dst'), 'rw': 'readonly' not in parts})
+    require(mounts == record['mounts'])
+
+
 def _terminal(reader, witnesses, record, launch_ids, *, replay=False, launcher=False):
     exact(witnesses, {'invocation', 'terminal'})
     invocation = reader.reference(witnesses['invocation']); terminal = reader.reference(witnesses['terminal'])
@@ -224,42 +263,7 @@ def _terminal(reader, witnesses, record, launch_ids, *, replay=False, launcher=F
             and terminal['invocation'] == witnesses['invocation']
             and all(type(terminal[k]) is type(invocation[k]) and terminal[k] == invocation[k] for k in ('pid', 'argv', 'cwd')))
     if not launcher:require(invocation['pid'] == record.get('owner_pid'))
-    else:
-        require(argv[:2] == ['docker', 'run'] and argv.count('--name') == 1
-                and argv[argv.index('--name') + 1] == record['container']
-                and record['image'] in argv)
-        labels = [argv[i + 1] for i, arg in enumerate(argv[:-1]) if arg == '--label']
-        require(sorted(labels) == sorted([ownership.LABEL + '=' + record['launch_id'],
-                                         ownership.REGISTRY_LABEL + '=' + record['registry']]))
-        image_at = argv.index(record['image']); require(argv.count(record['image']) == 1 and image_at + 1 < len(argv)
-                                                       and argv[image_at + 1] in (
-                                                           '/opt/pi-application/runtime/application_client_service.py',
-                                                           '/opt/pi-lab/worker.py'))
-        switches = {'--pull=never', '--interactive', '--init', '--read-only', '--cap-drop=ALL',
-                    '--security-opt=no-new-privileges=true', '--ipc=none', '--entrypoint=python3',
-                    '--workdir=/pi-client/state'}
-        valued = {'--name', '--label', '--mount', '--platform', '--user', '--security-opt', '--pids-limit',
-                  '--memory', '--memory-swap', '--cpus', '--network', '--network-alias', '--publish',
-                  '--workdir', '--env', '--tmpfs', '--ulimit', '--add-host'}
-        position = 2
-        while position < image_at:
-            option = argv[position]
-            if option in switches:position += 1; continue
-            require(option in valued and position + 1 < image_at)
-            value = argv[position + 1]
-            if option == '--platform':require(value == 'linux/arm64')
-            if option == '--network':require(value not in ('host', 'container'))
-            if option == '--env' and record.get('application_helper') is True:
-                require(value in ('PYTHONDONTWRITEBYTECODE=1', 'PYTHONUNBUFFERED=1',
-                                  'HOME=/pi-client/state/private/home', 'TMPDIR=/pi-client/state/private/tmp'))
-            position += 2
-        mounts = []
-        for i, option in enumerate(argv[:-1]):
-            if option != '--mount':continue
-            parts = argv[i + 1].split(','); fields = dict(p.split('=', 1) for p in parts if '=' in p)
-            require(fields.get('type') == 'bind' and set(fields) <= {'type', 'src', 'dst', 'bind-recursive'})
-            mounts.append({'source': fields.get('src'), 'target': fields.get('dst'), 'rw': 'readonly' not in parts})
-        require(mounts == record['mounts'])
+    else:validate_launcher_arguments(argv, record)
     if not replay:
         try:os.kill(invocation['pid'], 0)
         except ProcessLookupError:pass
