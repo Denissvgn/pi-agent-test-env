@@ -230,7 +230,9 @@ class SettlementServiceTests(unittest.TestCase):
 
     def test_request_ceiling_counts_preflight_and_never_advances_script(self):
         server=self.server()
-        for _ in range(service.MAX_REQUESTS):self.assertEqual(self.http(server,method='GET',path='/v1/models')[0],200)
+        for _ in range(service.MAX_REQUESTS):
+            self.assertEqual(self.http(server,method='GET',path='/v1/models')[0],200)
+            self.wait(lambda:server.snapshot()['counters']['active_handlers']==0)
         with self.assertRaises((RemoteDisconnected,ConnectionError,OSError)):self.http(server,method='GET',path='/v1/models')
         self.assertEqual(server.snapshot()['counters']['requests'],64);self.assertEqual(server.machine.step,0)
 

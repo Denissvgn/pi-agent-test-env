@@ -40,7 +40,7 @@ KEY_B='disposable-example-bob-85948362710'
 
 class AuthenticatedExampleTests(unittest.TestCase):
     def setUp(self):
-        temporary=tempfile.TemporaryDirectory(dir='/private/tmp');self.addCleanup(temporary.cleanup);self.root=Path(temporary.name).resolve()
+        temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup);self.root=Path(temporary.name).resolve()
         self.store=self.root/'store';secret_store.write_secret('APP_ALICE',KEY_A,self.store);secret_store.write_secret('APP_BOB',KEY_B,self.store)
         self.runroot=self.root/'run';self.runroot.mkdir(mode=0o700);self.outputs=self.runroot/'application-evidence/fixture/outputs';self.outputs.mkdir(parents=True,mode=0o700)
         self.evidence=self.runroot/'application-evidence/fixture/raw';self.evidence.mkdir(mode=0o700)

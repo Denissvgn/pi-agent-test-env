@@ -16,6 +16,7 @@ from pathlib import Path
 import stat
 import types
 
+from ast_compat import pinned_dump
 import application_launch as launch
 import application_scoped_retained_checks as scoped_checks
 
@@ -245,7 +246,7 @@ def matrix_cells(images):
     path=Path(launch.__file__).with_name('application_client.py')
     tree=ast.parse(path.read_text())
     fn=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='matrix')
-    need(hashlib.sha256(ast.dump(fn,include_attributes=False).encode()).hexdigest()==MATRIX_AST_SHA256)
+    need(hashlib.sha256(pinned_dump(fn).encode()).hexdigest()==MATRIX_AST_SHA256)
     constants={}
     for node in tree.body:
         if isinstance(node,ast.Assign):

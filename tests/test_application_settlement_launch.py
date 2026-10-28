@@ -12,6 +12,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / 'tools/qualification'), str(ROOT / 'tests')]
+from ast_compat import pinned_dump
 import application_launch as launch
 import application_settlement_controller as controller
 import test_application_launch as legacy
@@ -26,7 +27,7 @@ def normalize_reviewed_settlement_ledger_ast(node):
     """
     def need(value):
         if not value:raise ValueError('unreviewed_settlement_ledger_AST')
-    def same(left,right):return ast.dump(left,include_attributes=False)==ast.dump(right,include_attributes=False)
+    def same(left,right):return pinned_dump(left)==pinned_dump(right)
     need(isinstance(node,ast.ClassDef)and node.name=='LaunchLedger')
     normalized=copy.deepcopy(node)
     need(len(normalized.body)>2)
@@ -162,10 +163,10 @@ class SettlementLaunchTests(unittest.TestCase):
     def test_exact_reviewed_clock_normalization_rejects_missing_weakened_moved_or_altered_guards(self):
         tree=ast.parse((ROOT/'tools/qualification/application_launch.py').read_bytes())
         ledger=next(n for n in tree.body if isinstance(n,ast.ClassDef)and n.name=='LaunchLedger')
-        raw=ast.dump(ledger,include_attributes=False)
+        raw=pinned_dump(ledger)
         normalized=normalize_reviewed_settlement_ledger_ast(ledger)
-        self.assertEqual(ast.dump(ledger,include_attributes=False),raw,'normalization must not mutate its input')
-        self.assertEqual(hashlib.sha256(ast.dump(normalized,include_attributes=False).encode()).hexdigest(),
+        self.assertEqual(pinned_dump(ledger),raw,'normalization must not mutate its input')
+        self.assertEqual(hashlib.sha256(pinned_dump(normalized).encode()).hexdigest(),
           '249416e94a8534581a90b40c8b55fdcfcd2bbec492aed80a2c9862b85b1b7d0e')
         for location in ('create','validate'):
             for fault in ('missing','weakened','moved','altered'):

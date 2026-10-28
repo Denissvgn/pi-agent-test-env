@@ -47,8 +47,8 @@ class ProjectionTests(unittest.TestCase):
 
 class APITests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=getattr(self, 'temporary_root', '/private/tmp'))
-        self.root = Path(self.temp.name)
+        self.temp = tempfile.TemporaryDirectory(dir=getattr(self, 'temporary_root', None))
+        self.root = Path(self.temp.name).resolve()
         self.evidence = self.root / 'evidence'; self.evidence.mkdir(mode=0o700)
         self.artifacts = self.root / 'artifacts'; self.artifacts.mkdir(mode=0o700)
         (self.artifacts / 'outputs').mkdir(mode=0o700)

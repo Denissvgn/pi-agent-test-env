@@ -38,8 +38,8 @@ class Authority:
 
 class ApplicationFileTests(unittest.TestCase):
     def setUp(self):
-        self.temp=tempfile.TemporaryDirectory(dir='/private/tmp');self.addCleanup(self.temp.cleanup)
-        self.root=Path(self.temp.name);self.artifacts=self.root/'artifacts';self.artifacts.mkdir(mode=0o700)
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name).resolve();self.artifacts=self.root/'artifacts';self.artifacts.mkdir(mode=0o700)
         self.reports=self.root/'reports';self.reports.mkdir(mode=0o700)
         self.sealed=self.root/'sealed';self.sealed.mkdir(mode=0o700)
         self.source=copy.deepcopy(fixtures.POSITIVE['source'])

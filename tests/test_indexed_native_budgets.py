@@ -32,8 +32,8 @@ def fresh():return str(uuid.uuid4())
 
 class IndexedNativeTests(unittest.TestCase):
     def setUp(self):
-        self.temp=tempfile.TemporaryDirectory(dir='/private/tmp');self.addCleanup(self.temp.cleanup)
-        self.root=Path(self.temp.name);self.run=self.root/'run';self.run.mkdir();(self.run/'workspace').mkdir()
+        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
+        self.root=Path(self.temp.name).resolve();self.run=self.root/'run';self.run.mkdir();(self.run/'workspace').mkdir()
         self.policy=copy.deepcopy(resources.DEFAULTS)
         self.policy['runtime']={'cpus':1,'memory':'1024m','pids_limit':256,'jobs':1}
         self.args=SimpleNamespace(platform='linux/arm64',native_platform='linux/arm64',

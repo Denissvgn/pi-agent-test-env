@@ -28,6 +28,8 @@ from unittest import mock
 import uuid
 
 HERE=Path(__file__).parent
+sys.path.insert(0,str(HERE.parent/'tools/qualification'))
+from ast_compat import pinned_dump
 SOURCE=next((parent/'tools/qualification/application_sdk_admission.py' for parent in HERE.parents if (parent/'tools/qualification/application_sdk_admission.py').is_file()),HERE/'application_sdk_admission-007.py')
 SOURCE_BYTES=SOURCE.read_bytes()
 
@@ -90,7 +92,7 @@ def pure_authority_subset(relative,*,functions=(),classes=(),methods=None,bindin
             nodes.append(selected);found.add(node.name)
     assert found==set(functions)|set(classes)|set(methods)
     if hashlib.sha256(body).hexdigest()!=PURE_AUTHORITY_SOURCE_SHA256[relative]:
-        selected=ast.dump(ast.Module(body=nodes,type_ignores=[]),include_attributes=False).encode()
+        selected=pinned_dump(ast.Module(body=nodes,type_ignores=[])).encode()
         if relative=='skill/scripts/application_credentials.py':
             assert functions==('validate',) and classes==('CredentialError',) and not methods
             assert hashlib.sha256(selected).hexdigest()==LEGACY_CREDENTIAL_VALIDATOR_AST_SHA256
@@ -116,7 +118,7 @@ with mock.patch('os.open',side_effect=forbidden),mock.patch('os.kill',side_effec
 def source039_profile_comparator():
     tree=ast.parse(SOURCE039_PROFILE_CODE)
     assert len(tree.body)==1 and isinstance(tree.body[0],ast.FunctionDef)
-    assert hashlib.sha256(ast.dump(tree.body[0],include_attributes=False).encode()).hexdigest()==SOURCE039_PROFILE_AST_SHA256
+    assert hashlib.sha256(pinned_dump(tree.body[0]).encode()).hexdigest()==SOURCE039_PROFILE_AST_SHA256
     subject={'require':M.require}
     authority_pure_call(exec,compile(tree,'<frozen-source039-profile>','exec'),subject)
     return subject['_profile']
@@ -125,7 +127,7 @@ def source039_profile_comparator():
 def source040_profile_comparator():
     tree=ast.parse(SOURCE040_PROFILE_CODE)
     assert len(tree.body)==1 and isinstance(tree.body[0],ast.FunctionDef)
-    assert hashlib.sha256(ast.dump(tree.body[0],include_attributes=False).encode()).hexdigest()==SOURCE040_PROFILE_AST_SHA256
+    assert hashlib.sha256(pinned_dump(tree.body[0]).encode()).hexdigest()==SOURCE040_PROFILE_AST_SHA256
     subject={'require':M.require}
     authority_pure_call(exec,compile(tree,'<frozen-source040-profile>','exec'),subject)
     return subject['_profile']
@@ -134,7 +136,7 @@ def source040_profile_comparator():
 def source041_call_comparator():
     tree=ast.parse(SOURCE041_CALL_CODE)
     assert len(tree.body)==1 and isinstance(tree.body[0],ast.FunctionDef)
-    assert hashlib.sha256(ast.dump(tree.body[0],include_attributes=False).encode()).hexdigest()==SOURCE041_CALL_AST_SHA256
+    assert hashlib.sha256(pinned_dump(tree.body[0]).encode()).hexdigest()==SOURCE041_CALL_AST_SHA256
     subject={name:getattr(M,name)for name in ('require','Path','os','stat','signature','decode','digest')}
     authority_pure_call(exec,compile(tree,'<frozen-source041-call>','exec'),subject)
     return subject['__call__']

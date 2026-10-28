@@ -22,6 +22,7 @@ import uuid
 ROOT=Path(__file__).resolve().parents[1]
 import sys
 sys.path[:0]=[str(ROOT/'tools/qualification'),str(ROOT/'tests')]
+from ast_compat import pinned_dump
 import application_browser_fixture_followup as follow
 import application_launch as launch
 import application_retained as retained
@@ -313,7 +314,7 @@ class BrowserFixtureFollowupTests(unittest.TestCase):
             if name=='LaunchLedger':
                 from test_application_settlement_launch import normalize_reviewed_settlement_ledger_ast
                 node=normalize_reviewed_settlement_ledger_ast(node)
-            self.assertEqual(hashlib.sha256(ast.dump(node,include_attributes=False).encode()).hexdigest(),digest)
+            self.assertEqual(hashlib.sha256(pinned_dump(node).encode()).hexdigest(),digest)
 
     def test_phase_order_three_once_and_real_failure_is_NOT_READY(self):
         manifest=selected_manifest(self.root);state={'schema':1,'phase':'images_admitted','active_cell':None,'cells':{},'started_at':1.0};calls=[]
