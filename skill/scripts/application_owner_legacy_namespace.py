@@ -199,6 +199,7 @@ def _generic(result, components, evidence, request, record, related, reader):
     # recognized evidence, not permission for an arbitrary uninspected runtime.
     known += reader.scope_references()
     _scan(reader, root, result['roots'], known, allowed_dirs=controls)
+    result['retained_roots'] = [str(root)]
     _fact(result, 'stage_scope', ids); _fact(result, 'external_authority', authority)
     if _related(result, related, reader):
         _fact(result, 'related_closure', [cleanup._resource_subject(r) for r in related])
@@ -344,6 +345,7 @@ def _artifact(result, components, evidence, request, record, related, reader):
     count = [0]
     for retained in (root, output, Path(claim_ref['path']).parent):
         _scan(reader, retained, result['roots'], known, counter=count)
+    result['retained_roots'] = sorted({str(root), str(output), str(Path(claim_ref['path']).parent)})
     _fact(result, 'stage_scope', [])
     _fact(result, 'external_authority', {'state': 'none_issued', 'contexts': []})
     # Related resource identity/terminal closure remains separate from cwd.

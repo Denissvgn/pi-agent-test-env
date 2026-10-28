@@ -23,9 +23,9 @@ def request_shape(request):
     legacy._request(request, request['subject'])
 
 
-def _plan(registry, request, reader):
+def _plan(registry, request, reader, *, current=None):
     request_shape(request)
-    current = registry.load()
+    current = registry.load() if current is None else current
     matches = [row for row in current if row['launch_id'] == request['subject']['launch_id']]
     cleanup.require(len(matches) == 1)
     record = matches[0]
