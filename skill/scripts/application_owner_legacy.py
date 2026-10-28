@@ -58,7 +58,12 @@ def _launchers(*args):
     return validate_launchers(*args)
 
 
-_ADAPTERS = {'controller': _controller, 'launchers': _launchers}
+def _root(*args):
+    from application_owner_legacy_roots import validate_root
+    return validate_root(*args)
+
+
+_ADAPTERS = {'controller': _controller, 'launchers': _launchers, 'root': _root}
 
 
 def require(value, condition='cleanup_proof_invalid'):
