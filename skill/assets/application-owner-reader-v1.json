@@ -1,0 +1,249 @@
+{
+  "schema": 1,
+  "document_type": "application_owner_reader_contract",
+  "contract_id": "application_owner_legacy_reader_1",
+  "contract_version": 1,
+  "method": "legacy_derived_v1",
+  "cohort": "application_owner_legacy_1",
+  "scope": "owned_host_files_only",
+  "variants": [
+    "standard_workspace_v1",
+    "diagnostic_disposable_v1"
+  ],
+  "documents": {
+    "request": {
+      "schema": 2,
+      "fields": [
+        "cohort",
+        "document_type",
+        "evidence",
+        "extra_private_roots",
+        "method",
+        "schema",
+        "shape",
+        "stages",
+        "subject",
+        "variant"
+      ]
+    },
+    "evidence": {
+      "schema": 1,
+      "fields": [
+        "cohort",
+        "controller",
+        "document_type",
+        "launchers",
+        "namespace",
+        "produced_at",
+        "root",
+        "schema",
+        "subject",
+        "unknowns",
+        "variant"
+      ]
+    },
+    "anchor": {
+      "schema": 1,
+      "fields": [
+        "cohort",
+        "document_type",
+        "intent",
+        "method",
+        "schema",
+        "subject"
+      ]
+    },
+    "selection": {
+      "schema": 2,
+      "fields": [
+        "cohort",
+        "document_type",
+        "method",
+        "schema",
+        "subject"
+      ]
+    },
+    "index": {
+      "schema": 2,
+      "fields": [
+        "cohort",
+        "document_type",
+        "method",
+        "receipt",
+        "schema",
+        "subject"
+      ]
+    },
+    "receipt": {
+      "schema": 2,
+      "fields": [
+        "admission_authorized",
+        "cleanup_completed",
+        "cohort",
+        "credential_memory_erasure",
+        "document_type",
+        "effects",
+        "evidence_sha256",
+        "finished_at",
+        "global_actor_census",
+        "intent",
+        "invocation_id",
+        "lease",
+        "metadata",
+        "method",
+        "model_requests",
+        "new_containers",
+        "original_outcome_regraded",
+        "participant_stages",
+        "related_subjects",
+        "request",
+        "roots",
+        "runner_content_sha256",
+        "schema",
+        "scope",
+        "started_at",
+        "status",
+        "subject",
+        "variant"
+      ]
+    },
+    "intent": {
+      "schema": 1,
+      "fields": [
+        "admission_authorized",
+        "cohort",
+        "document_type",
+        "invocation_id",
+        "lease",
+        "metadata",
+        "method",
+        "model_requests",
+        "new_containers",
+        "original_outcome_regraded",
+        "participant_stages",
+        "related_subjects",
+        "request",
+        "roots",
+        "runner_content_sha256",
+        "schema",
+        "started_at",
+        "status",
+        "subject",
+        "variant"
+      ]
+    }
+  },
+  "rules": {
+    "supervised_controller_v1": {
+      "version": 1,
+      "component": "controller",
+      "original_roles": [
+        "context",
+        "inputs",
+        "producer",
+        "source_binding",
+        "start",
+        "supervisor",
+        "terminal"
+      ]
+    },
+    "source_bound_launcher_v1": {
+      "version": 1,
+      "component": "launcher",
+      "original_roles": [
+        "emitter",
+        "inputs",
+        "ledger",
+        "producer",
+        "source_binding",
+        "start",
+        "terminal"
+      ]
+    },
+    "standard_workspace_v1": {
+      "version": 1,
+      "component": "root",
+      "original_roles": [
+        "witness"
+      ]
+    },
+    "diagnostic_disposable_v1": {
+      "version": 1,
+      "component": "root",
+      "original_roles": [
+        "witness"
+      ]
+    },
+    "retained_namespace_v1": {
+      "version": 1,
+      "component": "namespace",
+      "original_roles": [
+        "authority",
+        "producer",
+        "source_binding"
+      ]
+    }
+  },
+  "claim_classes": [
+    "original",
+    "derived",
+    "candidate",
+    "unknown",
+    "different_scope",
+    "contradiction"
+  ],
+  "obligations": [
+    "subject_identity",
+    "related_closure",
+    "controller_execution",
+    "controller_terminal",
+    "launcher_execution",
+    "launcher_terminal",
+    "helper_guard_identity",
+    "original_root_custody",
+    "mount_scope",
+    "stage_scope",
+    "retained_namespace",
+    "external_authority",
+    "protected_metadata",
+    "scoped_writers"
+  ],
+  "limits": {
+    "file_bytes": 4194304,
+    "references": 128,
+    "aggregate_bytes": 16777216,
+    "namespace_entries": 4096,
+    "related_records": 64,
+    "stages": 256,
+    "extra_roots": 8,
+    "role_refs_per_component": 32
+  },
+  "decisions": [
+    "proof_accepted",
+    "not_selected",
+    "invalid_proof",
+    "extension_required"
+  ],
+  "admission_authorized": false,
+  "generic_qualification_inferred": false,
+  "preimport_requirements": [
+    "trusted_policy_supports_contract",
+    "exact_provider_identity_approved",
+    "declared_scope_supported",
+    "declared_variant_supported"
+  ],
+  "native_replay_calls": 0,
+  "forbidden_reads": [
+    "credentials",
+    "disposable_payload_bytes",
+    "unbounded_report_or_audit_tree"
+  ],
+  "compatibility": {
+    "schema_1_methods": "unchanged",
+    "frozen_consumer": "extension_required_before_provider_import_or_history_admission",
+    "old_reader_new_records_present": "unsupported_version_denial",
+    "old_reader_whole_store_loss": "new_anchor_namespace_not_recognized_no_retroactive_guarantee"
+  },
+  "normative_specification": "../references/APPLICATION-OWNER-READER.md",
+  "vectors": "application-owner-reader-vectors-v1.json"
+}

@@ -254,8 +254,9 @@ extra_private_roots`. The document type remains `application_owner_cleanup_reque
 assembly. The subject preserves the original registry/generation/launch/intent/CID
 identity. Do not fabricate original witnesses or copy missing facts into a new
 original-looking document. Only installed reviewed source families qualify;
-unknown rules or source identities remain unsupported. The complete SDK reader
-and qualification contract is separate from a request or release version.
+unknown rules or source identities remain unsupported. The
+[versioned SDK reader contract](APPLICATION-OWNER-READER.md) and independent
+qualification remain separate from a request or release version.
 
 This method uses the existing recover command and explicit discard flag. It
 publishes an immutable RUNNING intent, independent anchor and selected-method
