@@ -86,6 +86,7 @@ def pairs(items):
 class Reader:
     def __init__(self):
         self.references = {}; self.bytes = 0; self.private_paths = set(); self.private_parent_paths = set(); self._scopes = []
+        self.maximums = {}
 
     @contextlib.contextmanager
     def custody_scope(self):
@@ -104,6 +105,7 @@ class Reader:
         value = path(str(value))
         limit = MAX_BYTES if maximum is None else maximum
         require(type(limit) is int and 0 <= limit <= MAX_BYTES, 'inventory_unbounded')
+        limit = min(limit, self.maximums.get(str(value), limit)); self.maximums[str(value)] = limit
         require(type(private) is bool and (private_parent is None or type(private_parent) is bool))
         requested_parent = private if private_parent is None else private_parent
         if private:self.private_paths.add(str(value))
@@ -557,34 +559,71 @@ def _writers_absent(registry, records):
     require(final.returncode == 0 and all(r['daemon'] == final.stdout.strip() for r in records), 'daemon_changed')
 
 
-def _purge(observation):
+def _purge_names(fd, count):
+    """Bound directory enumeration before retaining names in memory."""
+    names = []; scan = os.open('.', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+    try:
+        with os.scandir(scan) as entries:
+            for entry in entries:
+                count[0] += 1; require(count[0] <= MAX_ENTRIES, 'inventory_unbounded')
+                names.append(entry.name)
+    finally:os.close(scan)
+    return sorted(names)
+
+
+def _purge_signature(info):
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_nlink,
+            info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def _purge(observation, *, parent_fd=None, root_fd=None, checkpoint=None):
     if observation['state'] == 'absent':
         require(ownership._qualification_absent(observation['path']), 'sensitive_identity_mismatch'); return
-    value = path(observation['path']); parent = directory(value.parent)
-    count = [0]
-    def empty(fd):
-        names = os.listdir(fd); count[0] += len(names)
-        require(count[0] <= MAX_ENTRIES, 'inventory_unbounded')
+    value = path(observation['path']); parent = directory(value.parent) if parent_fd is None else os.dup(parent_fd)
+    count = [0]; chain = []
+    def verify(parts, info, mutating=False):
+        named = directory(value.parent)
+        try:require(identity(os.fstat(named)) == identity(os.fstat(parent)), 'sensitive_identity_mismatch')
+        finally:os.close(named)
+        require(identity(os.stat(value.name, dir_fd=parent, follow_symlinks=False)) == observation['identity'], 'sensitive_identity_mismatch')
+        for ancestor, name, child, expected in chain:
+            require(identity(os.fstat(child)) == expected
+                    and identity(os.stat(name, dir_fd=ancestor, follow_symlinks=False)) == expected, 'sensitive_identity_mismatch')
+        if checkpoint is not None:checkpoint(parts, info, mutating)
+    def empty(fd, prefix=()):
+        names = _purge_names(fd, count)
         for name in names:
+            parts = prefix + (name,)
             info = os.stat(name, dir_fd=fd, follow_symlinks=False)
             require(info.st_uid == os.getuid() and not stat.S_IMODE(info.st_mode) & 0o022, 'unsafe_path')
             require(info.st_dev == observation['identity'][0], 'sensitive_identity_mismatch')
             if stat.S_ISDIR(info.st_mode):
                 child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
                 try:
-                    require(identity(os.fstat(child)) == identity(info), 'sensitive_identity_mismatch'); empty(child)
+                    require(identity(os.fstat(child)) == identity(info), 'sensitive_identity_mismatch')
+                    chain.append((fd, name, child, identity(info))); verify(parts, info)
+                    empty(child, parts)
                     require(identity(os.stat(name, dir_fd=fd, follow_symlinks=False)) == identity(info), 'sensitive_identity_mismatch')
+                    verify(parts, os.fstat(child), True)
                     with diagnostics.operation('purge', mutating=True):os.rmdir(name, dir_fd=fd)
-                finally:os.close(child)
+                finally:
+                    if chain and chain[-1][2] == child:chain.pop()
+                    os.close(child)
             else:
                 require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1, 'unsafe_path')
+                verify(parts, info)
+                current = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                require(_purge_signature(current) == _purge_signature(info), 'sensitive_identity_mismatch')
+                verify(parts, current, True)
                 with diagnostics.operation('purge', mutating=True):os.unlink(name, dir_fd=fd)
     try:
-        child = os.open(value.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+        child = os.open(value.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent) if root_fd is None else os.dup(root_fd)
         try:
             require(identity(os.fstat(child)) == observation['identity'], 'sensitive_identity_mismatch')
+            verify((), os.fstat(child))
             empty(child)
             require(identity(os.stat(value.name, dir_fd=parent, follow_symlinks=False)) == observation['identity'], 'sensitive_identity_mismatch')
+            verify((), os.fstat(child), True)
             with diagnostics.operation('purge', mutating=True):os.rmdir(value.name, dir_fd=parent)
             with diagnostics.operation('directory_fsync', mutating=True):os.fsync(parent)
         finally:os.close(child)

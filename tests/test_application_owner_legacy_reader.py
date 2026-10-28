@@ -19,6 +19,14 @@ class LegacyReaderTests(unittest.TestCase):
         target = self.root / name; target.write_bytes(data); target.chmod(mode)
         return {'path': str(target), 'sha256': hashlib.sha256(data).hexdigest()}
 
+    def test_strict_role_size_limit_survives_a_later_generic_reread(self):
+        ref=self.put('empty-metadata.bin',b'');reader=cleanup.Reader()
+        reader.read_bytes(ref['path'],private=True,maximum=0)
+        Path(ref['path']).write_bytes(b'unreviewed payload')
+        with self.assertRaises(cleanup.ownership.RegistryError) as caught:
+            reader.read_bytes(ref['path'],private=True)
+        self.assertEqual(cleanup.diagnostics.diagnostic(caught.exception)['condition'],'unsafe_record')
+
     def test_source_bytes_are_data_and_share_json_graph_budget(self):
         ref = self.put('source.py', b'raise RuntimeError("source must never run")\n')
         other = self.put('metadata.json', b'{"schema":1}')
