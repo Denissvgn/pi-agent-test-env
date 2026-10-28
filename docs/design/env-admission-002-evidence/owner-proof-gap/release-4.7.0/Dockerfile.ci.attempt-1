@@ -1,7 +1,0 @@
-FROM sha256:71d15ec40d8b1151ec7ff8b767fab90e60ab278d6af8aa249f8c0e0c21606ee0
-USER root
-RUN apt-get update \
- && apt-get install -y --no-install-recommends procps \
- && rm -rf /var/lib/apt/lists/*
-USER node
-ENTRYPOINT ["python3"]

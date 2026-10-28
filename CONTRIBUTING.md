@@ -75,9 +75,14 @@ named skill roots, then runs the maintainer suite against extracted package
 bytes. It checks the complete extracted inventory before and after execution.
 The report is separate from published files and records actual observed results.
 
-`.gitattributes` also excludes retained internal history from `git archive`.
-Do not add internal task identifiers or stale implementation status to public
-documentation. Explain behavior, configuration, compatibility and observed limits.
+`.gitattributes` also excludes retained internal history from `git archive`,
+but export exclusions do not hide files committed to the public repository.
+Keep private incident plans, downstream handoffs, raw logs and evidence archives
+in the ignored `development/` directory or outside the repository. Public
+documentation must be self-contained: do not link to workstation paths, private
+projects or internal evidence. Do not add internal task identifiers or stale
+implementation status. Explain behavior, configuration, compatibility and
+observed limits.
 Changes to package or runner bytes require fresh archives and experiments; dated
 model evidence cannot be restated under a new runner identity.
 
