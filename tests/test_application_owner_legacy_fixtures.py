@@ -57,7 +57,8 @@ def supervise(argv, cwd):
 
 class LegacyFixture:
     """Create original-format synthetic inputs; keep expected facts out of them."""
-    def __init__(self, parent, *, scope='standard_workspace', gap=None, exit_code=137):
+    def __init__(self, parent, *, scope='standard_workspace', gap=None, exit_code=137,
+                 registry_id=None, generation=None):
         if scope not in ('standard_workspace', 'diagnostic_disposable'):
             raise ValueError('Unknown synthetic scope')
         if gap not in (None, 'missing_helper_guard_cid', 'missing_workspace_identity',
@@ -70,7 +71,8 @@ class LegacyFixture:
         self.run = self.root / 'retained'; self.run.mkdir(mode=0o700)
         self.scope = scope; self.gap = gap; self.sources = []; self.refs = {}
         worker_only = gap == 'interrupted_worker_only'
-        self.launch_id = str(uuid.uuid4()); generation = str(uuid.uuid4())
+        self.launch_id = str(uuid.uuid4())
+        generation = str(uuid.uuid4()) if generation is None else generation
         self.owner_pid = 2147483000; self.launcher_pid = 2147482999
         self.controller_exit = 2 if worker_only else 0 if exit_code == 0 else 2
         self.cid = 'b' * 64; self.stage_id = str(uuid.uuid4())
@@ -84,7 +86,7 @@ class LegacyFixture:
             evidence = self.private / 'evidence'
         for path in (self.private / 'code', self.private / 'state', evidence):
             path.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self.record = {'schema': 1, 'launch_id': self.launch_id, 'registry': 'd' * 64,
+        self.record = {'schema': 1, 'launch_id': self.launch_id, 'registry': 'd' * 64 if registry_id is None else registry_id,
             'generation': generation, 'status': 'released', 'container': 'pi-application-synthetic',
             'container_id': self.cid, 'image': 'sha256:' + 'a' * 64,
             'application_helper': True, 'client_mode': 'application-execution',

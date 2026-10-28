@@ -15,9 +15,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from tests.test_application_owner_legacy_fixtures import (
-    CONTROLLER_SOURCE, EMISSION_SOURCE, SUPERVISOR_SOURCE, LegacyFixture,
-)
+from tests.test_application_owner_legacy_fixtures import LegacyFixture
 import application_owner_cleanup as cleanup
 
 
@@ -74,10 +72,12 @@ class AcceptanceFixture(LegacyFixture):
     @staticmethod
     def family():
         """Test-owned semantic identity map; never supplied in a request."""
-        return {hashlib.sha256(CONTROLLER_SOURCE).hexdigest(): {
+        # Deliberately fixed reviewed pins: changing fixture source must not
+        # silently teach the test consumer to trust the changed semantics.
+        return {'d411c5ab4697bf616a9313d72abdd33608b5098d696f72271b02682a3aeba574': {
             'family_id': 'supervised_source_v1',
-            'supervisor_sha256': hashlib.sha256(SUPERVISOR_SOURCE).hexdigest(),
-            'emitter_sha256': hashlib.sha256(EMISSION_SOURCE).hexdigest(),
+            'supervisor_sha256': 'a5e68fd3f10bda22858d70c842be22d706244ca6598ba3609b5f784268a07487',
+            'emitter_sha256': '0ec48642b6f9158688f4f36adaff50ccbf1491feebf6d06d5adbca6fdb726f6f',
             'variants': ('standard_workspace_v1', 'diagnostic_disposable_v1'),
             'binding_format': 'supervised_source_v1',
         }}
