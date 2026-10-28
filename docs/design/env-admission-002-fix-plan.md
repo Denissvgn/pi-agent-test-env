@@ -1346,9 +1346,9 @@ independent handlers to settle; runtime request/concurrency ceilings are unchang
 - [x] Write the separate downstream handoff
   `env-admission-002-evidence/owner-proof-gap/downstream-4.7.0-instructions.md`.
   Its shell examples are syntax-checked only. No downstream command is executed.
-- [ ] Push with an explicit same-name refspec and verify upstream is
+- [x] Push with an explicit same-name refspec and verify upstream is
   `origin/codex/pi-owner-proof-001`; do not target the base/default branch.
-- [ ] Open a draft PR with `[skip ci]`, verify hosted Actions observations and
+- [x] Open a draft PR with `[skip ci]`, verify hosted Actions observations and
   attach the PR to this chat. No workflow configuration is disabled or added.
 - [ ] Complete the configured exact-head review before any later authorized
   merge/publication. The earlier Copilot waiver applied only to 4.6.1.
@@ -1366,3 +1366,28 @@ The real six-owner audit/adapters, native Docker/browser/inference/application
 qualification, extended frozen-SDK proof-read scope and original API refusal
 remain independent unresolved integration gates. Package CI does not qualify
 them. No real Pi/model request or downstream application workflow is dispatched.
+
+### PR publication receipt
+
+[PR #10](https://github.com/Denissvgn/pi-agent-test-env/pull/10) is open as a
+draft from `codex/pi-owner-proof-001` to `main` and is attached to this chat.
+Initial published head was `81296703a8f95198cd2830cbfa6bcb9d10356b51`; its complete
+398-file published-source inventory matches tested code candidate
+`26d3e4aba43a64ef074ac59a83cff2df4c9a94c8`. Additional tracking updates change only
+export-excluded plan/evidence files and require the same inventory comparison
+before their push.
+
+The push used
+`git push --set-upstream origin codex/pi-owner-proof-001:refs/heads/codex/pi-owner-proof-001`.
+Verified upstream: `origin/codex/pi-owner-proof-001`; configured remote `origin`,
+merge ref `refs/heads/codex/pi-owner-proof-001`. Remote main remains
+`cf90d19a8db094c6a6bce9eaac708efead3ef45b`. The PR is mergeable/clean; the initial
+head has zero GitHub Actions runs and an empty check rollup. Hosted CI remains
+skipped, with no workflow configuration changes. A final post-tracking-push
+observation is required before handoff.
+
+The GitHub connector returned permission error 403 for PR creation; authenticated
+`gh pr create --draft` completed the authorized request. The published 4.6.1
+prerelease still has its original seven assets and publication timestamp; no
+4.7.0 release was created. See `release-4.7.0/publication.json` for the bounded
+observation. Merge, exact-head review and release publication remain pending.

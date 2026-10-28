@@ -5,6 +5,10 @@ offline owner inspection and bounded explicit cleanup while preserving original
 failed outcomes. It is prepared for review; it has not been merged, tagged or
 published.
 
+Source review: [draft PR #10](https://github.com/Denissvgn/pi-agent-test-env/pull/10),
+branch `codex/pi-owner-proof-001`. Hosted CI is intentionally skipped; verified
+local ARM64 Docker evidence accompanies the PR.
+
 New helper records use schema 3 with owner cleanup contract 1. Older readers fail
 closed. Use one compatible registry-aware cohort; historical schema-1/2 records
 remain unchanged. A frozen SDK policy without owner-proof read authority remains

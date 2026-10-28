@@ -1,0 +1,42 @@
+{
+  "status": "PR_OPEN",
+  "date": "2026-10-28",
+  "url": "https://github.com/Denissvgn/pi-agent-test-env/pull/10",
+  "number": 10,
+  "draft": true,
+  "base": "main",
+  "base_commit": "cf90d19a8db094c6a6bce9eaac708efead3ef45b",
+  "branch": "codex/pi-owner-proof-001",
+  "initial_published_head": "81296703a8f95198cd2830cbfa6bcb9d10356b51",
+  "tested_candidate_commit": "26d3e4aba43a64ef074ac59a83cff2df4c9a94c8",
+  "identical_published_source_files": 398,
+  "upstream": "origin/codex/pi-owner-proof-001",
+  "branch_remote": "origin",
+  "branch_merge": "refs/heads/codex/pi-owner-proof-001",
+  "push_refspec": "codex/pi-owner-proof-001:refs/heads/codex/pi-owner-proof-001",
+  "mergeable": "MERGEABLE",
+  "merge_state": "CLEAN",
+  "hosted_ci_skip_requested": true,
+  "initial_head_actions_runs": 0,
+  "initial_head_check_rollup": [],
+  "workflow_configuration_changed": false,
+  "connector_create_pr": "403 Resource not accessible by integration",
+  "creation_fallback": "authenticated gh pr create --draft",
+  "chat_artifact_attached": true,
+  "next_prerelease": "4.7.0",
+  "next_release_created": false,
+  "existing_461_prerelease": {
+    "asset_count": 7,
+    "published_at": "2026-10-27T15:38:37Z",
+    "changed": false
+  },
+  "live_registry_changed": false,
+  "downstream_campaign_changed": false,
+  "remaining": [
+    "Configured exact-final-head review",
+    "Separate merge/publication authorization",
+    "Final reviewed-tree release verification",
+    "Real owner/native/inference/application/SDK-scope integration gates"
+  ],
+  "note": "Later tracking commits affect export-excluded files only; compare complete tested inventory before each push and observe the final remote head before handoff."
+}

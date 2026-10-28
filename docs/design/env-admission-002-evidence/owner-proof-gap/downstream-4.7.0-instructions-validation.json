@@ -1,7 +1,7 @@
 {
   "status": "PASS",
   "document": "downstream-4.7.0-instructions.md",
-  "sha256": "80731c011b0937c4daafd8fe262101c46ad86eb12421553a312a8c1bc1e945a7",
+  "sha256": "ff246145955013aca07ee6cb509a7de2c0d398b4ca2fb759d6535cc308dbe3a3",
   "validation": "bash -n for every shell block; no commands executed",
   "shell_blocks": [
     {

@@ -10,6 +10,7 @@ scope. This upstream task leaves them untouched.
 
 The **4.7.0 experimental prerelease candidate is prepared locally**. It is not a
 published release. Do not assume a `releases/download/v4.7.0` URL exists yet.
+The source change is in [draft PR #10](https://github.com/Denissvgn/pi-agent-test-env/pull/10).
 
 - Candidate code commit: `26d3e4aba43a64ef074ac59a83cff2df4c9a94c8`.
 - Candidate archives: `/Users/bramen/Projects/pi-agentic-development/dist/pi-agent-test-env-4.7.0-candidate-r2/`.
