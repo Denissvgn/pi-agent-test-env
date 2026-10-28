@@ -109,6 +109,31 @@ class LegacyReaderTests(unittest.TestCase):
             with self.assertRaises(cleanup.ownership.RegistryError):cleanup.Reader().reference_bytes(ref)
         self.assertTrue(replaced[0])
 
+    def test_private_file_in_readable_parent_needs_explicit_parent_classification(self):
+        parent = self.root / 'metadata'; parent.mkdir(mode=0o755); parent.chmod(0o755)
+        target = parent / 'record.json'; target.write_bytes(b'{"schema":1}'); target.chmod(0o600)
+        ref = {'path': str(target), 'sha256': hashlib.sha256(target.read_bytes()).hexdigest()}
+        with self.assertRaises(cleanup.ownership.RegistryError):cleanup.Reader().reference(ref, private=True)
+        reader = cleanup.Reader()
+        self.assertEqual(reader.reference(ref, private=True, private_parent=False), {'schema': 1})
+        target.chmod(0o644)
+        with self.assertRaises(cleanup.ownership.RegistryError):reader.reference(ref)
+
+    def test_strict_parent_upgrade_cannot_be_downgraded_after_a_failed_read(self):
+        parent = self.root / 'metadata'; parent.mkdir(mode=0o755); parent.chmod(0o755)
+        target = parent / 'record.json'; target.write_bytes(b'{"schema":1}'); target.chmod(0o600)
+        ref = {'path': str(target), 'sha256': hashlib.sha256(target.read_bytes()).hexdigest()}
+        reader = cleanup.Reader(); reader.reference(ref, private=True, private_parent=False)
+        with self.assertRaises(cleanup.ownership.RegistryError):reader.reference(ref, private=True)
+        with self.assertRaises(cleanup.ownership.RegistryError):reader.reference(ref, private=True, private_parent=False)
+
+    def test_readable_parent_classification_never_allows_other_writers(self):
+        parent = self.root / 'metadata'; parent.mkdir(mode=0o755)
+        target = parent / 'record.json'; target.write_bytes(b'{"schema":1}'); target.chmod(0o600)
+        ref = {'path': str(target), 'sha256': hashlib.sha256(target.read_bytes()).hexdigest()}
+        parent.chmod(0o775)
+        with self.assertRaises(cleanup.ownership.RegistryError):cleanup.Reader().reference(ref, private=True, private_parent=False)
+
 
 class LegacyVersionTests(LegacyContractTests):
     def test_unknown_fields_and_bool_versions_reject_at_each_new_boundary(self):

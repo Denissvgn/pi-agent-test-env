@@ -46,7 +46,14 @@ CLAIM_CLASSES = frozenset({'original', 'derived', 'candidate', 'unknown', 'diffe
 # Only reviewed installed identities and functions belong here. Neither catalog
 # can be populated by a request, a locator, a source file or an external PASS.
 SOURCE_FAMILIES = {}
-_ADAPTERS = {}
+
+
+def _controller(*args):
+    from application_owner_legacy_controller import validate_controller
+    return validate_controller(*args)
+
+
+_ADAPTERS = {'controller': _controller}
 
 
 def require(value, condition='cleanup_proof_invalid'):
@@ -55,6 +62,22 @@ def require(value, condition='cleanup_proof_invalid'):
 
 def integer(value, minimum, maximum):
     return type(value) is int and minimum <= value <= maximum
+
+
+def _set_claim(result, obligation, value, *, classification, component, roles,
+               rule_id='supervised_controller_v1', launch_id=None, reason='incomplete_binding'):
+    """Install one reviewed adapter output; input never supplies this function."""
+    def same(claim):
+        key = claim['value'].get('launch_id') if obligation in PER_LAUNCH and claim['value'] is not None else None
+        return claim['obligation'] == obligation and key == launch_id
+    result['claims'] = [claim for claim in result['claims'] if not same(claim)]
+    result['claims'].append({'obligation': obligation, 'class': classification, 'value': value,
+        'provenance': [{'component': component, 'role': role} for role in sorted(set(roles))],
+        'rule': {'id': rule_id, 'version': 1} if classification == 'derived' else None})
+    result['unresolved'] = [item for item in result['unresolved']
+                            if not (item['obligation'] == obligation and item['launch_id'] == launch_id)]
+    if classification not in ('original', 'derived'):
+        result['unresolved'].append({'obligation': obligation, 'launch_id': launch_id, 'reason': reason})
 
 
 def reference(value):
@@ -141,19 +164,28 @@ def _request(value, expected):
     require(len({item['path'] for item in extras}) == len(extras))
 
 
-def _component(value, selected, reader, *, launcher=False):
+def _component(value, selected, reader, *, launcher=False, family=None, producer_hash=None):
     fields = COMPONENT_FIELDS | ({'launch_id'} if launcher else set())
     cleanup.exact(value, fields)
     require(type(value['rule_id']) is str and value['rule_id'] == selected
             and type(value['rule_version']) is int and value['rule_version'] == 1, 'owner_legacy_unsupported')
     cleanup.exact(value['originals'], ROLES[selected])
     bodies = {}
+    public_sources = () if family is None else family.get('public_source_roles', ())
+    metadata_parents = () if family is None else family.get('readable_metadata_parent_roles', ())
+    require(type(public_sources) in (tuple, list) and set(public_sources) <= BYTE_ROLES | {'probe', 'prior_validator'}
+            and type(metadata_parents) in (tuple, list) and set(metadata_parents) <= {'inputs', 'source_binding', 'authority'})
     for role in sorted(value['originals']):
         ref = value['originals'][role]; reference(ref)
-        # Private is the default for all original metadata and source. A future
-        # reviewed rule may narrow a public-source exception; inputs cannot.
-        bodies[role] = (reader.reference_bytes(ref, private=True) if role in BYTE_ROLES
-                        else reader.reference(ref, private=True))
+        if role in BYTE_ROLES:
+            public = role in public_sources
+            if public:
+                expected = producer_hash if role == 'producer' else family['supervisor_sha256'] if role == 'supervisor' else family.get('emitter_sha256', producer_hash)
+                require(ref['sha256'] == expected)
+            bodies[role] = reader.reference_bytes(ref, private=not public)
+        else:
+            bodies[role] = reader.reference(ref, private=True,
+                                           private_parent=False if role in metadata_parents else None)
     return bodies
 
 
@@ -164,14 +196,25 @@ def _envelope(value, request, related, reader):
     timestamp(value['produced_at'])
     require(all(cleanup.canonical(value[k]) == cleanup.canonical(request[k])
                 for k in ('subject', 'variant', 'cohort')))
-    components = {'controller': _component(value['controller'], 'supervised_controller_v1', reader)}
+    # Only an installed catalog identity can classify source readability. The
+    # referenced bytes and every semantic premise are still verified afterward.
+    cleanup.exact(value['controller'], COMPONENT_FIELDS)
+    cleanup.exact(value['controller']['originals'], ROLES['supervised_controller_v1'])
+    producer_ref = value['controller']['originals']['producer']; reference(producer_ref)
+    family = SOURCE_FAMILIES.get(producer_ref['sha256'])
+    require(family is None or type(family) is dict)
+    if family is not None:
+        from application_owner_legacy_controller import validate_descriptor
+        validate_descriptor(family)
+    options = {'family': family, 'producer_hash': producer_ref['sha256']}
+    components = {'controller': _component(value['controller'], 'supervised_controller_v1', reader, **options)}
     launchers = value['launchers']
     require(type(launchers) is list and len(launchers) == len(related))
     require(all(type(v) is dict and cleanup.controls.valid_id(v.get('launch_id')) for v in launchers))
     require([v['launch_id'] for v in launchers] == [r['launch_id'] for r in related])
-    components['launchers'] = [_component(v, 'source_bound_launcher_v1', reader, launcher=True) for v in launchers]
-    components['root'] = _component(value['root'], value['variant'], reader)
-    components['namespace'] = _component(value['namespace'], 'retained_namespace_v1', reader)
+    components['launchers'] = [_component(v, 'source_bound_launcher_v1', reader, launcher=True, **options) for v in launchers]
+    components['root'] = _component(value['root'], value['variant'], reader, **options)
+    components['namespace'] = _component(value['namespace'], 'retained_namespace_v1', reader, **options)
     unknowns = value['unknowns']; require(type(unknowns) is list and len(unknowns) <= 32)
     keys = []
     for item in unknowns:

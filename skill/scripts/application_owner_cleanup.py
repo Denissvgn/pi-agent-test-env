@@ -85,7 +85,7 @@ def pairs(items):
 
 class Reader:
     def __init__(self):
-        self.references = {}; self.bytes = 0; self.private_paths = set(); self._scopes = []
+        self.references = {}; self.bytes = 0; self.private_paths = set(); self.private_parent_paths = set(); self._scopes = []
 
     @contextlib.contextmanager
     def custody_scope(self):
@@ -99,15 +99,19 @@ class Reader:
         return [self.references[name] for name in sorted(self._scopes[-1])]
 
     @diagnostics.observed('proof_read')
-    def read_bytes(self, value, *, private=False, parent_fd=None):
+    def read_bytes(self, value, *, private=False, parent_fd=None, private_parent=None):
         """Read one stable file; JSON and source bytes share custody and limits."""
         value = path(str(value))
+        require(type(private) is bool and (private_parent is None or type(private_parent) is bool))
+        requested_parent = private if private_parent is None else private_parent
         if private:self.private_paths.add(str(value))
+        if requested_parent:self.private_parent_paths.add(str(value))
         private = str(value) in self.private_paths
+        private_parent = str(value) in self.private_parent_paths
         require(parent_fd is None or type(parent_fd) is int)
         parent = directory(value.parent) if parent_fd is None else os.dup(parent_fd)
         try:
-            require(not stat.S_IMODE(os.fstat(parent).st_mode) & (0o077 if private else 0o022), 'unsafe_path')
+            require(not stat.S_IMODE(os.fstat(parent).st_mode) & (0o077 if private_parent else 0o022), 'unsafe_path')
             fd = os.open(value.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
             with os.fdopen(fd, 'rb') as stream:
                 before = os.fstat(stream.fileno())
@@ -122,7 +126,7 @@ class Reader:
                 signature = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns, s.st_nlink)
                 require(signature(before) == signature(after) == signature(named) and len(body) == before.st_size)
             held = os.fstat(parent)
-            require(held.st_uid == os.getuid() and not stat.S_IMODE(held.st_mode) & (0o077 if private else 0o022),
+            require(held.st_uid == os.getuid() and not stat.S_IMODE(held.st_mode) & (0o077 if private_parent else 0o022),
                     'unsafe_path')
             current_parent = directory(value.parent)
             try:require(identity(os.fstat(current_parent)) == identity(held), 'unsafe_path')
@@ -138,8 +142,8 @@ class Reader:
         finally:os.close(parent)
 
     @diagnostics.observed('proof_read')
-    def read(self, value, *, private=False, parent_fd=None):
-        body, ref = self.read_bytes(value, private=private, parent_fd=parent_fd)
+    def read(self, value, *, private=False, parent_fd=None, private_parent=None):
+        body, ref = self.read_bytes(value, private=private, parent_fd=parent_fd, private_parent=private_parent)
         def number(value):
             result = float(value); require(math.isfinite(result), 'malformed_record')
             return result
@@ -152,16 +156,18 @@ class Reader:
         require(type(result) is dict)
         return result, ref
 
-    def reference(self, ref, *, private=False):
+    def reference(self, ref, *, private=False, private_parent=None):
         exact(ref, {'path', 'sha256'})
         require(type(ref['sha256']) is str and re.fullmatch('[a-f0-9]{64}', ref['sha256']) is not None)
-        result, observed = self.read(ref['path'], private=private); require(observed == ref)
+        options = {'private': private}
+        if private_parent is not None:options['private_parent'] = private_parent
+        result, observed = self.read(ref['path'], **options); require(observed == ref)
         return result
 
-    def reference_bytes(self, ref, *, private=False):
+    def reference_bytes(self, ref, *, private=False, private_parent=None):
         exact(ref, {'path', 'sha256'})
         require(type(ref['sha256']) is str and re.fullmatch('[a-f0-9]{64}', ref['sha256']) is not None)
-        result, observed = self.read_bytes(ref['path'], private=private); require(observed == ref)
+        result, observed = self.read_bytes(ref['path'], private=private, private_parent=private_parent); require(observed == ref)
         return result
 
 
