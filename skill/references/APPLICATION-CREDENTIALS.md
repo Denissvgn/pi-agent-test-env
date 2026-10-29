@@ -35,17 +35,17 @@ secret assignments are unsupported. Omit the field on unassigned agents.
   "agents": [
     {
       "name": "persona-a",
-      "application_secrets": {"PI_APP_WORKCHORD_API_KEY": "WORKCHORD_A"},
+      "application_secrets": {"PI_APP_EXAMPLE_API_KEY": "APP_PERSONA_A"},
       "tools": ["read", "bash"],
       "require_tools": ["bash"],
-      "prompt": "Read the application task. Use PI_APP_WORKCHORD_API_KEY in the HTTP client for your assigned persona. Acknowledge the exact current onboarding handoff, then perform the assigned authorized operation. Print only sanitized identities and effects; never print credentials."
+      "prompt": "Read the application task. Use PI_APP_EXAMPLE_API_KEY in the HTTP client for your assigned persona. Acknowledge the exact current onboarding handoff, then perform the assigned authorized operation. Print only sanitized identities and effects; never print credentials."
     },
     {
       "name": "persona-b",
-      "application_secrets": {"PI_APP_WORKCHORD_API_KEY": "WORKCHORD_B"},
+      "application_secrets": {"PI_APP_EXAMPLE_API_KEY": "APP_PERSONA_B"},
       "tools": ["read", "bash"],
       "require_tools": ["bash"],
-      "prompt": "Read the application task. Use PI_APP_WORKCHORD_API_KEY for your assigned persona's onboarding and authorized operation. Never print credentials."
+      "prompt": "Read the application task. Use PI_APP_EXAMPLE_API_KEY for your assigned persona's onboarding and authorized operation. Never print credentials."
     }
   ],
   "checks": [{"name": "effects", "argv": ["python3", "tests/verify_effects.py"]}]
@@ -62,8 +62,8 @@ authorized credential sink and stores them outside the project, installed packag
 
 ```bash
 # Hidden terminal input; do not put a value in an argument or chat.
-python3 "$SKILL_DIR/scripts/pi_lab.py" secrets set WORKCHORD_A
-python3 "$SKILL_DIR/scripts/pi_lab.py" secrets set WORKCHORD_B
+python3 "$SKILL_DIR/scripts/pi_lab.py" secrets set APP_PERSONA_A
+python3 "$SKILL_DIR/scripts/pi_lab.py" secrets set APP_PERSONA_B
 python3 "$SKILL_DIR/scripts/pi_lab.py" validate-plan --plan /path/to/plan.json
 python3 "$SKILL_DIR/scripts/pi_lab.py" run \
   --project /path/to/project --plan /path/to/plan.json \
@@ -111,7 +111,7 @@ acknowledgement = exact_current_handoff_payload
 request = urllib.request.Request(
     base_url + "/api/agent/team-setup/onboarding/acknowledge",
     data=json.dumps(acknowledgement).encode(),
-    headers={"X-Agent-API-Key": os.environ["PI_APP_WORKCHORD_API_KEY"],
+    headers={"X-Agent-API-Key": os.environ["PI_APP_EXAMPLE_API_KEY"],
              "Content-Type": "application/json"},
 )
 with urllib.request.urlopen(request, timeout=10) as response:
@@ -166,8 +166,8 @@ private run directory after confirming no writers; do not use its artifacts for
 checks. Operator-owned store entries are retained until explicitly cleared:
 
 ```bash
-python3 "$SKILL_DIR/scripts/pi_lab.py" secrets clear WORKCHORD_A
-python3 "$SKILL_DIR/scripts/pi_lab.py" secrets clear WORKCHORD_B
+python3 "$SKILL_DIR/scripts/pi_lab.py" secrets clear APP_PERSONA_A
+python3 "$SKILL_DIR/scripts/pi_lab.py" secrets clear APP_PERSONA_B
 ```
 
 Clearing the store does not revoke a key at the application. Revoke disposable
@@ -192,7 +192,7 @@ before publishing.
 Offline regressions exercise actual local HTTP onboarding and authenticated
 operations for two synthetic personas, service-recorded effects, key-free stages,
 redaction and cleanup with real subprocesses. Docker/Pi boundaries in those tests
-are synthetic. This does not qualify live WorkChord authorization, a real Pi
+are synthetic. This does not qualify live application authorization, a real Pi
 invocation, Docker isolation or the intended campaign. Record separate native
 ARM64 image/model qualification and live application identity/effect receipts
 before claiming those outcomes.
