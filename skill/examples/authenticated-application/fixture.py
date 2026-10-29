@@ -152,7 +152,7 @@ class FixtureServer:
             elif h.command=='GET' and route.path=='/identity' and not route.query:
                 value={**EXPECTED['participant'],'actor_id':actor}
             elif h.command=='GET' and route.path=='/records':
-                query=parse_qs(route.query,keep_blank_values=True,strict_parsing=True,max_num_fields=2)
+                query=parse_qs(route.query,keep_blank_values=True,strict_parsing=True,max_num_fields=2) if route.query else {}
                 if query not in ({},{'cursor':[PAGE_CURSOR]}):status=400
                 else:
                     number=2 if query else 1;records=EXPECTED['records'][:2] if number==1 else EXPECTED['records'][2:]

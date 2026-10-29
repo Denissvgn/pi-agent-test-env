@@ -18,6 +18,8 @@
 - Add identifier-free inspection summaries, closed cleanup diagnostics and a
   version-1 SDK reader specification with 37 sanitized conformance vectors.
   Unsupported/frozen consumers remain extension-required before provider import.
+- Retain Python 3.10 support for queryless browser requests and authenticated
+  fixture pagination while preserving strict parsing of nonempty queries.
 - Keep real owner cleanup, extended SDK consumption and downstream integration
   qualification pending. Offline/native synthetic checks, source review and
   release metadata do not qualify original evidence gaps or a live campaign.

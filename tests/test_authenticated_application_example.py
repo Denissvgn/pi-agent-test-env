@@ -144,6 +144,17 @@ class AuthenticatedExampleTests(unittest.TestCase):
         self.assertEqual(self.run['status'],'PASS');result=self.evaluate()
         self.assertEqual(result['status'],'FAIL');self.assertIn('participant_mismatch',result['diagnostics'])
 
+    def test_queryless_record_page_does_not_parse_an_empty_strict_query(self):
+        self.build();self.assertTrue(self.call()['ok'])
+        original=fixture_module.parse_qs
+        def strict_query(value,**kwargs):
+            if value=='':raise ValueError('Empty strict query on the minimum Python runtime')
+            return original(value,**kwargs)
+        with mock.patch.object(fixture_module,'parse_qs',side_effect=strict_query):
+            first=self.call('list-records');self.assertTrue(first['ok'],first)
+            second=self.call('list-records',cursor=first['pagination']['cursor'])
+            self.assertTrue(second['ok'],second)
+
     def test_nonce_readiness_preserves_full_authenticated_oracle_contract(self):
         nonce=str(uuid.uuid4());self.build(readiness_id=nonce)
         ready=c.loads((self.server.root/'readiness.json').read_bytes())

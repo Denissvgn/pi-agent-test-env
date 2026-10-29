@@ -124,6 +124,29 @@ class ControlledBrowserTests(unittest.TestCase):
         self.assertEqual(self.bridge.commands, [])
         self.assertEqual(self.fixture.requests, [])
 
+    def test_queryless_operation_does_not_parse_an_empty_strict_query(self):
+        self.fixture.call()
+        original = browser.parse_qsl
+        def strict_query(value, **kwargs):
+            if value == '':
+                raise ValueError('Empty strict query on the minimum Python runtime')
+            return original(value, **kwargs)
+        self.bridge.script = [{'kind': 'effect_boundary'}, self.request('list-records')]
+        with patch.object(browser, 'parse_qsl', side_effect=strict_query):
+            result = self.call('click')
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(len(self.fixture.requests), 2)
+
+    def test_malformed_nonempty_query_never_reaches_http(self):
+        self.fixture.call()
+        for query in ('unexpected', 'cursor', 'cursor=x&cursor=y'):
+            with self.subTest(query=query):
+                self.bridge.script = [{'kind': 'effect_boundary'}, self.request(
+                    url=self.request()['url'] + '?' + query)]
+                self.assertFalse(self.call('click')['ok'])
+        self.assertEqual(len(self.fixture.requests), 1)
+        self.assertEqual(self.fixture.effects, [])
+
     def test_snapshot_and_navigation_never_unlock_listed_mutation(self):
         self.fixture.call()
         for action in ('snapshot', 'screenshot', 'navigate'):

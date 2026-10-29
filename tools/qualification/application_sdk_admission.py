@@ -728,7 +728,9 @@ def extend_current_scope_policy(base_policy, *, lease_fd, lock_path, registry_ro
             and type(ledger['launches']) is list and len(ledger['launches'])<=210,'current_ledger_shape_or_poison')
         for field in ('started','deadline','started_wall','deadline_wall','last_now','last_wall'):
             require(type(ledger[field]) in (int,float) and math.isfinite(ledger[field]),'current_clock_type')
-        require(ledger['deadline']-ledger['started']==14400 and ledger['deadline_wall']-ledger['started_wall']==14400
+        # Match the writer's exact addition; subtraction need not invert it
+        # when a binary floating-point exponent boundary is crossed.
+        require(ledger['deadline']==ledger['started']+14400 and ledger['deadline_wall']==ledger['started_wall']+14400
             and ledger['started']<=ledger['last_now']<ledger['deadline'] and ledger['started_wall']<=ledger['last_wall']<ledger['deadline_wall'], 'current_clock')
         predecessor=manifest['predecessor'];carry=ledger['carry'];expected_carry=current['expected_carry']
         require(type(carry) is dict and set(carry)=={'descriptor_sha256','attempts','participant_segments','qualification_id','planned_cells'}
