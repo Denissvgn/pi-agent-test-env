@@ -741,6 +741,23 @@ class InertAdmission(unittest.TestCase):
         helper=self.add_own('application-helper');network=self.add_own(kind='network',helper=helper)
         result=self.extend();self.assertIn(network['launch_id'],result['expected_canonical_records'])
 
+    def test_recorded_clock_deadline_accepts_exact_addition_across_binary_boundary(self):
+        import math
+        started=math.nextafter(32768.0,0.0)
+        self.ledger.update(started=started,deadline=started+14400,last_now=started+5)
+        self.assertNotEqual(self.ledger['deadline']-started,14400)
+        self.write_json(self.ledgerroot/'ledger.json',self.ledger)
+        self.extend()
+
+    def test_recorded_clock_deadline_rejects_adjacent_representable_values(self):
+        import math
+        started=math.nextafter(32768.0,0.0)
+        for direction in (-math.inf,math.inf):
+            with self.subTest(direction=direction):
+                self.ledger.update(started=started,deadline=math.nextafter(started+14400,direction),last_now=started+5)
+                self.write_json(self.ledgerroot/'ledger.json',self.ledger)
+                with self.assertRaises(M.AdmissionDenied):self.extend()
+
     def test_next_lease_extends_only_exact_source_generated_typed_service_receipt(self):
         with self.inert_headers(),self.inert_conservation():
             first=self.extend();gate=M.AdmissionGate(first);self.call(gate)

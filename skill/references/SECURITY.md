@@ -107,7 +107,7 @@ revocation after the campaign.
 A worker with Bash can read and disclose its own key, including to the model or
 network. Exact capture redaction does not scrub arbitrary transformations or
 provide credential withholding, a firewall or forensic secure erasure. Live
-WorkChord/Pi qualification remains separate from offline regression coverage.
+application/Pi qualification remains separate from offline regression coverage.
 See [APPLICATION-CREDENTIALS.md](APPLICATION-CREDENTIALS.md) for the exact schema,
 terminal commands, ownership, bounded scanning, retention and recovery rules.
 

@@ -17,6 +17,14 @@ import verify_release
 
 
 class PublishingTests(unittest.TestCase):
+    def test_owner_reader_runtime_is_required_even_with_regenerated_manifest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source=Path(temporary)/'skill';shutil.copytree(REPOSITORY/'skill',source)
+            (source/'scripts/application_owner_legacy_publication.py').unlink()
+            check_package.export_skill.update_manifest(source)
+            with self.assertRaisesRegex(ValueError,'required'):
+                check_package.check(source)
+
     def test_source_allowlist_retains_tests_and_runtime_plans_without_internal_history(self):
         paths={p.relative_to(REPOSITORY).as_posix() for p in build_release.source_files(REPOSITORY)}
         self.assertIn('tests/test_publishing.py',paths)

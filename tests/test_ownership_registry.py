@@ -277,6 +277,20 @@ class ConcurrentObservationTests(unittest.TestCase):
                 return original(fd)
             with mock.patch.object(registry.os,'fstat',side_effect=during_open),self.assertRaises(registry.RegistryError):registry.read_private(path)
 
+    def test_repeated_atomic_replacement_exhausts_the_existing_three_attempt_bound(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'record.json';path.write_text('{}');path.chmod(0o600)
+            original=os.fstat;replacements=[]
+            def during_open(fd):
+                replacement=Path(temp)/('replacement-'+str(len(replacements)))
+                replacement.write_text('{}');replacement.chmod(0o600)
+                replacements.append(replacement);os.replace(replacement,path)
+                return original(fd)
+            with mock.patch.object(registry.os,'fstat',side_effect=during_open),\
+                 self.assertRaisesRegex(registry.RegistryError,'changed during bounded observation'):
+                registry.read_private(path)
+            self.assertEqual(len(replacements),3)
+
     def test_continuous_commits_can_be_observed_without_accepting_partial_intents(self):
         import threading
         with tempfile.TemporaryDirectory() as temp:
@@ -290,7 +304,12 @@ class ConcurrentObservationTests(unittest.TestCase):
             thread=threading.Thread(target=writer);thread.start()
             try:
                 while not complete.is_set():
-                    values=owned.load(observe=True)
+                    try:values=owned.load(observe=True)
+                    except registry.RegistryError as exc:
+                        # A writer can replace all three opened inodes. Bounded
+                        # refusal is safe; no partial record may be returned.
+                        self.assertEqual(str(exc),'Registry record changed during bounded observation')
+                        continue
                     self.assertEqual(len(values),1);self.assertEqual(values[0]['launch_id'],record['launch_id'])
             finally:thread.join(5)
             self.assertFalse(errors);self.assertEqual(owned.load()[0]['observation'],99)

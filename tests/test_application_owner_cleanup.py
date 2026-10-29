@@ -152,6 +152,27 @@ class OwnerCleanupTests(unittest.TestCase):
         return {p: p.read_bytes() for p in self.run.rglob('*.json')
                 if 'controls' not in p.parts and 'children' not in p.parts}
 
+    def test_independent_new_method_anchor_prohibits_old_recovery_downgrade(self):
+        request = self.request()
+        anchor = self.owner.root.with_name(self.owner.root.name + '.owner-selected') / (self.helper['launch_id'] + '.json')
+        anchor.parent.mkdir(mode=0o700)
+        self.put(anchor, {'schema': 1, 'document_type': 'application_owner_cleanup_anchor',
+            'subject': self.api.subject(self.helper), 'method': 'legacy_derived_v1', 'cohort': 'application_owner_legacy_1',
+            'intent': {'path': str(self.root / 'lost-intent.json'), 'sha256': 'a' * 64}})
+        with self.assertRaises(registry.RegistryError):self.recover(request)
+        self.assertTrue(self.workspace.exists()); self.assertFalse((self.root / 'recovery').exists())
+        self.assertEqual(self.calls, [])
+
+    def test_new_method_selection_prohibits_old_recovery_before_native_observation(self):
+        request = self.request()
+        store = self.api.store_path(self.owner); store.mkdir(mode=0o700)
+        selection = self.api._selection(self.owner, self.helper); selection.parent.mkdir(mode=0o700)
+        self.put(selection, {'schema': 2, 'document_type': 'application_owner_cleanup_selection',
+            'subject': self.api.subject(self.helper), 'method': 'legacy_derived_v1', 'cohort': 'application_owner_legacy_1'})
+        with self.assertRaises(registry.RegistryError):self.recover(request)
+        self.assertTrue(self.workspace.exists()); self.assertFalse((self.root / 'recovery').exists())
+        self.assertEqual(self.calls, [])
+
     def test_failed_stage_proof_preserves_raw_failure_and_reconciles_only_dependent_resources(self):
         request = self.request(); before = self.metadata(); record = self.owner.root / (self.helper['launch_id'] + '.json')
         original = record.read_bytes(); report = self.recover(request)

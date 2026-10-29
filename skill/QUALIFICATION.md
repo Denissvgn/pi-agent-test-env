@@ -1,6 +1,29 @@
 # Qualification and support
 
-## Experimental 4.6.0 application-client scope
+## Experimental 4.8.0 owner-proof scope
+
+Version 4.8.0 prepares a new versioned retained-owner proof method, cohort and
+read-only consumer contract. This is an experimental candidate. The source
+implements closed original-evidence validation, fresh metadata-only native
+gates, descriptor-bound owned-file discard, immutable publication and passive
+replay. Its conformance and fault checks use synthetic temporary histories.
+
+The enabled production source identity is the reviewed artifact-diagnostic
+family for `diagnostic_disposable_v1`. The `standard_workspace_v1` interface and
+synthetic vectors do not register a real standard-workspace producer. Unlisted
+families, missing original guard CID/workspace custody/waits, unclassified retained
+files and unsupported authority still deny. Current filesystem observations
+cannot replace absent original facts.
+
+No real legacy owner cleanup, new SDK proof-read policy or downstream integration
+has been qualified for this candidate. Exact final native/ARM64 Docker artifact
+checks and any real owner pilot/replay remain separate release gates. Existing
+live measurements below retain their original executable/configuration identities;
+they are not evidence for the changed runner. No campaign is resumed or repaired.
+See the [compatibility boundary](references/OWNER-CLEANUP-COMPATIBILITY.md) and
+[reader contract](references/APPLICATION-OWNER-READER.md).
+
+## Historical experimental 4.6.0 application-client scope
 
 Version 4.6.0 adds compiled typed API/browser participants, helper-owned
 credentials and automatic evidence, independent completion contracts, and
@@ -20,9 +43,9 @@ ownership, credential cleanup and upstream-termination uncertainty must still
 block admission until the actual selected scope satisfies its existing gates.
 Source fixes, engineering closure and release preparation do not clear old
 uncertainty or authorize another diagnostic, retry, report repair or continuation.
-No native Docker/Pi/model diagnostics were run to prepare this candidate.
+No native Docker/Pi/model diagnostics were run for that 4.6.0 release preparation.
 
-The release preparation changes version metadata and documentation while
+That 4.6.0 release preparation changed version metadata and documentation while
 preserving the executable and fixture bytes reviewed in merged main at
 `7fe1dc3adc5e26239990f36ceb35e1943348692f`. Repackaging changes package identity;
 it does not expand runtime or parent-discovery qualification. Use the normal
@@ -53,7 +76,7 @@ retained backend and model. Controlled routing fixtures separately observed
 distinct routes and authorities. These observations qualify the implemented
 Chat Completions adapter within the recorded scope; they do not establish real
 distinct-backend/model/API-protocol compatibility, provider/account independence,
-server-wide concurrency, performance improvements or live WorkChord acceptance.
+server-wide concurrency, performance improvements or live downstream application acceptance.
 
 The aggregate Docker ceiling was 2.5 CPUs, 3328 MiB RAM and 1152 PIDs, with equal
 memory+swap: two workers at 1 CPU/1536 MiB/512 PIDs each, plus broker and disposable
@@ -127,7 +150,7 @@ separately cover cumulative DNS/address/TLS and response deadlines, strict final
 chunk/trailer framing, SDK storage opt-out, redaction, queue expiry/cancellation,
 atomic registry observation and unchanged serial behavior. This qualifies the
 explicit experimental two-trial executor within its recorded image/model/resource
-scope. Live WorkChord workflows/actors, arbitrary integrations, additional workers,
+scope. Live downstream application workflows/actors, arbitrary integrations, additional workers,
 server-wide concurrency and performance improvements remain separate claims.
 
 
@@ -169,7 +192,7 @@ with the pinned chromium-userns policy and sandbox enabled. Core workers used
 1 CPU/2 GiB/256 PIDs; browser workers used 2 CPUs/2 GiB/512 PIDs, with one stage
 at a time and equal memory+swap. The existing model deployment was unchanged;
 its CPU/GPU/RAM limits remain unknown. This qualifies the recorded executor,
-image/model/configuration scope, not live WorkChord acceptance or arbitrary models.
+image/model/configuration scope, not live downstream application acceptance or arbitrary models.
 
 | Capability | Observed evidence | Limit |
 |---|---|---|
@@ -178,8 +201,8 @@ image/model/configuration scope, not live WorkChord acceptance or arbitrary mode
 | Application comparisons | Fresh scored trials, deliberate failures, cancellation, resume and explicit retries | Finite cases and repetitions; no performance improvement or significance claim |
 | Fixture lookup integration | Real registration, active tool selection, paired calls, independent scores, read-only assets and cleanup | Only the bundled declared profile; arbitrary integrations unsupported |
 | Host admission and stop policy | Native ARM64 checker writes/denials and real controller crash/retry checks, 8 October 2026 | Executor outcomes are synthetic; no new Pi/model measurement |
-| Application credential delivery | Offline secure-store/redaction regressions and fresh native Pi trials on both releases with isolated A/B/unassigned stages, independent disposable HTTP actor/effect readback, contamination stops and cleanup | Disposable authority and exact recorded configuration; live WorkChord remains unqualified |
-| Sandboxed ARM64 browser admission | Native Chromium 154.0.8037.92 DOM/JS and observed Namespace/PID/network/seccomp-BPF state under the pinned chromium-userns policy, 12 October 2026 | Exact image sha256:48f4d11fb94abe894ca21420534652412c742440848bdc998dc3b19d8258b031 and Docker 29.8.1/kernel 7.0.14-linuxkit; no WorkChord login/OIDC/API or new Pi participant qualification |
+| Application credential delivery | Offline secure-store/redaction regressions and fresh native Pi trials on both releases with isolated A/B/unassigned stages, independent disposable HTTP actor/effect readback, contamination stops and cleanup | Disposable authority and exact recorded configuration; live downstream application remains unqualified |
+| Sandboxed ARM64 browser admission | Native Chromium 154.0.8037.92 DOM/JS and observed Namespace/PID/network/seccomp-BPF state under the pinned chromium-userns policy, 12 October 2026 | Exact image sha256:48f4d11fb94abe894ca21420534652412c742440848bdc998dc3b19d8258b031 and Docker 29.8.1/kernel 7.0.14-linuxkit; no downstream application login/OIDC/API or new Pi participant qualification |
 | Packaging | Complete extracted manifests, resource hashes, offline regression suite and named-root standards validation | Structural/offline checks do not prove live execution |
 | Parent discovery | Codex CLI 0.144.6 catalog and selected content observed for the entry in version 4.0.1 | No automatic relevance selection or parent model turn claim |
 | Other parents | Antigravity CLI 1.2.9/1.3.1 observations for earlier entries; documented Claude and GUI layouts | Current Antigravity catalog/content unavailable through the authorized UI; Claude/GUI discovery unqualified |

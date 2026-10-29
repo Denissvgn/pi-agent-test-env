@@ -563,7 +563,7 @@ Do not add an undeclared case-level profile selector. Assigning A only to builti
 and B only to fixture would confound tool profile and model while leaving two
 paths untested. Treat role-swapped pipelines as declared treatments, not an automatic
 quality comparison. Application authority effects need independent key-free
-readback and distinct namespaces; real WorkChord actor acceptance is excluded.
+readback and distinct namespaces; real application actor acceptance is excluded.
 
 Then run the existing eight scripted Pi fault lanes per release with trusted
 profile bindings and strict observed causes. Four planned cells per lane retain

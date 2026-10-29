@@ -14,7 +14,7 @@ description: >-
 
 # Local agent evaluation with Pi
 
-Package version: 4.7.0. Instructions are in English.
+Package version: 4.8.0. Instructions are in English.
 
 Exact reviewed Pi releases: 0.87.1 and 1.2.0. Use
 [PI-1.2.0.md](references/PI-1.2.0.md) for the newer contract and migration limits;
@@ -348,7 +348,12 @@ never dispatches a fresh probe or participant and has no force-release option.
 For ordinary historical application helpers, use
 [retained owner cleanup](references/APPLICATION-OWNER-CLEANUP.md): inspect exact
 subjects first, establish genuine terminal/snapshot custody, and preserve failed
-raw accounting when publishing separate cleanup proof. Unknown proof or authority
+raw accounting when publishing separate cleanup proof. Use the
+[versioned reader contract](references/APPLICATION-OWNER-READER.md) only after
+independent consumer/provider approval. The experimental legacy source catalog
+enables the reviewed diagnostic-disposable family; standard-workspace interface
+vectors do not approve a real producer. Real owner/SDK/integration qualification
+remains separate, as recorded in [compatibility](references/OWNER-CLEANUP-COMPATIBILITY.md). Unknown proof or authority
 scope stays blocked; later cleanup never resumes an old campaign.
 
 Use explicit run/stage identity when multiple records exist. Parent-owned controls

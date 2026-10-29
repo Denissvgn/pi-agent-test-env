@@ -220,7 +220,9 @@ class BrowserClient:
             return None
         params = {key: _decode_scalar(unquote(value, encoding='utf-8', errors='strict'), operation['path_params_schema']['properties'][key])
                   for key, value in matched.groupdict().items()}
-        pairs = parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True, encoding='utf-8', errors='strict', max_num_fields=65)
+        pairs = (parse_qsl(parsed.query, keep_blank_values=True, strict_parsing=True,
+                           encoding='utf-8', errors='strict', max_num_fields=65)
+                 if parsed.query else [])
         if len({key for key, _ in pairs}) != len(pairs):
             raise BrowserError()
         query, cursor = {}, None

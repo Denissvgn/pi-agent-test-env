@@ -397,11 +397,34 @@ def public_summary(report):
             'cases': cases}
 
 
+def plan_retained(request_path,capture_reference):
+    """Use the installed pure planner with one Reader; never accept owner proof."""
+    import application_owner_legacy as legacy
+    try:
+        reader=cleanup.Reader()
+        request,unused=reader.read(request_path,private=True)
+        if isinstance(capture_reference,(str,Path)):
+            unused,capture_reference=reader.read(capture_reference,private=True)
+        record,related,subject=_capture(reader,capture_reference,request['subject']['launch_id'])
+        result=legacy.analyze(request,record,related,reader=reader)
+        return {'schema':1,'document_type':'application_owner_migration_plan','plan':result,
+                'public':legacy.public_summary(result),'recovery_eligible':False,
+                'admission_authorized':False,'cleanup_authorized':False,'native_actions':0,'proofs_published':0}
+    except (ownership.RegistryError,OSError,ValueError,TypeError,KeyError,IndexError,AttributeError,RuntimeError):
+        raise AssessmentError() from None
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--manifest', type=Path, required=True)
+    selector=parser.add_mutually_exclusive_group(required=True)
+    selector.add_argument('--manifest',type=Path)
+    selector.add_argument('--request',type=Path,help='Read-only structural planning with the installed legacy validator')
+    parser.add_argument('--capture',type=Path,help='Private retained record capture required with --request')
     args = parser.parse_args(argv)
-    try:result = public_summary(assess(args.manifest)); code = 0
+    if bool(args.request)!=bool(args.capture):parser.error('--request and --capture must be selected together')
+    try:
+        result=plan_retained(args.request,args.capture)['public'] if args.request else public_summary(assess(args.manifest))
+        code=0
     except AssessmentError as error:result = {'status': 'BLOCKED', 'condition': error.condition,
         'admission_authorized': False, 'cleanup_authorized': False}; code = 2
     print(json.dumps(result, indent=2)); return code

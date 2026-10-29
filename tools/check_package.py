@@ -15,7 +15,13 @@ import export_skill
 INTERNAL_MARKERS = re.compile(r'\b(?:[BFR]\d{2}(?:[–-][BFR]?\d{2})?|AC\d{2}-\d{2}|Wave\s+\d+|wave-\d+|release-hardening|implementation pending)\b', re.IGNORECASE)
 PRIVATE_PARTS = {'.git','.agents','.codex','tests','reports','plans','dist','development','__pycache__'}
 REQUIRED_FILES = {'SKILL.md','skill.json','LICENSE','MANIFEST.sha256','scripts/pi_lab.py',
-                  'runtime/worker.py','docker/Dockerfile','references/SECURITY.md'}
+                  'runtime/worker.py','docker/Dockerfile','references/SECURITY.md',
+                  'scripts/application_owner_cleanup.py','scripts/ownership_registry.py',
+                  'references/APPLICATION-OWNER-CLEANUP.md','references/APPLICATION-OWNER-READER.md',
+                  'references/OWNER-CLEANUP-COMPATIBILITY.md',
+                  'assets/application-owner-reader-v1.json','assets/application-owner-reader-vectors-v1.json',
+                  *('scripts/application_owner_legacy'+suffix+'.py' for suffix in
+                    ('','_catalog','_controller','_launchers','_roots','_namespace','_protocol','_native','_discard','_publication'))}
 REQUIRED_DIRECTORIES = {'scripts','runtime','assets','examples','docker','references'}
 
 

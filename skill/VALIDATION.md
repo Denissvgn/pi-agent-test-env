@@ -11,6 +11,17 @@ clear historical uncertainty. See the current scope in
 [QUALIFICATION.md](QUALIFICATION.md); the dated live evidence below remains
 attached to its original executable and environment.
 
+## 4.8.0 owner-proof candidate
+
+The owner-proof implementation has synthetic native filesystem/lease, metadata
+backend, publication/crash and read-only consumer conformance coverage. Those
+checks establish only their recorded candidate and test scope. They do not
+supply original historical facts or qualify real owner cleanup, downstream SDK
+consumption, application/model behavior or a campaign. The exact final archive/
+native/ARM64 Docker release gate and any real eligible owner operation/replay
+must be recorded separately before their outcomes are claimed. Native Windows
+remains outside the POSIX lease contract.
+
 ## Structural and offline checks
 
 Maintainer tests live in the source repository’s `tests/` directory and are omitted

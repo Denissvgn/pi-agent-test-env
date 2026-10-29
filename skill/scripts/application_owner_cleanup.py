@@ -6,7 +6,9 @@ Unknown historical evidence formats require an owner-side adapter; they are not
 guessed from exception strings, PID absence or qualification classifications.
 """
 import hashlib
+import contextlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -83,43 +85,93 @@ def pairs(items):
 
 class Reader:
     def __init__(self):
-        self.references = {}; self.bytes = 0; self.private_paths = set()
+        self.references = {}; self.bytes = 0; self.private_paths = set(); self.private_parent_paths = set(); self._scopes = []
+        self.maximums = {}
+
+    @contextlib.contextmanager
+    def custody_scope(self):
+        """Track consulted evidence without resetting the shared graph budget."""
+        selected = set(); self._scopes.append(selected)
+        try:yield
+        finally:require(self._scopes.pop() is selected)
+
+    def scope_references(self):
+        require(bool(self._scopes))
+        return [self.references[name] for name in sorted(self._scopes[-1])]
 
     @diagnostics.observed('proof_read')
-    def read(self, value, *, private=False, parent_fd=None):
+    def read_bytes(self, value, *, private=False, parent_fd=None, private_parent=None, maximum=None):
+        """Read one stable file; JSON and source bytes share custody and limits."""
         value = path(str(value))
+        limit = MAX_BYTES if maximum is None else maximum
+        require(type(limit) is int and 0 <= limit <= MAX_BYTES, 'inventory_unbounded')
+        limit = min(limit, self.maximums.get(str(value), limit)); self.maximums[str(value)] = limit
+        require(type(private) is bool and (private_parent is None or type(private_parent) is bool))
+        requested_parent = private if private_parent is None else private_parent
         if private:self.private_paths.add(str(value))
+        if requested_parent:self.private_parent_paths.add(str(value))
         private = str(value) in self.private_paths
+        private_parent = str(value) in self.private_parent_paths
         require(parent_fd is None or type(parent_fd) is int)
         parent = directory(value.parent) if parent_fd is None else os.dup(parent_fd)
         try:
-            require(not stat.S_IMODE(os.fstat(parent).st_mode) & (0o077 if private else 0o022), 'unsafe_path')
+            require(not stat.S_IMODE(os.fstat(parent).st_mode) & (0o077 if private_parent else 0o022), 'unsafe_path')
             fd = os.open(value.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
             with os.fdopen(fd, 'rb') as stream:
                 before = os.fstat(stream.fileno())
                 require(stat.S_ISREG(before.st_mode) and before.st_uid == os.getuid() and before.st_nlink == 1
                         and not stat.S_IMODE(before.st_mode) & (0o077 if private else 0o022)
-                        and before.st_size <= MAX_BYTES, 'unsafe_record')
-                body = stream.read(MAX_BYTES + 1); after = os.fstat(stream.fileno())
+                        and before.st_size <= limit, 'unsafe_record')
+                if str(value) not in self.references:
+                    require(len(self.references) < MAX_REFERENCES
+                            and self.bytes + before.st_size <= MAX_AGGREGATE_BYTES, 'inventory_unbounded')
+                body = stream.read(limit + 1); after = os.fstat(stream.fileno())
                 named = os.stat(value.name, dir_fd=parent, follow_symlinks=False)
                 signature = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns, s.st_nlink)
                 require(signature(before) == signature(after) == signature(named) and len(body) == before.st_size)
+            held = os.fstat(parent)
+            require(held.st_uid == os.getuid() and not stat.S_IMODE(held.st_mode) & (0o077 if private_parent else 0o022),
+                    'unsafe_path')
+            current_parent = directory(value.parent)
+            try:require(identity(os.fstat(current_parent)) == identity(held), 'unsafe_path')
+            finally:os.close(current_parent)
             ref = {'path': str(value), 'sha256': hashlib.sha256(body).hexdigest()}
             if str(value) not in self.references:
                 self.bytes += len(body)
                 require(len(self.references) < MAX_REFERENCES and self.bytes <= MAX_AGGREGATE_BYTES, 'inventory_unbounded')
             else:require(self.references[str(value)] == ref)
             self.references[str(value)] = ref
-            result = json.loads(body, object_pairs_hook=pairs,
-                                parse_constant=lambda unused: require(False))
-            require(type(result) is dict)
-            return result, ref
+            for scope in self._scopes:scope.add(str(value))
+            return body, ref
         finally:os.close(parent)
 
-    def reference(self, ref):
+    @diagnostics.observed('proof_read')
+    def read(self, value, *, private=False, parent_fd=None, private_parent=None):
+        body, ref = self.read_bytes(value, private=private, parent_fd=parent_fd, private_parent=private_parent)
+        def number(value):
+            result = float(value); require(math.isfinite(result), 'malformed_record')
+            return result
+        try:
+            result = json.loads(body, object_pairs_hook=pairs, parse_float=number,
+                                parse_constant=lambda unused: require(False, 'malformed_record'))
+        except ownership.RegistryError:raise
+        except (ValueError, UnicodeError, RecursionError, OverflowError):
+            require(False, 'malformed_record')
+        require(type(result) is dict)
+        return result, ref
+
+    def reference(self, ref, *, private=False, private_parent=None):
         exact(ref, {'path', 'sha256'})
         require(type(ref['sha256']) is str and re.fullmatch('[a-f0-9]{64}', ref['sha256']) is not None)
-        result, observed = self.read(ref['path']); require(observed == ref)
+        options = {'private': private}
+        if private_parent is not None:options['private_parent'] = private_parent
+        result, observed = self.read(ref['path'], **options); require(observed == ref)
+        return result
+
+    def reference_bytes(self, ref, *, private=False, private_parent=None):
+        exact(ref, {'path', 'sha256'})
+        require(type(ref['sha256']) is str and re.fullmatch('[a-f0-9]{64}', ref['sha256']) is not None)
+        result, observed = self.read_bytes(ref['path'], private=private, private_parent=private_parent); require(observed == ref)
         return result
 
 
@@ -157,6 +209,45 @@ def lease_identity(registry):
     return observed
 
 
+def validate_launcher_arguments(argv, record):
+    """Validate original or source-derived argv without making a witness."""
+    require(argv[:2] == ['docker', 'run'] and argv.count('--name') == 1
+            and argv[argv.index('--name') + 1] == record['container']
+            and record['image'] in argv)
+    labels = [argv[i + 1] for i, arg in enumerate(argv[:-1]) if arg == '--label']
+    require(sorted(labels) == sorted([ownership.LABEL + '=' + record['launch_id'],
+                                     ownership.REGISTRY_LABEL + '=' + record['registry']]))
+    image_at = argv.index(record['image']); require(argv.count(record['image']) == 1 and image_at + 1 < len(argv)
+                                                   and argv[image_at + 1] in (
+                                                       '/opt/pi-application/runtime/application_client_service.py',
+                                                       '/opt/pi-lab/worker.py'))
+    switches = {'--pull=never', '--interactive', '--init', '--read-only', '--cap-drop=ALL',
+                '--security-opt=no-new-privileges=true', '--ipc=none', '--entrypoint=python3',
+                '--workdir=/pi-client/state'}
+    valued = {'--name', '--label', '--mount', '--platform', '--user', '--security-opt', '--pids-limit',
+              '--memory', '--memory-swap', '--cpus', '--network', '--network-alias', '--publish',
+              '--workdir', '--env', '--tmpfs', '--ulimit', '--add-host'}
+    position = 2
+    while position < image_at:
+        option = argv[position]
+        if option in switches:position += 1; continue
+        require(option in valued and position + 1 < image_at)
+        value = argv[position + 1]
+        if option == '--platform':require(value == 'linux/arm64')
+        if option == '--network':require(value not in ('host', 'container'))
+        if option == '--env' and record.get('application_helper') is True:
+            require(value in ('PYTHONDONTWRITEBYTECODE=1', 'PYTHONUNBUFFERED=1',
+                              'HOME=/pi-client/state/private/home', 'TMPDIR=/pi-client/state/private/tmp'))
+        position += 2
+    mounts = []
+    for i, option in enumerate(argv[:-1]):
+        if option != '--mount':continue
+        parts = argv[i + 1].split(','); fields = dict(p.split('=', 1) for p in parts if '=' in p)
+        require(fields.get('type') == 'bind' and set(fields) <= {'type', 'src', 'dst', 'bind-recursive'})
+        mounts.append({'source': fields.get('src'), 'target': fields.get('dst'), 'rw': 'readonly' not in parts})
+    require(mounts == record['mounts'])
+
+
 def _terminal(reader, witnesses, record, launch_ids, *, replay=False, launcher=False):
     exact(witnesses, {'invocation', 'terminal'})
     invocation = reader.reference(witnesses['invocation']); terminal = reader.reference(witnesses['terminal'])
@@ -176,42 +267,7 @@ def _terminal(reader, witnesses, record, launch_ids, *, replay=False, launcher=F
             and terminal['invocation'] == witnesses['invocation']
             and all(type(terminal[k]) is type(invocation[k]) and terminal[k] == invocation[k] for k in ('pid', 'argv', 'cwd')))
     if not launcher:require(invocation['pid'] == record.get('owner_pid'))
-    else:
-        require(argv[:2] == ['docker', 'run'] and argv.count('--name') == 1
-                and argv[argv.index('--name') + 1] == record['container']
-                and record['image'] in argv)
-        labels = [argv[i + 1] for i, arg in enumerate(argv[:-1]) if arg == '--label']
-        require(sorted(labels) == sorted([ownership.LABEL + '=' + record['launch_id'],
-                                         ownership.REGISTRY_LABEL + '=' + record['registry']]))
-        image_at = argv.index(record['image']); require(argv.count(record['image']) == 1 and image_at + 1 < len(argv)
-                                                       and argv[image_at + 1] in (
-                                                           '/opt/pi-application/runtime/application_client_service.py',
-                                                           '/opt/pi-lab/worker.py'))
-        switches = {'--pull=never', '--interactive', '--init', '--read-only', '--cap-drop=ALL',
-                    '--security-opt=no-new-privileges=true', '--ipc=none', '--entrypoint=python3',
-                    '--workdir=/pi-client/state'}
-        valued = {'--name', '--label', '--mount', '--platform', '--user', '--security-opt', '--pids-limit',
-                  '--memory', '--memory-swap', '--cpus', '--network', '--network-alias', '--publish',
-                  '--workdir', '--env', '--tmpfs', '--ulimit', '--add-host'}
-        position = 2
-        while position < image_at:
-            option = argv[position]
-            if option in switches:position += 1; continue
-            require(option in valued and position + 1 < image_at)
-            value = argv[position + 1]
-            if option == '--platform':require(value == 'linux/arm64')
-            if option == '--network':require(value not in ('host', 'container'))
-            if option == '--env' and record.get('application_helper') is True:
-                require(value in ('PYTHONDONTWRITEBYTECODE=1', 'PYTHONUNBUFFERED=1',
-                                  'HOME=/pi-client/state/private/home', 'TMPDIR=/pi-client/state/private/tmp'))
-            position += 2
-        mounts = []
-        for i, option in enumerate(argv[:-1]):
-            if option != '--mount':continue
-            parts = argv[i + 1].split(','); fields = dict(p.split('=', 1) for p in parts if '=' in p)
-            require(fields.get('type') == 'bind' and set(fields) <= {'type', 'src', 'dst', 'bind-recursive'})
-            mounts.append({'source': fields.get('src'), 'target': fields.get('dst'), 'rw': 'readonly' not in parts})
-        require(mounts == record['mounts'])
+    else:validate_launcher_arguments(argv, record)
     if not replay:
         try:os.kill(invocation['pid'], 0)
         except ProcessLookupError:pass
@@ -397,7 +453,25 @@ def _owned_snapshot(reader, reference, record):
     return snapshot
 
 
+def _request_method(request):
+    require(type(request) is dict and type(request.get('schema')) is int)
+    if request['schema'] == 1:
+        exact(request, REQUEST_FIELDS)
+        return 'retained_terminals'
+    require(request['schema'] == 2, 'owner_legacy_unsupported')
+    import application_owner_legacy_protocol as legacy_protocol
+    legacy_protocol.request_shape(request)
+    return 'legacy_derived_v1'
+
+
 def _prepare(registry, request, *, replay=False, reader=None):
+    if _request_method(request) == 'legacy_derived_v1':
+        import application_owner_legacy_protocol as legacy_protocol
+        return legacy_protocol.prepare(registry, request, reader=reader)
+    return _prepare_retained(registry, request, replay=replay, reader=reader)
+
+
+def _prepare_retained(registry, request, *, replay=False, reader=None):
     exact(request, REQUEST_FIELDS)
     exact(request['subject'], {'registry', 'generation', 'launch_id', 'intent_sha256', 'container_id'})
     require(type(request['schema']) is int and request['schema'] == 1
@@ -485,34 +559,78 @@ def _writers_absent(registry, records):
     require(final.returncode == 0 and all(r['daemon'] == final.stdout.strip() for r in records), 'daemon_changed')
 
 
-def _purge(observation):
+def _bounded_names(fd, maximum, count=None):
+    """Bound directory enumeration before retaining names in memory."""
+    require(type(maximum) is int and 0 <= maximum <= MAX_ENTRIES, 'inventory_unbounded')
+    count = [0] if count is None else count
+    names = []; scan = os.open('.', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+    try:
+        with os.scandir(scan) as entries:
+            for entry in entries:
+                count[0] += 1; require(count[0] <= maximum, 'inventory_unbounded')
+                names.append(entry.name)
+    finally:os.close(scan)
+    return sorted(names)
+
+
+def _purge_names(fd, count):return _bounded_names(fd, MAX_ENTRIES, count)
+
+
+def _purge_signature(info):
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_nlink,
+            info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def _purge(observation, *, parent_fd=None, root_fd=None, checkpoint=None):
     if observation['state'] == 'absent':
         require(ownership._qualification_absent(observation['path']), 'sensitive_identity_mismatch'); return
-    value = path(observation['path']); parent = directory(value.parent)
-    count = [0]
-    def empty(fd):
-        names = os.listdir(fd); count[0] += len(names)
-        require(count[0] <= MAX_ENTRIES, 'inventory_unbounded')
+    value = path(observation['path']); parent = directory(value.parent) if parent_fd is None else os.dup(parent_fd)
+    count = [0]; chain = []
+    def verify(parts, info, mutating=False):
+        named = directory(value.parent)
+        try:require(identity(os.fstat(named)) == identity(os.fstat(parent)), 'sensitive_identity_mismatch')
+        finally:os.close(named)
+        require(identity(os.stat(value.name, dir_fd=parent, follow_symlinks=False)) == observation['identity'], 'sensitive_identity_mismatch')
+        for ancestor, name, child, expected, mode, uid in chain:
+            held = os.fstat(child); named = os.stat(name, dir_fd=ancestor, follow_symlinks=False)
+            require(identity(held) == expected == identity(named), 'sensitive_identity_mismatch')
+            require(held.st_mode == named.st_mode == mode and held.st_uid == named.st_uid == uid
+                    and uid == os.getuid() and not stat.S_IMODE(mode) & 0o022, 'unsafe_path')
+        if checkpoint is not None:checkpoint(parts, info, mutating)
+    def empty(fd, prefix=()):
+        names = _purge_names(fd, count)
         for name in names:
+            parts = prefix + (name,)
             info = os.stat(name, dir_fd=fd, follow_symlinks=False)
             require(info.st_uid == os.getuid() and not stat.S_IMODE(info.st_mode) & 0o022, 'unsafe_path')
             require(info.st_dev == observation['identity'][0], 'sensitive_identity_mismatch')
             if stat.S_ISDIR(info.st_mode):
                 child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
                 try:
-                    require(identity(os.fstat(child)) == identity(info), 'sensitive_identity_mismatch'); empty(child)
+                    require(identity(os.fstat(child)) == identity(info), 'sensitive_identity_mismatch')
+                    chain.append((fd, name, child, identity(info), info.st_mode, info.st_uid)); verify(parts, info)
+                    empty(child, parts)
                     require(identity(os.stat(name, dir_fd=fd, follow_symlinks=False)) == identity(info), 'sensitive_identity_mismatch')
+                    verify(parts, os.fstat(child), True)
                     with diagnostics.operation('purge', mutating=True):os.rmdir(name, dir_fd=fd)
-                finally:os.close(child)
+                finally:
+                    if chain and chain[-1][2] == child:chain.pop()
+                    os.close(child)
             else:
                 require(stat.S_ISREG(info.st_mode) and info.st_nlink == 1, 'unsafe_path')
+                verify(parts, info)
+                current = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                require(_purge_signature(current) == _purge_signature(info), 'sensitive_identity_mismatch')
+                verify(parts, current, True)
                 with diagnostics.operation('purge', mutating=True):os.unlink(name, dir_fd=fd)
     try:
-        child = os.open(value.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+        child = os.open(value.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent) if root_fd is None else os.dup(root_fd)
         try:
             require(identity(os.fstat(child)) == observation['identity'], 'sensitive_identity_mismatch')
+            verify((), os.fstat(child))
             empty(child)
             require(identity(os.stat(value.name, dir_fd=parent, follow_symlinks=False)) == observation['identity'], 'sensitive_identity_mismatch')
+            verify((), os.fstat(child), True)
             with diagnostics.operation('purge', mutating=True):os.rmdir(value.name, dir_fd=parent)
             with diagnostics.operation('directory_fsync', mutating=True):os.fsync(parent)
         finally:os.close(child)
@@ -527,11 +645,81 @@ def _selection(registry, record):
     return store_path(registry) / 'selected' / (record['launch_id'] + '.json')
 
 
+def _anchor(registry, record):
+    return registry.root.with_name(registry.root.name + '.owner-selected') / (record['launch_id'] + '.json')
+
+
+def _read_anchor(registry, record, reader):
+    target = _anchor(registry, record)
+    try:parent = directory(target.parent)
+    except FileNotFoundError:
+        require(getattr(registry, '_owner_anchor_identity', None) is None, 'unsafe_path')
+        require(not os.path.lexists(target))
+        return None
+    try:
+        require(not stat.S_IMODE(os.fstat(parent).st_mode) & 0o077, 'unsafe_path')
+        _bind_directory(registry, '_owner_anchor_identity', parent)
+        try:os.stat(target.name, dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:value = None
+        else:
+            _remember_legacy_selection(registry, record)
+            value, unused = reader.read(target, private=True, parent_fd=parent)
+        named = directory(target.parent)
+        try:require(identity(os.fstat(named)) == identity(os.fstat(parent)), 'unsafe_path')
+        finally:os.close(named)
+        return value
+    finally:os.close(parent)
+
+
+def _retained_selection(registry, record, reader):
+    """A selected new method cannot be retried through the old native path."""
+    require(record['launch_id'] not in getattr(registry, '_owner_legacy_selected_ids', set()), 'owner_proof_publication_incomplete')
+    require(_read_anchor(registry, record, reader) is None, 'owner_proof_publication_incomplete')
+    try:fd = directory(store_path(registry))
+    except FileNotFoundError:
+        require(getattr(registry, '_owner_proof_store_identity', None) is None, 'unsafe_path')
+        return
+    parent = None
+    try:
+        require(not stat.S_IMODE(os.fstat(fd).st_mode) & 0o077, 'unsafe_path')
+        _bind_directory(registry, '_owner_proof_store_identity', fd)
+        try:parent = _descendant(fd, ('selected',))
+        except FileNotFoundError:
+            require(getattr(registry, '_owner_selected_identity', None) is None, 'unsafe_path')
+            return
+        _bind_directory(registry, '_owner_selected_identity', parent)
+        try:selection, unused = reader.read(_selection(registry, record), private=True, parent_fd=parent)
+        except FileNotFoundError:require(not os.path.lexists(_selection(registry, record)))
+        else:
+            expected = {'schema': 1, 'document_type': 'application_owner_cleanup_selection', 'subject': subject(record)}
+            require(canonical(selection) == canonical(expected), 'owner_proof_publication_incomplete')
+        named = directory(_selection(registry, record).parent)
+        try:require(identity(os.fstat(named)) == identity(os.fstat(parent)), 'unsafe_path')
+        finally:os.close(named)
+    finally:
+        if parent is not None:os.close(parent)
+        os.close(fd)
+
+
 def _remember_selection(registry, record):
     selected = getattr(registry, '_owner_proof_selected_ids', None)
     if selected is None:
         selected = set(); registry._owner_proof_selected_ids = selected
     selected.add(record['launch_id'])
+
+
+def _remember_legacy_selection(registry, record):
+    _remember_selection(registry, record)
+    selected = getattr(registry, '_owner_legacy_selected_ids', None)
+    if selected is None:
+        selected = set(); registry._owner_legacy_selected_ids = selected
+    selected.add(record['launch_id'])
+
+
+def _remember_document_selection(registry, record, value):
+    if value.get('schema') == 2 or value.get('method') == 'legacy_derived_v1' or value.get('cohort') == 'application_owner_legacy_1':
+        _remember_legacy_selection(registry, record)
+    else:_remember_selection(registry, record)
 
 
 def _mark_selected(registry, record):
@@ -603,29 +791,39 @@ def _store(registry):
     return fd
 
 
-def _publish_index(registry, record, reference):
+def _publish_index(registry, record, reference, *, method=None, cohort=None):
+    require((method is None and cohort is None) or
+            (method == 'legacy_derived_v1' and cohort == 'application_owner_legacy_1'), 'owner_legacy_unsupported')
     root = store_path(registry)
     fd = _store(registry)
     try:
         require(not stat.S_IMODE(os.fstat(fd).st_mode) & 0o077, 'unsafe_path')
-        value = {'schema': 1, 'document_type': 'application_owner_cleanup_index', 'subject': subject(record), 'receipt': reference}
+        value = {'schema': 2 if method else 1, 'document_type': 'application_owner_cleanup_index', 'subject': subject(record), 'receipt': reference}
+        if method:value.update(method=method, cohort=cohort)
         with diagnostics.operation('temporary_create', mutating=True):
             output = os.open(record['launch_id'] + '.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
         with os.fdopen(output, 'wb') as stream:
             with diagnostics.operation('file_write', mutating=True):stream.write(canonical(value)); stream.flush()
             with diagnostics.operation('file_fsync', mutating=True):os.fsync(stream.fileno())
+            signature = _purge_signature(os.fstat(stream.fileno()))
         with diagnostics.operation('directory_fsync', mutating=True):os.fsync(fd)
         named = directory(root)
         try:require(identity(os.fstat(named)) == identity(os.fstat(fd)), 'unsafe_path')
         finally:os.close(named)
+        require(_purge_signature(os.stat(record['launch_id'] + '.json', dir_fd=fd, follow_symlinks=False)) == signature, 'unsafe_record')
+        if method:
+            return {'reference': {'path': str(root / (record['launch_id'] + '.json')), 'sha256': digest(value)},
+                    'signature': signature}
     finally:os.close(fd)
 
 
 @diagnostics.scoped('application_cleanup', 'cleanup_proof_invalid')
 def validate_accepted(registry, record):
     reader = Reader()
+    anchor = _read_anchor(registry, record, reader)
     try:index, unused = reader.read(_index(registry, record), private=True)
     except FileNotFoundError:
+        require(anchor is None, 'owner_proof_publication_incomplete')
         require(record['launch_id'] not in getattr(registry, '_owner_proof_selected_ids', set()))
         if getattr(registry, '_owner_proof_store_identity', None) is not None:
             bound = directory(store_path(registry))
@@ -635,15 +833,23 @@ def validate_accepted(registry, record):
         try:selection, unused = reader.read(_selection(registry, record), private=True)
         except FileNotFoundError:
             require(not os.path.lexists(_selection(registry, record)))
-        else:require(False)
+        else:
+            _remember_document_selection(registry, record, selection)
+            require(False)
         return False
-    _remember_selection(registry, record)
+    _remember_document_selection(registry, record, index)
     require(subject(record)['registry'] == registry.registry_id)
     store = directory(store_path(registry))
     try:
         require(not stat.S_IMODE(os.fstat(store).st_mode) & 0o077, 'unsafe_path')
         _bind_directory(registry, '_owner_proof_store_identity', store)
     finally:os.close(store)
+    require(type(index) is dict)
+    if type(index.get('schema')) is int and index['schema'] == 2:
+        _remember_legacy_selection(registry, record)
+        import application_owner_legacy_protocol as legacy_protocol
+        return legacy_protocol.validate_accepted(registry, record, index, anchor, reader)
+    require(anchor is None, 'owner_proof_publication_incomplete')
     exact(index, {'schema', 'document_type', 'subject', 'receipt'})
     require(type(index['schema']) is int and index['schema'] == 1
             and index['document_type'] == 'application_owner_cleanup_index' and index['subject'] == subject(record))
@@ -719,9 +925,13 @@ def _canonical_subjects(value):
 def recover(registry, request, output_dir, *, discard_workspace=False, reader=None):
     import registry_maintenance as maintenance
     require(discard_workspace is True, 'owner_discard_required')
+    if _request_method(request) == 'legacy_derived_v1':
+        import application_owner_legacy_publication as legacy_publication
+        return legacy_publication.recover(registry, request, output_dir, discard_workspace=discard_workspace, reader=reader)
     lease = lease_identity(registry)
     record, related, reader, metadata, roots, physical = _prepare(registry, request, reader=reader)
     require(not os.path.lexists(_index(registry, record)))
+    _retained_selection(registry, record, reader)
     runner = maintenance._runner_identity()
     _no_foreign_holders(registry, record, related, reader, roots)
     _writers_absent(registry, physical)
@@ -1034,6 +1244,8 @@ def add_arguments(sub, default_lock):
         parser = sub.add_parser(name, help='Inspect or clean exact historical application ownership without dispatch')
         parser.add_argument('--lock-file', default=default_lock)
         parser.add_argument('--lock-wait-seconds', type=float, default=0)
+        if name == 'application-owner-inspect':
+            parser.add_argument('--summary', action='store_true', help='Emit closed inspection counts without identifiers')
         if name == 'application-owner-recover':
             parser.add_argument('--request', required=True, help='Owner-only typed custody request with original terminal references')
             parser.add_argument('--output-dir', required=True, help='New private receipt directory outside retained execution paths')
@@ -1048,27 +1260,53 @@ def _owner_docker(argv):
                           env=application_client._docker_environment())
 
 
+def _operation_diagnostic(error):
+    if type(error) not in (ownership.RegistryError, ownership.RegistryCapacityError):
+        error = ownership.RegistryError('Owner operation did not complete', condition='cleanup_proof_invalid', cause=error)
+    return diagnostics.diagnostic(error)
+
+
+@diagnostics.scoped('application_cleanup', 'cleanup_proof_invalid')
 def command(args):
     import registry_maintenance as maintenance
     report = {'schema': 1, 'document_type': 'application_owner_operation', 'status': 'RUNNING',
-              'exit_code': 2, 'admission_authorized': False, 'new_containers': 0, 'participant_stages': 0, 'model_requests': 0}
+              'exit_code': 2, 'admission_authorized': False, 'cleanup_completed': False,
+              'receipt_persistence': 'not_started', 'effects': 'none_observed',
+              'new_containers': 0, 'participant_stages': 0, 'model_requests': 0}
+    safe = args.op != 'application-owner-inspect' or getattr(args, 'summary', False)
     try:
         with maintenance.existing_lease(args.lock_file, args.lock_wait_seconds) as (fd, lease, selected):
             registry = ownership.Registry(Path(str(selected) + '.registry'), command=_owner_docker, create=False); registry.lease_fd = fd
             if args.op == 'application-owner-inspect':
-                report.update(status='OBSERVED', exit_code=0, helpers=inspect_helpers(registry, registry.load()))
+                rows = inspect_helpers(registry, registry.load())
+                report.update(status='OBSERVED', exit_code=0)
+                if getattr(args, 'summary', False):report['summary'] = inspection_summary(rows)
+                else:report['helpers'] = rows
             else:
                 reader = Reader()
                 request, unused = reader.read(args.request, private=True)
+                safe = not (type(request.get('schema')) is int and request['schema'] == 1
+                            and set(request) == REQUEST_FIELDS and request.get('document_type') == 'application_owner_cleanup_request')
                 result = recover(registry, request, args.output_dir, discard_workspace=args.discard_workspace, reader=reader)
+                require(result['status'] == 'CLEANED' and result['cleanup_completed'] is True
+                        and result['receipt_persistence'] == 'confirmed', 'owner_proof_publication_incomplete')
                 # Full paths/terminal witnesses stay in the owner-only receipt.
-                report.update(status=result['status'], exit_code=0, subject=result['subject'],
-                              receipt_persistence=result['receipt_persistence'], effects=result['effects'],
-                              runner_content_sha256=result['runner_content_sha256'])
-    except KeyboardInterrupt:
+                report.update(status=result['status'], exit_code=0,
+                              receipt_persistence=result['receipt_persistence'], effects=result['effects'], cleanup_completed=True)
+                if result['method'] != 'legacy_derived_v1':
+                    report.update(subject=result['subject'], runner_content_sha256=result['runner_content_sha256'])
+    except KeyboardInterrupt as exc:
         report.update(status='INTERRUPTED', exit_code=130)
+        report['diagnostic'] = _operation_diagnostic(exc)
     except Exception as exc:
-        maintenance._failure(report, exc)
+        if safe:
+            report.update(status='BLOCKED', exit_code=2, diagnostic=_operation_diagnostic(exc))
+        else:
+            maintenance._failure(report, exc)
+            report['diagnostic'] = _operation_diagnostic(exc)
+    if report['exit_code'] != 0:
+        report.update(cleanup_completed=False, effects=report['diagnostic']['effects'])
+        report['receipt_persistence'] = 'unconfirmed' if report['effects'] == 'may_have_occurred' else 'not_started'
     print(json.dumps(report, indent=2))
     return report['exit_code']
 
@@ -1079,15 +1317,33 @@ def inspect_helpers(registry, records):
         if record.get('application_helper') is not True:continue
         if ('qualification_role' in record or 'qualification_service_cleanup' in record
                 or 'qualification_preworker_cleanup' in record):continue
-        shape = 'unknown'
+        shape = 'unknown'; proof = 'not_selected'; diagnostic = None
         try:
-            stages, unused = _stages(Reader(), path(record['runroot']))
-            shape = 'interrupted' if record.get('container_id') is None else 'agent' if stages else 'helper_only'
             accepted = validate_accepted(registry, record)
             pending = False if accepted else ownership._application_stage_pending(record['runroot'])
-            condition = 'owner_proof_required' if pending else 'cleanup_observed'
-        except (ownership.RegistryError, OSError, ValueError):condition = 'cleanup_proof_invalid'
-        observations.append({'launch_id': record['launch_id'], 'condition': condition,
+            proof = 'accepted' if accepted else 'not_selected'
+            condition = 'owner_proof_accepted' if accepted else 'owner_proof_required' if pending else 'cleanup_observed'
+            try:
+                stages, unused = _stages(Reader(), path(record['runroot']))
+                shape = 'interrupted' if record.get('container_id') is None else 'agent' if stages else 'helper_only'
+            except (ownership.RegistryError, OSError, ValueError):pass
+        except (ownership.RegistryError, OSError, ValueError) as exc:
+            proof = 'invalid'; condition = 'cleanup_proof_invalid'; diagnostic = _operation_diagnostic(exc)
+        row = {'launch_id': record['launch_id'], 'condition': condition, 'proof_status': proof,
                              'execution_shape': shape,
-                             'container_id_recorded': record.get('container_id') is not None})
+                             'container_id_recorded': record.get('container_id') is not None}
+        if diagnostic is not None:row['diagnostic'] = diagnostic
+        observations.append(row)
     return observations
+
+
+def inspection_summary(rows):
+    conditions = {'owner_proof_accepted', 'owner_proof_required', 'cleanup_observed', 'cleanup_proof_invalid'}
+    require(type(rows) is list and len(rows) <= ownership.MAX_RECORDS)
+    require(all(type(row) is dict and row.get('condition') in conditions
+                and row.get('proof_status') in ('accepted', 'not_selected', 'invalid') for row in rows))
+    return {'helpers_total': len(rows), 'accepted_proofs': sum(row['proof_status'] == 'accepted' for row in rows),
+            'proof_required': sum(row['condition'] == 'owner_proof_required' for row in rows),
+            'proof_invalid': sum(row['proof_status'] == 'invalid' for row in rows),
+            'metadata_observed': sum(row['condition'] == 'cleanup_observed' for row in rows),
+            'conditions': sorted({row['condition'] for row in rows})}

@@ -127,7 +127,7 @@ supported for credential-bearing plans.
 
 For persona onboarding and authenticated effects, retain the application's actual
 handoff payload and an independent service-side identity/effects oracle. A local
-fake service tests the client contract but does not qualify real WorkChord
+fake service tests the client contract but does not qualify real application
 semantics. The reviewed fixture profile is unrelated to credential delivery.
 See [APPLICATION-CREDENTIALS.md](APPLICATION-CREDENTIALS.md) for exact usage,
 redaction, snapshot scanning, retention and crash recovery limits.

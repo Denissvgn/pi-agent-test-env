@@ -1,0 +1,311 @@
+{
+  "schema": 1,
+  "document_type": "application_owner_reader_vectors",
+  "contract_id": "application_owner_legacy_reader_1",
+  "vector_version": 1,
+  "evidence_scope": "synthetic_algorithm_conformance_only",
+  "production_source_catalog_changed": false,
+  "real_cleanup_or_integration_qualification": false,
+  "fixtures": {
+    "standard": "synthetic source-bound graph with absent original-custody standard roots",
+    "diagnostic": "synthetic source-bound graph with absent original-custody diagnostic disposable root"
+  },
+  "cases": [
+    {
+      "id": "valid-standard",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "none",
+      "expected": "proof_accepted"
+    },
+    {
+      "id": "valid-diagnostic",
+      "fixture": "diagnostic",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "none",
+      "expected": "proof_accepted"
+    },
+    {
+      "id": "no-selection",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "no_selection",
+      "expected": "not_selected"
+    },
+    {
+      "id": "missing-index",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "missing_index",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "missing-anchor",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "missing_anchor",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "missing-selection",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "missing_selection",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "missing-intent",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "missing_intent",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "missing-terminal",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "missing_terminal",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "missing-store",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "missing_store",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "wrong-lease",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "wrong_lease",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "wrong-subject",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "wrong_subject",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "recreated-root",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "recreated_root",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "changed-metadata",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "changed_metadata",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "unknown-rule",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "unknown_rule",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "unknown-method",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "unknown_method",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "unknown-cohort",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "unknown_cohort",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "unknown-variant",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "unknown_variant",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "unknown-index-schema",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "unknown_index_schema",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "mixed-selection-schema",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "mixed_selection_schema",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "duplicate-related",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "duplicate_related",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "missing-related",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "missing_related",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "extra-related",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "extra_related",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "nonzero-dispatch",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "nonzero_dispatch",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "private-mode",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "private_mode",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "hardlinked-terminal",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "hardlinked_terminal",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "symlinked-terminal",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "symlinked_terminal",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "reference-budget",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "reference_budget",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "aggregate-budget",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "aggregate_budget",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "file-budget",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "file_budget",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "strongest-privacy",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "strongest_privacy",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "strongest-role-limit",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "strongest_role_limit",
+      "expected": "invalid_proof"
+    },
+    {
+      "id": "frozen-before-import",
+      "fixture": "standard",
+      "policy": "frozen",
+      "scope": "owned_host_files_only",
+      "mutation": "none",
+      "expected": "extension_required"
+    },
+    {
+      "id": "frozen-after-store-loss",
+      "fixture": "standard",
+      "policy": "frozen",
+      "scope": "owned_host_files_only",
+      "mutation": "missing_store",
+      "expected": "extension_required"
+    },
+    {
+      "id": "unapproved-provider-before-import",
+      "fixture": "standard",
+      "policy": "unapproved_provider",
+      "scope": "owned_host_files_only",
+      "mutation": "none",
+      "expected": "extension_required"
+    },
+    {
+      "id": "task-file-proof-not-generic-qualification",
+      "fixture": "standard",
+      "policy": "qualified",
+      "scope": "generic_integration_qualification",
+      "mutation": "none",
+      "expected": "extension_required"
+    },
+    {
+      "id": "diagnostic-policy-cannot-borrow-standard-scope",
+      "fixture": "standard",
+      "policy": "diagnostic_only",
+      "scope": "owned_host_files_only",
+      "mutation": "none",
+      "expected": "extension_required"
+    },
+    {
+      "id": "original-removal-cannot-be-recreated-by-receipt",
+      "fixture": "diagnostic",
+      "policy": "qualified",
+      "scope": "owned_host_files_only",
+      "mutation": "contradict_original_absence",
+      "expected": "invalid_proof"
+    }
+  ]
+}
