@@ -319,6 +319,22 @@ reproducible release verification. The maintainer suite uses synthetic protocol
 fixtures and local services; it does not require a model server or establish live
 Pi performance.
 
+The source distribution also includes an experimental, standard-library-only
+[isolated owner-proof consumer](tools/qualification/application_owner_consumer.py)
+and its [closed policy compiler](tools/qualification/application_owner_consumer_policy.py).
+Distribute its three source files as a separately pinned consumer artifact;
+they are not part of the installed skill. The caller must already trust its
+consumer bootstrap and independently approve the exact policy digest, complete
+provider inventory, interpreter identity and bounded typed read closure.
+The fixed worker requires a genuinely read-only provider filesystem. Its
+`origins` mode observes loaded provider modules/resources without historical
+reads; `replay` validates only the approved exact subject under the original
+existing lease. Neither mode authorizes CLI validation, credential helpers,
+application dispatch or admission. Preserve one consumer's selected-state memory;
+new handles in the same process cannot erase it. The Python audit guard constrains
+reviewed code and is not a sandbox for a malicious provider. Synthetic Linux
+qualification does not qualify an operational macOS deployment or real cleanup.
+
 MIT licensed. This is an independent project, not an official Pi or Docker release.
 
 ## Indexed inference environments (experimental)
