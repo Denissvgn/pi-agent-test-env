@@ -335,6 +335,13 @@ new handles in the same process cannot erase it. The Python audit guard constrai
 reviewed code and is not a sandbox for a malicious provider. Synthetic Linux
 qualification does not qualify an operational macOS deployment or real cleanup.
 
+The source distribution also includes a pure [registration trace validator](tools/qualification/secret_registration_contract.py).
+It checks bounded create-only observation models against independent expectations,
+including partial writes, persistence, ambiguous descriptor closure and separate
+receiver acceptance. It performs no filesystem operation and supplies no
+registration handler. Passing a model does not establish native observations,
+credential delivery or operational authority.
+
 MIT licensed. This is an independent project, not an official Pi or Docker release.
 
 ## Indexed inference environments (experimental)
