@@ -125,7 +125,7 @@ class Reader:
                 if str(value) not in self.references:
                     require(len(self.references) < MAX_REFERENCES
                             and self.bytes + before.st_size <= MAX_AGGREGATE_BYTES, 'inventory_unbounded')
-                body = stream.read(limit + 1); after = os.fstat(stream.fileno())
+                body = stream.read(0 if limit == 0 else limit + 1); after = os.fstat(stream.fileno())
                 named = os.stat(value.name, dir_fd=parent, follow_symlinks=False)
                 signature = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns, s.st_nlink)
                 require(signature(before) == signature(after) == signature(named) and len(body) == before.st_size)

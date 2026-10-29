@@ -27,6 +27,22 @@ class LegacyReaderTests(unittest.TestCase):
             reader.read_bytes(ref['path'],private=True)
         self.assertEqual(cleanup.diagnostics.diagnostic(caught.exception)['condition'],'unsafe_record')
 
+    def test_zero_byte_role_never_reads_a_payload_inserted_after_fstat(self):
+        ref=self.put('empty-race.bin',b'');target=Path(ref['path'])
+        original=os.fdopen;requests=[];received=[]
+        class Stream:
+            def __init__(self,stream):self.stream=stream
+            def __enter__(self):self.stream.__enter__();return self
+            def __exit__(self,*args):return self.stream.__exit__(*args)
+            def fileno(self):return self.stream.fileno()
+            def read(self,maximum):
+                target.write_bytes(b'unreviewed payload')
+                requests.append(maximum);body=self.stream.read(maximum);received.append(body);return body
+        with mock.patch.object(os,'fdopen',side_effect=lambda *a,**k:Stream(original(*a,**k))):
+            with self.assertRaises(cleanup.ownership.RegistryError):
+                cleanup.Reader().read_bytes(ref['path'],private=True,maximum=0)
+        self.assertEqual(requests,[0]);self.assertEqual(received,[b''])
+
     def test_source_bytes_are_data_and_share_json_graph_budget(self):
         ref = self.put('source.py', b'raise RuntimeError("source must never run")\n')
         other = self.put('metadata.json', b'{"schema":1}')
