@@ -33,15 +33,16 @@ class IsolatedGraphTests(TestCase):
 
     def approval(self, terminal):
         case = self.case; value = actual_policy(case.root, provider_root=self.provider)
-        value['lease'] = {'path':str(case.lease),'identity':[case.lease.stat().st_dev,case.lease.stat().st_ino]}
+        value['lease'] = {'path':str(case.lease),'identity':[terminal['lease']['device'],terminal['lease']['inode']]}
         old = value['read_scope']['registry']; new = str(case.owner.root)
         for key in ('registry','store','anchor'):value['read_scope'][key] = value['read_scope'][key].replace(old,new)
         value['subject'] = copy.deepcopy(terminal['subject'])
-        value['binding']['variant'] = terminal['variant']
+        value['binding']['variant'] = case.fixture.scope+'_v1'
         records = sorted(case.owner.root.glob('*.json'))
         value['read_scope']['registry_records'] = [dict(path=str(p),sha256=hashlib.sha256(p.read_bytes()).hexdigest()) for p in records]
         runroot=Path(case.fixture.record['runroot'])
         value['read_scope']['directories'] = sorted({str(case.root),str(runroot/'controls'),str(runroot/'stages'),
+            value['read_scope']['registry'],value['read_scope']['store'],value['read_scope']['store']+'/selected',value['read_scope']['anchor'],
             *[str(p) for p in case.root.rglob('*') if p.is_dir()]})
         value['read_scope']['absent_paths'] = sorted(row['path'] for row in terminal['roots'])
         roles = {row['path']: {'original_metadata'} for row in terminal['metadata']}
