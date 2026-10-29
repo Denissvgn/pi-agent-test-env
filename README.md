@@ -1,6 +1,6 @@
 # pi-agent-test-env
 
-[![Version](https://img.shields.io/badge/version-4.7.0-blue)](skill/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.8.0-blue)](skill/CHANGELOG.md)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](skill/README.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-compatible-7B61FF)](skill/SKILL.md)
@@ -45,6 +45,13 @@ The 4.6.0 application-client and native-budget additions remain experimental
 with partial native qualification. Authenticated browser workflows and the
 affected runtime admission/cleanup scope remain unqualified; see the
 [current qualification boundary](skill/QUALIFICATION.md).
+
+The 4.8.0 owner-proof candidate adds a versioned legacy cleanup/read-only reader
+contract with immutable sidecar publication. It preserves failed history and
+requires genuine original custody. Only the reviewed diagnostic-disposable
+producer is enabled; standard-workspace vectors are synthetic interface checks.
+Real owner/SDK/integration qualification remains pending. See
+[owner compatibility](skill/references/OWNER-CLEANUP-COMPATIBILITY.md).
 
 ## How a run works
 

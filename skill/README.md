@@ -1,4 +1,4 @@
-# Pi Agent Test Environment 4.7.0
+# Pi Agent Test Environment 4.8.0
 
 **English, project-adaptable, resource-bounded workflows for real local-LLM agents.**
 
@@ -20,6 +20,11 @@ this is not a promise that every language, OS, test runner, or model works uncha
 Qualification is specific to the recorded image, Pi release, model and resource
 configuration. Native host-control checks use synthetic outcomes; repackaging
 does not create new model measurements. See [QUALIFICATION.md](QUALIFICATION.md).
+
+The 4.8.0 owner-proof additions are experimental. A source fix, accepted host-file
+cleanup proof or package version does not qualify an integration or change an
+original failed campaign. Use the [owner compatibility boundary](references/OWNER-CLEANUP-COMPATIBILITY.md)
+and qualify a supported reader/provider before consuming the new cohort.
 
 ## Install the complete skill
 

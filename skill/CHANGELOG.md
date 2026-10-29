@@ -1,5 +1,27 @@
 # Changelog
 
+## 4.8.0 (experimental candidate)
+
+- Add the versioned `legacy_derived_v1` owner-proof method and
+  `application_owner_legacy_1` cohort without rewriting historical records,
+  original failure accounting, waits or intent encodings.
+- Validate complete original source/instance, launcher, host-root, retained
+  namespace and authority closure. Keep standard-workspace and diagnostic
+  disposable scopes distinct. The enabled real source family is the reviewed
+  artifact diagnostic; standard vectors are synthetic interface conformance.
+- Bind fresh writer/daemon/label/holder checks and descriptor-relative removal
+  to the original lease, exact roots, protected inputs and namespace identities.
+  Preserve strict privacy, byte/reference/entry limits and original removal facts.
+- Publish create-only intent, independent anchor, selection, terminal and index
+  with explicit durability ordering. Partial or lost selected state blocks;
+  failure records never rewrite a terminal or grant adoption/retry authority.
+- Add identifier-free inspection summaries, closed cleanup diagnostics and a
+  version-1 SDK reader specification with 37 sanitized conformance vectors.
+  Unsupported/frozen consumers remain extension-required before provider import.
+- Keep real owner cleanup, extended SDK consumption and downstream integration
+  qualification pending. Offline/native synthetic checks, source review and
+  release metadata do not qualify original evidence gaps or a live campaign.
+
 ## 4.7.0
 
 - New ordinary helper records use schema 3 with owner cleanup contract 1.
@@ -91,7 +113,7 @@
   220 cell oracles passed, with 292 actual Pi segments, 36 inspected coding
   pipelines and confirmed physical/private cleanup. Live profiles used two
   credential references on the same backend/model; broader compatibility and
-  WorkChord acceptance remain separate claims.
+  downstream application acceptance remain separate claims.
 
 ## 4.4.0
 
@@ -159,7 +181,7 @@
 - Purge registered sensitive material after owned-container crash reconciliation.
 - Test two-persona onboarding/authenticated effects with actual local HTTP clients
   and independent service observations. Docker/Pi fixtures do not establish live
-  WorkChord, container or model qualification.
+  downstream application, container or model qualification.
 
 ## 4.0.1
 
