@@ -290,6 +290,67 @@ def _queued_flock(fd, wait_seconds):
 
 
 @contextlib.contextmanager
+def _registry_admission(path, fd, *, before_registry=None, existing_identity=None):
+    """The same registry reconciliation/CURRENT/terminal gates for both leases."""
+    def check():
+        if existing_identity is not None:
+            import registry_maintenance
+            try:observed = registry_maintenance._check_lock(fd, path)
+            except OSError:raise AdmissionError('admission-lock-unavailable') from None
+            if observed != existing_identity:
+                raise AdmissionError('admission-lock-unavailable')
+    check()
+    if before_registry is not None:
+        before_registry(lease_fd=fd, lock_path=path, registry_root=Path(str(path)+'.registry'))
+    check()
+    import ownership_registry
+    try:
+        with registry_diagnostics.phase('registry_initialization'):
+            options = {'create':False} if existing_identity is not None else {}
+            registry=ownership_registry.Registry(Path(str(path)+'.registry'), **options)
+            registry.lease_fd=fd
+            with registry_diagnostics.phase('reconciliation'):
+                registry.reconcile()
+    except (ownership_registry.RegistryError,OSError,ValueError) as exc:
+        code='host-registry-capacity' if type(exc) is ownership_registry.RegistryCapacityError else 'host-registry-unsafe'
+        raise AdmissionError(code,str(exc),registry_error=exc) from None
+    check()
+    token=ownership_registry.CURRENT.set(registry)
+    try:
+        yield registry
+        check()
+        try:
+            with registry_diagnostics.phase('terminal_close'):registry.close()
+        except (ownership_registry.RegistryError,OSError,ValueError) as exc:
+            code='host-registry-capacity' if type(exc) is ownership_registry.RegistryCapacityError else 'host-registry-unsafe'
+            raise AdmissionError(code,str(exc),registry_error=exc) from None
+        check()
+    finally:ownership_registry.CURRENT.reset(token)
+
+
+@contextlib.contextmanager
+def existing_admission_lock(path, expected_identity, wait_seconds=0, *, before_registry=None):
+    """Admit under an exact existing native lease without changing its bytes.
+
+    This host primitive neither grants operation authority nor interprets guest
+    identities. It preserves ordinary reconciliation and terminal gates, requires
+    the registry to exist and never creates, truncates, chmods or replaces a lease.
+    Execution/carrier and credential contracts must be qualified separately.
+    """
+    if (type(expected_identity) is not dict or set(expected_identity) != {'device','inode'}
+            or any(type(n) is not int or not 1 <= n < 2**64 for n in expected_identity.values())
+            or before_registry is not None and not callable(before_registry)):
+        raise AdmissionError('resource-policy-invalid')
+    expected_identity = dict(expected_identity)
+    import registry_maintenance
+    with registry_maintenance.existing_lease(path, wait_seconds) as (fd, identity, selected):
+        if identity != expected_identity:raise AdmissionError('admission-lock-unavailable')
+        with _registry_admission(selected,fd,before_registry=before_registry,
+                                 existing_identity=expected_identity) as registry:
+            yield registry
+
+
+@contextlib.contextmanager
 def admission_lock(path, wait_seconds=0, *, before_registry=None):
     """Serialize this tool across cooperating processes for one host user.
 
@@ -335,24 +396,7 @@ def admission_lock(path, wait_seconds=0, *, before_registry=None):
                 handle.flush()
             except OSError as exc:
                 raise AdmissionError('admission-lock-unavailable', str(exc)) from None
-            import ownership_registry
-            try:
-                with registry_diagnostics.phase('registry_initialization'):
-                    registry=ownership_registry.Registry(Path(str(path.absolute())+'.registry'))
-                    registry.lease_fd=handle.fileno()
-                    with registry_diagnostics.phase('reconciliation'):
-                        registry.reconcile()
-            except (ownership_registry.RegistryError,OSError,ValueError) as exc:
-                code='host-registry-capacity' if type(exc) is ownership_registry.RegistryCapacityError else 'host-registry-unsafe'
-                raise AdmissionError(code,str(exc),registry_error=exc) from None
-            token=ownership_registry.CURRENT.set(registry)
-            try:
+            with _registry_admission(path.absolute(),handle.fileno()) as registry:
                 yield registry
-                try:
-                    with registry_diagnostics.phase('terminal_close'):registry.close()
-                except (ownership_registry.RegistryError,OSError,ValueError) as exc:
-                    code='host-registry-capacity' if type(exc) is ownership_registry.RegistryCapacityError else 'host-registry-unsafe'
-                    raise AdmissionError(code,str(exc),registry_error=exc) from None
-            finally:ownership_registry.CURRENT.reset(token)
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)

@@ -81,6 +81,26 @@ exponent overflow, unknown schemas/rules/versions and changed bytes. Canonical
 new JSON uses sorted keys, UTF-8, compact separators and no nonfinite values;
 original historical intent encodings remain defined by their reviewed adapter.
 
+For separately reviewed policy preparation, `Reader.read_requirements()` returns
+only consulted paths, their hashes, minimum byte limits and the accumulated file
+and parent privacy requirements. It performs no new reads and returns detached
+private metadata. It does not approve a graph, semantic role, namespace, provider
+or operation. A failed or partial validation cannot establish a complete scope.
+Retain `private=True, private_parent=False` when the installed
+catalog explicitly reads a private metadata file in a readable parent; blanket
+private-parent grants do not represent that supported input.
+
+The maintainer consumer policy has a distinct `artifact_tool_observation` role
+for the diagnostic adapter's later `root-tool-terminal.json` observation. It
+requires the diagnostic disposable variant, a pinned hash, a private parent and
+a 1..16384-byte cap, while allowing a readable, non-writable file. This file is
+data, never source or a substitute original process witness. The installed
+adapter still checks its full shape, exact derived path and terminal linkage.
+All other metadata roles retain their existing privacy requirements. Overlapping
+grants retain the strongest privacy and smallest cap; this role cannot downgrade
+a private declaration. Older consumer artifacts reject the new role before IO;
+approve and qualify the updated consumer source separately.
+
 Traverse only exact selected typed refs and derived bounded retained namespaces.
 Do not recursively allowlist an audit/report tree, inspect unreviewed raw logs,
 read application credentials or disposable payload bytes, or execute referenced

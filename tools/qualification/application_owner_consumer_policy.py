@@ -19,7 +19,8 @@ FILE_BYTES = 4194304
 MAX_REFERENCES = 128
 MAX_POLICY_BYTES = 4 * 1024 * 1024
 ROLES = frozenset(('anchor', 'index', 'selection', 'intent', 'terminal', 'request',
-                   'evidence', 'source', 'original_metadata', 'empty_metadata', 'related_proof'))
+                   'evidence', 'source', 'original_metadata', 'empty_metadata', 'related_proof',
+                   'artifact_tool_observation'))
 CONSUMER_FILES = frozenset(('application_owner_consumer_policy.py',
                            'application_owner_consumer.py', 'application_owner_consumer_worker.py'))
 
@@ -212,7 +213,15 @@ def compile_policy(policy, *, trusted_policy_sha256, selection):
         require(type(role) is str and role in ROLES and (row['sha256'] is None or sha(row['sha256']))
                 and integer(row['maximum_bytes'], 0, FILE_BYTES)
                 and type(row['private']) is bool and type(row['private_parent']) is bool)
-        require(role == 'source' or row['private'])
+        # The artifact adapter consumes a nonsensitive, later tool observation
+        # with readable file permissions. It is neither source nor an original
+        # process witness. Keep this explicit role narrower than generic metadata.
+        if role == 'artifact_tool_observation':
+            require(binding['variant'] == 'diagnostic_disposable_v1'
+                    and absolute(name).name == 'root-tool-terminal.json'
+                    and sha(row['sha256']) and 1 <= row['maximum_bytes'] <= 16384
+                    and row['private'] is False and row['private_parent'] is True)
+        else:require(role == 'source' or row['private'])
         require(role not in ('anchor', 'index', 'selection', 'intent', 'terminal', 'request', 'evidence')
                 or row['private_parent'])
         require(role != 'empty_metadata' or row['maximum_bytes'] == 0)

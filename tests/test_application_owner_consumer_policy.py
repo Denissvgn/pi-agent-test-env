@@ -129,6 +129,46 @@ class ConsumerPolicyTests(TestCase):
             grant = self.compile(trial).file_grant(path)
             self.assertEqual((grant.maximum_bytes, grant.private, grant.private_parent), (0, True, True))
 
+    def observer_policy(self):
+        value = example_policy()
+        value['read_scope']['files'].append(dict(
+            path='/owner/command/root-tool-terminal.json', role='artifact_tool_observation',
+            sha256='c' * 64, maximum_bytes=16384, private=False, private_parent=True))
+        value['read_scope']['files'].sort(key=lambda row: (row['path'], row['role']))
+        return value
+
+    def test_exact_artifact_observer_has_a_distinct_bounded_public_file_role(self):
+        value = self.observer_policy()
+        with mock.patch('os.open', side_effect=AssertionError('pure compiler performed IO')):
+            approved = self.compile(value)
+        grant = approved.file_grant('/owner/command/root-tool-terminal.json')
+        self.assertEqual(grant.roles, ('artifact_tool_observation',))
+        self.assertEqual((grant.private, grant.private_parent, grant.maximum_bytes), (False, True, 16384))
+
+    def test_artifact_observer_role_does_not_open_generic_public_metadata(self):
+        for field, replacement in (
+                ('path', '/owner/command/other.json'), ('sha256', None),
+                ('maximum_bytes', 16385), ('maximum_bytes', 0),
+                ('private', True), ('private_parent', False), ('role', 'original_metadata')):
+            value = self.observer_policy()
+            row = next(row for row in value['read_scope']['files'] if row['role'] == 'artifact_tool_observation')
+            row[field] = replacement
+            value['read_scope']['files'].sort(key=lambda row: (row['path'], row['role']))
+            with self.subTest(field=field, replacement=replacement), self.assertRaises(policy.PolicyError):
+                self.compile(value)
+        value = self.observer_policy(); value['binding']['variant'] = 'standard_workspace_v1'
+        with self.assertRaises(policy.PolicyError):self.compile(value)
+
+    def test_observer_overlap_keeps_stricter_privacy_and_the_smallest_limit(self):
+        value = self.observer_policy()
+        value['read_scope']['files'].append(dict(
+            path='/owner/command/root-tool-terminal.json', role='original_metadata',
+            sha256='c' * 64, maximum_bytes=1024, private=True, private_parent=True))
+        value['read_scope']['files'].sort(key=lambda row: (row['path'], row['role']))
+        grant = self.compile(value).file_grant('/owner/command/root-tool-terminal.json')
+        self.assertTrue(grant.private); self.assertTrue(grant.private_parent)
+        self.assertEqual(grant.maximum_bytes, 1024)
+
     def test_conflicting_reused_hash_and_duplicate_role_do_not_broaden_scope(self):
         value = example_policy(); row = value['read_scope']['files'][0]
         for changed in ({**row}, {**row, 'role': 'source', 'sha256': 'a' * 64}):

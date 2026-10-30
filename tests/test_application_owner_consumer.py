@@ -218,6 +218,43 @@ class ConsumerTests(TestCase):
             with self.subTest(path=text),self.assertRaises(consumer.ConsumerError):origin.allowed(Path(text))
             history.metadata(Path(text));history.allowed(Path(text))
 
+    def test_scoped_reader_preserves_observer_and_readable_parent_requirements(self):
+        from tools.qualification import application_owner_consumer_worker as worker
+        from tests.test_application_owner_legacy_support import cleanup
+        value = example_policy()
+        readable = self.root/'readable'; readable.mkdir(mode=0o755); readable.chmod(0o755)
+        private = readable/'inputs.json'; private.write_bytes(b'{"schema":1}'); private.chmod(0o600)
+        observer = self.root/'root-tool-terminal.json'
+        observer.write_bytes(b'{"schema":1,"status":"synthetic"}'); observer.chmod(0o644)
+        def row(path, role):
+            return dict(path=str(path), role=role, sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+                        maximum_bytes=16384, private=True, private_parent=True)
+        first = row(private, 'original_metadata'); first['private_parent'] = False
+        second = row(observer, 'artifact_tool_observation'); second['private'] = False
+        value['read_scope']['files'].extend((first, second))
+        value['read_scope']['files'].sort(key=lambda r: (r['path'], r['role']))
+        approved = policy.compile_policy(value, trusted_policy_sha256=policy.digest(value), selection=selection(value))
+        reader = worker.scoped_reader(consumer, approved, cleanup)()
+        self.assertEqual(reader.read(private)[0], {'schema':1})
+        self.assertEqual(reader.read(observer)[0]['status'], 'synthetic')
+        observer.chmod(0o666)
+        with self.assertRaises(cleanup.ownership.RegistryError):reader.read(observer)
+
+    def test_observer_role_cannot_borrow_a_protocol_document(self):
+        from tools.qualification import application_owner_consumer_worker as worker
+        from tests.test_application_owner_legacy_support import cleanup
+        value = example_policy(); path = self.root/'root-tool-terminal.json'
+        path.write_bytes(policy.canonical({'schema':1,'document_type':'application_owner_cleanup_intent',
+                                         'method':policy.METHOD,'cohort':policy.COHORT,
+                                         'variant':value['binding']['variant']})); path.chmod(0o644)
+        value['read_scope']['files'].append(dict(path=str(path),role='artifact_tool_observation',
+            sha256=hashlib.sha256(path.read_bytes()).hexdigest(),maximum_bytes=16384,
+            private=False,private_parent=True))
+        value['read_scope']['files'].sort(key=lambda r:(r['path'],r['role']))
+        approved=policy.compile_policy(value,trusted_policy_sha256=policy.digest(value),selection=selection(value))
+        reader=worker.scoped_reader(consumer,approved,cleanup)()
+        with self.assertRaises(cleanup.ownership.RegistryError):reader.read(path)
+
     def test_readonly_provider_has_fresh_observed_module_origins(self):
         if not os.statvfs(ROOT/'skill').f_flag & os.ST_RDONLY:
             self.skipTest('Actual read-only provider mount is exercised in ARM64 Docker')

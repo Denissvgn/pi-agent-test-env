@@ -88,6 +88,21 @@ class Reader:
         self.references = {}; self.bytes = 0; self.private_paths = set(); self.private_parent_paths = set(); self._scopes = []
         self.maximums = {}
 
+    def read_requirements(self):
+        """Describe consulted reads for a separately reviewed consumer policy.
+
+        This private planning projection performs no IO and grants no authority.
+        File and parent privacy are distinct; repeated reads retain the strongest
+        requirements and the smallest byte limit, including failed upgrades.
+        A failed or partial validation does not establish a complete read scope.
+        Semantic roles, complete namespaces and runtime/original-lease approval
+        remain separate consumer-policy inputs.
+        """
+        return [dict(self.references[name], maximum_bytes=self.maximums[name],
+                     private=name in self.private_paths,
+                     private_parent=name in self.private_parent_paths)
+                for name in sorted(self.references)]
+
     @contextlib.contextmanager
     def custody_scope(self):
         """Track consulted evidence without resetting the shared graph budget."""
