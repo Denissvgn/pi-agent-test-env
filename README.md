@@ -342,6 +342,14 @@ receiver acceptance. It performs no filesystem operation and supplies no
 registration handler. Passing a model does not establish native observations,
 credential delivery or operational authority.
 
+An experimental [create-only primitive](tools/qualification/secret_registration_primitive.py)
+provides explicit borrowed-FD mechanics for maintainer qualification. It requires
+an existing private store, independent caller authority and coordination, and
+complete call/FD/control budgets before lookup. Its fixed POSIX adapter retains
+individual C-library returns, including interrupted close, without retries.
+Fresh synthetic macOS and Linux checks do not qualify real credentials, crash
+durability, IPC or a deployment. No installed registration handler is enabled.
+
 MIT licensed. This is an independent project, not an official Pi or Docker release.
 
 ## Indexed inference environments (experimental)
