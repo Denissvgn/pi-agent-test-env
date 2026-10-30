@@ -223,6 +223,12 @@ def validate_worker(document, *, expected_operation_id, expected_context_sha256,
                  and document['phase'] == 'ack_ready', 'created_state')
     else:
         _require(document['reason'] != 'ok' and document['phase'] != 'ack_ready', 'failure_state')
+        # Phase is the latest observed progress, including owned cleanup; reason
+        # retains the failure category. It is never free-form diagnostic text.
+        phases = {calls[-1]['kind']} if calls else {'admission', 'preflight'}
+        if complete_business and (not calls or calls[-1]['kind'] != 'fd_close'):
+            phases.add('final_verify')
+        _require(document['phase'] in phases, 'phase_progress')
         if uncertain or closure == 'unknown':
             _require(document['outcome'] == 'uncertain', 'uncertain_state')
         else:
@@ -262,5 +268,8 @@ def validate_receiver(document, *, worker_expectations, evidence):
                  and document['accepted'], 'receiver_acceptance')
     else:
         _require(not document['accepted'], 'receiver_acceptance')
+        if document['ack_state'] == 'received_unverified':
+            _require(evidence['dispatch_started'] and evidence['frame_complete']
+                     and assessment is not None, 'received_state')
     _require(not document['accepted'] or document['ack_state'] == 'verified', 'receiver_acceptance')
     return ReceiverAssessment(document['accepted'], document['ack_state'])

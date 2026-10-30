@@ -277,3 +277,32 @@ class RegistrationContractTests(TestCase):
         document['calls'].append(dict(ordinal=4, kind='fd_close', state='confirmed', fd_token='value',
                                       attempted_bytes=None, confirmed_bytes=None))
         self.reject(document)
+
+    def test_received_unverified_requires_a_dispatched_complete_worker_observation(self):
+        document = receiver()
+        document.update(worker_result=None, dispatch_started=False, frame_complete=False,
+                        request_and_origin_verified=False, current_namespace_verified=False,
+                        ack_state='received_unverified', accepted=False)
+        facts = {name: document[name] for name in evidence()}
+        with self.assertRaises(contract.TraceError):
+            contract.validate_receiver(document, worker_expectations=expectations(), evidence=facts)
+        document = receiver(); document.update(ack_state='received_unverified', accepted=False,
+                                               current_namespace_verified=False)
+        facts = {name: document[name] for name in evidence()}
+        self.assertFalse(contract.validate_receiver(document, worker_expectations=expectations(),
+                                                    evidence=facts).accepted)
+
+    def test_failure_phase_tracks_last_observed_progress_including_owned_cleanup(self):
+        document = successful_worker()
+        document.update(outcome='blocked', reason='identity_mismatch', phase='admission',
+                        final_verified=False, ack_ready=False)
+        self.reject(document)
+        document['phase'] = 'fd_close'
+        self.assertFalse(self.validate(document).ack_ready)
+        document['calls'] = document['calls'][:4]
+        document.update(trace_complete=False, outcome='uncertain', reason='observation_incomplete',
+                        phase='admission', effects='unknown', file_persistence='unknown',
+                        directory_persistence='unknown', owned_fd_closure='unknown')
+        self.reject(document)
+        document['phase'] = 'file_fsync'
+        self.assertFalse(self.validate(document).ack_ready)
