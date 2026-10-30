@@ -1,5 +1,15 @@
 # Qualification and support
 
+## Unreleased operation SDK
+
+The fixed-operation SDK is experimental source functionality with fixture-only
+integration checks. Its first execution profile is Linux ARM64 CPython 3.12.13
+in a read-only container. Caller, SDK and private objects share that namespace;
+guest observations establish no native macOS custody. Source tests, temporary
+fake-value operations and unchanged-document validation do not qualify real
+credential delivery, model/browser execution or owner-history recovery. See the
+[SDK contract and limits](references/OPERATION-SDK.md).
+
 ## Experimental 4.8.0 owner-proof scope
 
 Version 4.8.0 prepares a new versioned retained-owner proof method, cohort and

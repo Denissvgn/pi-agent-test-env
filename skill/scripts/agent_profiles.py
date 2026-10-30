@@ -25,7 +25,13 @@ def builtin():
             'tools':[],'required_tools':[],'assets':[],'service_endpoints':[]}
 
 
-def read_asset(path,max_bytes=1024*1024):
+def read_asset(path,max_bytes=1024*1024, *, reader=None):
+    if reader is not None:
+        path=Path(path)
+        if not path.is_absolute():raise ProfileError('SDK profile dependency must be absolute')
+        body=reader(path,max_bytes)
+        if type(body)is not bytes or len(body)>max_bytes:raise ProfileError('Profile asset exceeded its bound')
+        return body
     path=Path(path).absolute()
     parent=os.open('/',os.O_RDONLY|os.O_DIRECTORY)
     try:
@@ -47,16 +53,16 @@ def identity(profile):
     return hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':')).encode()).hexdigest()
 
 
-def application(release):
+def application(release, *, reader=None):
     """Select exact reviewed application assets; no source/profile discovery."""
     import application_runtime_contracts
     root=ROOT/'assets/profiles/application-client'
-    value=json.loads(read_asset(root/'profile.json'))
+    value=json.loads(read_asset(root/'profile.json',reader=reader))
     value['components']=[application_runtime_contracts.profile_component(release)]
-    return validate(value,root)
+    return validate(value,root,reader=reader)
 
 
-def _application(value,base):
+def _application(value,base, *, reader=None):
     import application_runtime_contracts
     if value['id']!='application-client':raise ProfileError('Unsupported application profile identity')
     components=value['components']
@@ -69,7 +75,8 @@ def _application(value,base):
         raise ProfileError('Closed application tool catalog and helper endpoint required')
     if type(value['assets']) is not list or len(value['assets'])!=2:
         raise ProfileError('Exactly two reviewed application profile assets required')
-    assets=[];seen=set();base=Path(base).resolve()
+    assets=[];seen=set();base=Path(base) if reader is not None else Path(base).resolve()
+    if reader is not None and not base.is_absolute():raise ProfileError('SDK profile base must be absolute')
     for asset in value['assets']:
         if type(asset) is not dict or set(asset)!={'source','target','sha256'}:raise ProfileError('Invalid application asset')
         source=asset['source'];target=asset['target']
@@ -79,22 +86,22 @@ def _application(value,base):
                 or type(target) is not str or target not in APPLICATION_TARGETS or target in seen):
             raise ProfileError('Invalid application asset path')
         if type(asset['sha256']) is not str or not re.fullmatch('[a-f0-9]{64}',asset['sha256']):raise ProfileError('Explicit application asset hash required')
-        body=read_asset(base/source)
+        body=read_asset(base/source,reader=reader)
         if (hashlib.sha256(body).hexdigest()!=asset['sha256']
-                or body!=read_asset(ROOT/'assets/profiles/application-client'/target)):
+                or body!=read_asset(ROOT/'assets/profiles/application-client'/target,reader=reader)):
             raise ProfileError('Only exact reviewed application assets are supported')
         seen.add(target);assets.append({**asset,'source':str(base/source)})
     if seen!=APPLICATION_TARGETS:raise ProfileError('Missing application asset')
     return {**copy.deepcopy(value),'assets':assets}
 
 
-def validate(value,base):
+def validate(value,base, *, reader=None):
     required={'schema','document_type','id','kind','components','tools','required_tools','assets','service_endpoints'}
     if not isinstance(value,dict) or set(value)!=required or type(value['schema']) is not int or value['schema']!=1 or value['document_type']!='agent_profile':raise ProfileError('Agent profile schema 1 with exact fields required')
     if value['kind']=='builtin':
         if value!=builtin():raise ProfileError('Built-in profile must be explicitly empty')
         return copy.deepcopy(value)
-    if value['kind']=='application-client':return _application(value,base)
+    if value['kind']=='application-client':return _application(value,base,reader=reader)
     if value['kind']!='fixture-lookup' or value['id']!='fixture-lookup':raise ProfileError('Unsupported integration kind/id; only reviewed fixture-lookup is supported')
     components = value['components']
     if not isinstance(components, list) or len(components) != 1 or not isinstance(components[0], dict):
@@ -105,7 +112,8 @@ def validate(value,base):
     if value['tools']!=['fixture_lookup'] or value['required_tools']!=['fixture_lookup']:raise ProfileError('Declare only fixture_lookup and require its successful use')
     if value['service_endpoints']!=[]:raise ProfileError('This integration needs no service endpoint or additional network privilege')
     if not isinstance(value['assets'],list) or len(value['assets'])!=4:raise ProfileError('Declare exactly four reviewed profile assets')
-    base=Path(base).resolve();assets=[];bodies={};seen=set()
+    base=Path(base) if reader is not None else Path(base).resolve();assets=[];bodies={};seen=set()
+    if reader is not None and not base.is_absolute():raise ProfileError('SDK profile base must be absolute')
     for asset in value['assets']:
         if not isinstance(asset,dict) or set(asset)!={'source','target','sha256'}:raise ProfileError('Profile asset requires source/target/sha256')
         for field in ('source','target'):
@@ -113,11 +121,11 @@ def validate(value,base):
             if not isinstance(name,str) or not name or '\\' in name or '\0' in name or PurePosixPath(name).is_absolute() or '..' in PurePosixPath(name).parts:raise ProfileError('Escaping profile asset path rejected')
         if asset['target'] not in TARGETS or asset['target'] in seen:raise ProfileError('Unknown/duplicate profile target')
         if not isinstance(asset['sha256'],str) or not re.fullmatch('[a-f0-9]{64}',asset['sha256']):raise ProfileError('Explicit SHA-256 required')
-        source=base/asset['source'];body=read_asset(source)
+        source=base/asset['source'];body=read_asset(source,reader=reader)
         if hashlib.sha256(body).hexdigest()!=asset['sha256']:raise ProfileError('Profile asset hash mismatch: '+asset['target'])
         assets.append({**asset,'source':str(source)});bodies[asset['target']]=body;seen.add(asset['target'])
     if seen!=TARGETS:raise ProfileError('Required profile asset missing')
-    canonical=read_asset(ROOT/'assets/profiles/fixture-lookup/fixture-lookup.mjs')
+    canonical=read_asset(ROOT/'assets/profiles/fixture-lookup/fixture-lookup.mjs',reader=reader)
     if bodies['fixture-lookup.mjs']!=canonical:raise ProfileError('Only the reviewed bundled extension implementation is supported; arbitrary JavaScript is not a profile')
     config=json.loads(bodies['config.json'])
     if not isinstance(config,dict) or config!={'schema':1,'table':'fixtures.json','max_result_bytes':4096} or type(config['schema']) is not int or type(config['max_result_bytes']) is not int:raise ProfileError('Unsupported fixture configuration/privileges')
@@ -134,7 +142,11 @@ def validate(value,base):
             'tools':['fixture_lookup'],'required_tools':['fixture_lookup'],'assets':assets,'service_endpoints':[]}
 
 
-def load(path):
+def load(path, *, reader=None):
+    if reader is not None:
+        path=Path(path)
+        if not path.is_absolute():raise ProfileError('SDK profile dependency must be absolute')
+        return validate(json.loads(read_asset(path,reader=reader)),path.parent,reader=reader)
     path=Path(path).absolute()
     if path.is_symlink():raise ProfileError('Linked profile declaration rejected')
     path=path.parent.resolve()/path.name

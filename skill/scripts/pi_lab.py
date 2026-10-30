@@ -654,7 +654,19 @@ def working_directory(value: str) -> str:
     return safe_relative(value)
 
 
-def check_project_contract(workspace: Path, plan: dict) -> None:
+def check_project_contract(workspace: Path, plan: dict, *, metadata_reader=None) -> None:
+    # The operation SDK supplies a fixed scoped observer. Legacy CLI callers
+    # retain their existing path checks; payload data cannot select an observer.
+    if metadata_reader is not None:
+        for name in list(dict.fromkeys(plan.get('required_paths', []) + plan['protected_paths'])):
+            path = workspace / safe_relative(name)
+            if not metadata_reader(path, 'exists'):
+                raise LabError('Required/protected project metadata unavailable')
+        for stage in plan['agents'] + plan['setup'] + plan['checks']:
+            relative = working_directory(stage.get('cwd', '.'))
+            if not metadata_reader(workspace / relative, 'directory'):
+                raise LabError('Stage directory metadata unavailable')
+        return
     for name in list(dict.fromkeys(plan.get('required_paths', []) + plan['protected_paths'])):
         path = workspace / name
         if not path.exists():
@@ -677,7 +689,7 @@ def safe_relative(value: str) -> str:
     return p.as_posix()
 
 
-def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=False) -> dict:
+def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=False, *, dependency_reader=None) -> dict:
     agent_profile=agent_profile or agent_profiles.builtin()
     if not isinstance(value, dict):
         raise LabError('Plan must be a JSON object')
@@ -685,7 +697,7 @@ def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=
         import indexed_contract
         if 'inference_bindings' not in value:raise indexed_contract.IndexedError('selection-conflict')
         plain={k:copy.deepcopy(v) for k,v in value.items() if k!='inference_bindings'};plain['schema']=1
-        normalized=validate_plan(plain,base,agent_profile)
+        normalized=validate_plan(plain,base,agent_profile,dependency_reader=dependency_reader)
         names=[t['name'] for t in normalized['agents']];mapping=value['inference_bindings']
         if mapping=='external':
             if not external_bindings:raise indexed_contract.IndexedError('selection-conflict')
@@ -725,8 +737,17 @@ def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=
         if ('prompt' in t) == ('prompt_file' in t):
             raise LabError('Each agent needs exactly one of prompt or prompt_file')
         if 'prompt_file' in t:
-            source = (base / t.pop('prompt_file')).resolve()
-            t['prompt'] = source.read_text()
+            selected = t.pop('prompt_file')
+            if dependency_reader is None:
+                source = (base / selected).resolve()
+                t['prompt'] = source.read_text()
+            else:
+                source = base / safe_relative(selected)
+                body = dependency_reader(source, 128 * 1024)
+                if type(body) is not bytes or len(body) > 128 * 1024:
+                    raise LabError('Prompt dependency exceeds its bound')
+                try: t['prompt'] = body.decode('utf-8')
+                except UnicodeError: raise LabError('Prompt dependency is not UTF-8') from None
         if not isinstance(t['prompt'], str) or not t['prompt'].strip() or len(t['prompt'].encode()) > 128 * 1024:
             raise LabError('Agent prompt must be nonempty and at most 128 KiB')
         t.setdefault('name', f'agent-{i+1}')

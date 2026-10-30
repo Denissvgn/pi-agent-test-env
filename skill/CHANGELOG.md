@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Add an experimental fixed-operation SDK with independent code/runtime/policy
+  approval, fresh workers, private framing, exact-reference reads, bounded
+  redaction and create-only registration. Initial execution support is Linux
+  ARM64 CPython 3.12.13; native-host and real application integration remain
+  separate qualification gates.
+- Preserve legacy validation APIs while adding explicit bounded dependency and
+  project-metadata readers for the SDK. Validation does not execute a plan or
+  freeze scorer assets. Existing releases and historical evidence are unchanged.
+
 ## 4.8.0 (experimental candidate)
 
 - Add the versioned `legacy_derived_v1` owner-proof method and
