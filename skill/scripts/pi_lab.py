@@ -1106,7 +1106,25 @@ def resolve_endpoint_path(args) -> Path:
         raise LabError(str(exc), 'environment-' + exc.state, steps.get(exc.state, '')) from None
 
 
-def run_suite(args, smoke=False, initial_record=None):
+def _suite_admission(args, existing_identity):
+    if existing_identity is None:
+        return admission_lock(args.lock_file,args.lock_wait_seconds)
+    from resources import existing_admission_lock
+    return existing_admission_lock(args.lock_file,existing_identity,args.lock_wait_seconds)
+
+
+def run_suite(args, smoke=False, initial_record=None, *, existing_lease_identity=None):
+    """Run under ordinary admission or an explicitly bound existing native lease.
+
+    The keyword is a trusted parent library binding, not a CLI selector or an
+    operation approval. The existing registry must pass unchanged admission and
+    terminal gates. No lease/registry creation or ordinary fallback is permitted
+    for this explicit route. Parallel cohort admission remains separate.
+    """
+    # The identity is data, never a callback-bearing object. Preserve a plain
+    # dictionary snapshot; the native admission primitive validates its fields.
+    if type(existing_lease_identity) is dict:
+        existing_lease_identity=dict(existing_lease_identity)
     initial=copy.deepcopy(initial_record) if initial_record is not None else outcomes.initial()
     try:attempt=outcomes.Attempt(args,initial)
     except (OSError,ValueError,controls.ControlError):
@@ -1128,7 +1146,9 @@ def run_suite(args, smoke=False, initial_record=None):
             if lease==project or project in lease.parents or project in lease.resolve().parents:
                 raise LabError('The host admission lock must remain outside the project')
         private=getattr(args,'_parallel_session',None)
-        lease=private.admission(args,attempt) if private is not None else admission_lock(args.lock_file,args.lock_wait_seconds)
+        if existing_lease_identity is not None and private is not None:
+            raise AdmissionError('resource-policy-invalid')
+        lease=private.admission(args,attempt) if private is not None else _suite_admission(args,existing_lease_identity)
         with lease as registry:
             if registry is not None:
                 registry.runroot=attempt.root
@@ -1156,7 +1176,7 @@ def run_suite(args, smoke=False, initial_record=None):
         else:attempt.cancel()
         if not owner_lost and getattr(args,'score_after_cancel',False) and attempt.record['scoring']['status']=='skipped':
             try:
-                with admission_lock(args.lock_file,args.lock_wait_seconds):
+                with _suite_admission(args,existing_lease_identity):
                     plan=controls.read(attempt.root/'plan.json')
                     receipts={i:controls.read(attempt.root/'scorers'/(str(i)+'.json')) for i,t in enumerate(plan['checks']) if t.get('scorer')}
                     score_artifacts(args,attempt,plan,attempt.record['image'],Path(attempt.record['workspace']),receipts,post_cancel=True)
