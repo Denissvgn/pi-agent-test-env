@@ -76,6 +76,15 @@ mapped file set. Runtime builtins, frozen modules, file modules and the actual
 `typing.io`/`typing.re` export aliases have distinct descriptor forms. Lazy
 dependencies used by a selected operation belong in the approved graph.
 
+The caller must be able to read and search every directory from `/` to the SDK
+and selected namespace. The verified loader opens each ancestor with
+`O_RDONLY | O_DIRECTORY | O_NOFOLLOW`; permission to traverse a path and read its
+leaf files alone is insufficient. A public ancestor can be root-owned mode 0755
+while the selected private store and coordination parent remain owner-only mode
+0700. Namespace checks also reject unsafe ancestor ownership and nonowner write
+permissions, except for root-owned sticky directories. A layout change needs its
+own review and current observation; it does not approve an SDK operation.
+
 `environment_probe_v1` and `compile_discovery` are qualification-only discovery:
 they select no private source/store/references and dispatch no handler. Their
 output always says approval is false; normal `Client.prepare` rejects this
