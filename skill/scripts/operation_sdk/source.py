@@ -165,7 +165,10 @@ class ApprovedReader:
         try: parsed = policy.path(selected)
         except policy.PolicyError: raise SDKError(1) from None
         grant = self.allowed[selected]
-        require(type(maximum) is int and 0 <= maximum <= self.maximum_file, 5)
+        # Provider callers request fixed ceilings (prompt/profile sizes). The narrower
+        # grant and admitted file cap bind the read; read_file refuses, never truncates,
+        # a larger file, so clamping cannot return partial bytes.
+        require(type(maximum) is int and maximum >= 0, 5)
         bound = min(maximum, grant['maximum_bytes'], self.maximum_file)
         require(self.count < self.maximum_count, 5)
         self.budget.attempt()

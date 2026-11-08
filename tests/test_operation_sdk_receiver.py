@@ -2,8 +2,10 @@
 import base64
 import copy
 import hashlib
+import os
+import stat
 import types
-from unittest import TestCase
+from unittest import TestCase, mock
 
 from tests.test_operation_sdk_policy import example_policy
 from operation_sdk import client, collect, wire
@@ -105,3 +107,40 @@ class SDKReceiverTests(TestCase):
         for changed in(b'',b'<REDACTED>',b'safe:<REDACTED>:changed'):
             altered=copy.deepcopy(message);altered['data']['bytes_base64']=base64.b64encode(changed).decode()
             with self.subTest(changed=changed):self.reject(session,altered,payload)
+
+
+class SDKRegistrationReceiverTests(TestCase):
+    """Final store metadata is checked independently of the worker's own report."""
+    VALUE = 'fixture-registration-value-0001'
+
+    def native(self, **changes):
+        p = example_policy('secret_register_create_only_v1')
+        p['scope'].update(store={'path': '/private/store', 'identity': [17, 25]}, write_reference='APP_FAKE')
+        admitted = types.SimpleNamespace(operation='secret_register_create_only_v1', context_sha256='a' * 64,
+            policy=lambda: copy.deepcopy(p), request=lambda: {'operation_id': '22222222-2222-4222-8222-222222222222'})
+        session = client.Session(admitted, None)
+        info = dict(st_dev=17, st_ino=99, st_uid=os.geteuid(), st_mode=stat.S_IFREG | 0o600, st_nlink=1,
+                    st_size=len(self.VALUE.encode('utf-8')))
+        info.update(changes)
+        observed = types.SimpleNamespace(**info)
+        session._store = mock.Mock(stat=mock.Mock(return_value=observed), absent=mock.Mock(return_value=True))
+        # A consistent but wrong worker report must not substitute for the receiver's own checks.
+        message = {'native': {'observation': {'outcome': 'created'},
+                              'owned_fd_tokens': ['store_duplicate', 'ancestor:0', 'ancestor:1', 'value']},
+                   'final_identity': [observed.st_dev, observed.st_ino, observed.st_uid,
+                                      stat.S_IMODE(observed.st_mode), observed.st_nlink, observed.st_size]}
+        with mock.patch.object(client.contract, 'validate_worker', return_value=types.SimpleNamespace(ack_ready=True)):
+            session._receiver_native(message, {'value': self.VALUE})
+        return session
+
+    def test_exact_private_single_link_value_is_accepted(self):
+        session = self.native()
+        session._store.absent.assert_called_once_with('.APP_FAKE.22222222-2222-4222-8222-222222222222.pending')
+
+    def test_reported_metadata_cannot_replace_independent_checks(self):
+        for change in ({'st_uid': os.geteuid() + 1}, {'st_mode': stat.S_IFREG | 0o644}, {'st_nlink': 2},
+                       {'st_size': len(self.VALUE.encode('utf-8')) + 1}):
+            with self.subTest(change=change):
+                with self.assertRaises(wire.SDKError) as raised:
+                    self.native(**change)
+                self.assertEqual(raised.exception.code, 4)

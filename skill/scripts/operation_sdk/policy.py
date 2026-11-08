@@ -276,7 +276,13 @@ def _forecast(value):
     protected_bytes=keys+(limits['max_secret_bytes']if value['operation']=='secret_register_create_only_v1'else 0)
     protected_count=len(scope['references'])+int(value['operation']=='secret_register_create_only_v1')
     if protected_count:
-        patterns = 15 * protected_count; pattern_bytes = 1885 * protected_bytes
+        # collect.Patterns keeps at most 2**k strings at escape layer k (15 in all).
+        # One json.dumps layer maps each allowed character to at most three bytes per
+        # input byte: '"' and '\\' become 2 bytes, a 2-byte character becomes \uXXXX
+        # and an astral character a 12-byte surrogate pair. Values exclude control
+        # characters and json.dumps never emits them, so this holds at every layer:
+        # sum(2**k * 3**k for k in 0..3) = 259 bytes per protected byte.
+        patterns = 15 * protected_count; pattern_bytes = 259 * protected_bytes
         regex_bytes = 2 * pattern_bytes + 3 * patterns
         require(patterns <= limits['max_pattern_count'] and pattern_bytes <= limits['max_pattern_bytes']
                 and regex_bytes <= limits['max_regex_bytes'], 'pattern_forecast')

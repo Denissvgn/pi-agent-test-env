@@ -314,6 +314,9 @@ class Session:
         info=self._store.stat(self.p['scope']['write_reference'])
         current=[info.st_dev,info.st_ino,info.st_uid,stat.S_IMODE(info.st_mode),info.st_nlink,info.st_size]
         wire.require(current==message['final_identity']and stat.S_ISREG(info.st_mode),4)
+        # Independent of the worker report: exact owner, private mode, one link, value size.
+        wire.require(info.st_uid==os.geteuid()and stat.S_IMODE(info.st_mode)==0o600 and info.st_nlink==1
+            and info.st_size==len(payload['value'].encode('utf-8')),4)
         self._store.absent('.'+self.p['scope']['write_reference']+'.'+self.admitted.request()['operation_id']+'.pending')
         self._authority()
     def _facts(self,facts,native_result):

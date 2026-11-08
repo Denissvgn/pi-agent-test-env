@@ -41,6 +41,14 @@ Arbitrary byte patterns, transformations beyond those layers and automatic
 structured-store discovery are unsupported. A replacement-marker collision
 refuses the operation; suppression is never reported as successful redaction.
 
+Admission forecasts at most 15 patterns and 259 pattern bytes per protected
+byte, because each escape layer at most triples a value's UTF-8 size. At the
+largest pattern and regex limits this admits about 32 KB of protected references
+in total, so a maximum-size 16 KiB value fits. Registered
+values are smaller: the call forecast reserves one write call per secret byte,
+and `max_secret_bytes` plus store depth plus 7 must fit within both
+`max_mutating_calls` (at most 4096) and the 1 MiB native report (4064 calls).
+
 ## Trust and loading
 
 The application must first trust the consumer bootstrap independently. Executing
@@ -164,7 +172,9 @@ zero exit/reap, conserved code/runtime, exact private-result shape and receiver
 checks. Typed plans must preserve submitted documents; resources must match
 the independent hash; credential results must equal all collected bindings.
 Registration also checks the complete native trace, final receiver metadata and
-actual pending-leaf absence under current custody. A native create observation
+actual pending-leaf absence under current custody. The receiver compares the
+stored file with the worker-reported identity and separately requires the
+caller's owner, mode 0600, one link and the exact value size. A native create observation
 alone is insufficient. Lost receipts after a dispatched write remain unknown.
 The redaction receiver independently checks the exact replacement relation,
 including preservation of every unmatched byte; an empty or altered output is

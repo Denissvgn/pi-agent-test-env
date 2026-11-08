@@ -11,10 +11,13 @@ _STAGE='bootstrap'
 
 def _initial(fd):
     deadline = time.monotonic() + 10
+    # poll, unlike select, accepts inherited descriptor numbers above FD_SETSIZE.
+    poller = select.poll(); poller.register(fd, select.POLLIN)
     def take(size):
         result = bytearray()
         while len(result) < size:
-            if time.monotonic() >= deadline or not select.select([fd], [], [], max(0, deadline-time.monotonic()))[0]:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not poller.poll(max(1, int(remaining * 1000))):
                 raise ValueError('bootstrap')
             body = os.read(fd, min(65536, size-len(result)))
             if not body: raise ValueError('bootstrap')
