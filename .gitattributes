@@ -8,3 +8,4 @@
 /.codex export-ignore
 /docs/design/env-admission-002-fix-plan.md export-ignore
 /docs/design/*-evidence export-ignore
+/docs/design/application-agent-enhancements export-ignore
