@@ -132,18 +132,19 @@ class Reader:
         try:
             require(not stat.S_IMODE(os.fstat(parent).st_mode) & (0o077 if private_parent else 0o022), 'unsafe_path')
             fd = os.open(value.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
-            with os.fdopen(fd, 'rb') as stream:
-                before = os.fstat(stream.fileno())
+            try:
+                before = os.fstat(fd)
                 require(stat.S_ISREG(before.st_mode) and before.st_uid == os.getuid() and before.st_nlink == 1
                         and not stat.S_IMODE(before.st_mode) & (0o077 if private else 0o022)
                         and before.st_size <= limit, 'unsafe_record')
                 if str(value) not in self.references:
                     require(len(self.references) < MAX_REFERENCES
                             and self.bytes + before.st_size <= MAX_AGGREGATE_BYTES, 'inventory_unbounded')
-                body = stream.read(0 if limit == 0 else limit + 1); after = os.fstat(stream.fileno())
+                body = ownership._read_bounded(fd, 0 if limit == 0 else limit + 1); after = os.fstat(fd)
                 named = os.stat(value.name, dir_fd=parent, follow_symlinks=False)
                 signature = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns, s.st_nlink)
                 require(signature(before) == signature(after) == signature(named) and len(body) == before.st_size)
+            finally:os.close(fd)
             held = os.fstat(parent)
             require(held.st_uid == os.getuid() and not stat.S_IMODE(held.st_mode) & (0o077 if private_parent else 0o022),
                     'unsafe_path')

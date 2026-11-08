@@ -41,20 +41,35 @@ def private_directory(path, *, create=True):
     return path
 
 
+def _read_bounded(fd, maximum):
+    """Read fresh descriptor bytes without allocating a second file wrapper."""
+    parts=[]
+    while maximum:
+        part=os.read(fd,min(maximum,65536))
+        if not part:break
+        parts.append(part);maximum-=len(part)
+    return b''.join(parts)
+
+
 @diagnostics.observed('record_read')
 def read_private(path,decode=True):
     # A concurrent atomic replace can unlink the inode after open but before
     # fstat. Retry only that verified replacement, never an insecure named file.
     for unused in range(3):
         fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
-        with os.fdopen(fd,'rb') as f:
-            st=os.fstat(f.fileno())
+        try:
+            st=os.fstat(fd)
             if st.st_nlink==0:
                 current=os.stat(path,follow_symlinks=False)
                 if (st.st_dev,st.st_ino)!=(current.st_dev,current.st_ino):continue
             if not stat.S_ISREG(st.st_mode) or st.st_uid!=os.getuid() or st.st_nlink!=1 or stat.S_IMODE(st.st_mode)&0o077 or st.st_size>1024*1024:
                 raise RegistryError('Registry record is insecure or unbounded', condition='unsafe_record')
-            return json.load(f) if decode else None
+            if not decode:return None
+            body=_read_bounded(fd,1024*1024+1)
+            if len(body)>1024*1024:
+                raise RegistryError('Registry record is insecure or unbounded', condition='unsafe_record')
+            return json.loads(body)
+        finally:os.close(fd)
     raise RegistryError('Registry record changed during bounded observation', condition='unsafe_record')
 
 

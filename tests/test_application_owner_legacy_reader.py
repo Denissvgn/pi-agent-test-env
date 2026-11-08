@@ -1,6 +1,7 @@
 """Reader and version fences shared by source bytes and JSON evidence."""
 import hashlib
 import os
+import stat
 from pathlib import Path
 import tempfile
 import unittest
@@ -29,19 +30,17 @@ class LegacyReaderTests(unittest.TestCase):
 
     def test_zero_byte_role_never_reads_a_payload_inserted_after_fstat(self):
         ref=self.put('empty-race.bin',b'');target=Path(ref['path'])
-        original=os.fdopen;requests=[];received=[]
-        class Stream:
-            def __init__(self,stream):self.stream=stream
-            def __enter__(self):self.stream.__enter__();return self
-            def __exit__(self,*args):return self.stream.__exit__(*args)
-            def fileno(self):return self.stream.fileno()
-            def read(self,maximum):
-                target.write_bytes(b'unreviewed payload')
-                requests.append(maximum);body=self.stream.read(maximum);received.append(body);return body
-        with mock.patch.object(os,'fdopen',side_effect=lambda *a,**k:Stream(original(*a,**k))):
+        original=os.fstat;mutated=[];reader=cleanup.Reader()
+        def observe(fd):
+            info=original(fd)
+            if stat.S_ISREG(info.st_mode) and info.st_size==0 and not mutated:
+                mutated.append(True);target.write_bytes(b'unreviewed payload')
+            return info
+        with (mock.patch.object(os,'fstat',side_effect=observe),
+              mock.patch.object(os,'read',side_effect=AssertionError('Zero-byte role must not read payload'))):
             with self.assertRaises(cleanup.ownership.RegistryError):
-                cleanup.Reader().read_bytes(ref['path'],private=True,maximum=0)
-        self.assertEqual(requests,[0]);self.assertEqual(received,[b''])
+                reader.read_bytes(ref['path'],private=True,maximum=0)
+        self.assertEqual(mutated,[True]);self.assertEqual(reader.bytes,0);self.assertEqual(reader.references,{})
 
     def test_source_bytes_are_data_and_share_json_graph_budget(self):
         ref = self.put('source.py', b'raise RuntimeError("source must never run")\n')
