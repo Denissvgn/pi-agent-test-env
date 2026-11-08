@@ -60,10 +60,15 @@ repository and evidence; campaigns need the confirmed environment gate
 |---|---|---|
 | `tools/qualification/pi_release.py` | `freeze --evidence NEW --session S`, then `images`, `collect`, `status` | Serial Pi 0.87.1/1.2.0 matrix: smoke, coding/review, fixture lookup, scoped credentials, sandboxed browser and fault lanes |
 | `tools/qualification/parallel.py` | `freeze --root NEW --images I --endpoint E --session S`, then `infrastructure`, `collect` | Opt-in two-trial parallel execution |
-| `tools/qualification/indexed.py` | `freeze --root NEW --profiles P --images I --session S`, `inspect`, `run --approval A`, `finish --inspection J` | Indexed, serial, parallel and legacy-endpoint runs, experiments, fixture lookup, credentials, browser and all fault lanes on both Pi releases |
+| `tools/qualification/indexed.py` | `freeze --root NEW --profiles P --images I --session S [--release R]... [--lock-file L]`, `inspect`, `run --approval A`, `finish --inspection J` | Indexed, serial, parallel and legacy-endpoint runs, experiments, fixture lookup, credentials, browser and all fault lanes on each selected Pi release |
 
-The images file maps `core-<release>` and `browser-<release>` for each reviewed
-Pi release to `{"platform": "linux/arm64", "id": "sha256:..."}` from admitted
+The indexed campaign qualifies every reviewed Pi release unless `--release`
+selects a subset; a single release halves the matrix (110 of 220 cells, up to
+822 of 1,633 registry records). The frozen manifest records the selection, and
+its cell, segment and inspection totals are derived from that matrix. A release
+left out is not qualified by the campaign. The images file maps
+`core-<release>` and `browser-<release>` for each selected release to
+`{"platform": "linux/arm64", "id": "sha256:..."}` from admitted
 `ensure-image` receipts. The indexed profiles file holds two inference
 configurations `a` and `b`, a `scope` and `deployment_limits`. Its approval file
 must contain the SHA-256 of the frozen `manifest.json` as
@@ -78,6 +83,10 @@ up to 1,633 records of the 8,192 limit), pass `--lock-file` to the indexed
 manifest records it, and every later phase and child command uses it through
 `PI_LAB_LOCK_FILE`. A dedicated lease leaves the shared registry untouched and
 still blocked for ordinary runs; resolve that separately with the owner tools.
+Keep dedicated leases out of `~/.local/state/pi-agent-test-env/` (for example in
+`~/.local/state/pi-agent-qualification/`): on hosts that still use the legacy
+`~/.local/state/pi-agentic-development/` directory, creating the new directory
+switches the default lease and session store to new, empty locations.
 Record the dated outcome, its cell counts, limits and lease choice in
 `skill/QUALIFICATION.md`.
 

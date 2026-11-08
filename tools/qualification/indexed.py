@@ -17,13 +17,25 @@ WORKER=predecessor.WORKER
 CONCURRENCY={**copy.deepcopy(predecessor.CONCURRENCY),'scheduler':'parallel-trials-v2','host_generation':2}
 
 
-def matrix():
-    rows=[]
-    for release in release_contracts.RELEASES:
+def selected_releases(value=None):
+    """Distinct reviewed Pi releases in contract order; None selects all of them."""
+    if value is None:return tuple(release_contracts.RELEASES)
+    chosen=list(value)
+    if not chosen or len(set(chosen))!=len(chosen) or any(r not in release_contracts.RELEASES for r in chosen):
+        raise ValueError('Select one or more distinct reviewed Pi releases')
+    return tuple(r for r in release_contracts.RELEASES if r in chosen)
+
+
+def manifest_releases(manifest):return selected_releases(manifest.get('releases'))
+
+
+def matrix(releases=None):
+    rows=[];releases=selected_releases(releases)
+    for release in releases:
         for lane,cells,stages in (('indexed-single',6,1),('indexed-serial',6,1),('legacy-saved',3,1),('legacy-explicit',3,1),('legacy-serial',6,1),('legacy-parallel',6,1),('standalone-roles',6,2),('serial-roles',6,2)):
             rows.append({'id':'a-'+release+'-'+lane,'collection':'A','release':release,'lane':lane,'kind':'coding' if stages==2 else 'smoke',
                 'cells':cells,'segments_ceiling':cells*stages,'real_model':True,'repetitions':3})
-    for release in release_contracts.RELEASES:
+    for release in releases:
         for lane,kind,cells,stages in (('coding','coding',6,2),('lookup-builtin','lookup',6,1),('lookup-fixture','lookup',6,1),('credentials','credentials',12,3),('browser','browser',6,1)):
             rows.append({'id':'b-'+release+'-'+lane,'collection':'B','release':release,'lane':lane,'kind':kind,
                 'cells':cells,'segments_ceiling':cells*stages,'real_model':True,'repetitions':3})
@@ -43,7 +55,8 @@ def launch_derivation(rows=None):
     parallel batches share a helper. Every experiment execution also has a
     parent image-admission probe before its trial loop.
     """
-    infrastructure={'image_admission':4,'dom_image_probes':2,'dom_workers':2,'overlap_fifo_workers':3,'cancel_workers':2,'owner_loss_workers':2,'routing_authority':1,'routing_broker':1}
+    count=len({row['release'] for row in rows or matrix()})
+    infrastructure={'image_admission':2*count,'dom_image_probes':count,'dom_workers':count,'overlap_fifo_workers':3,'cancel_workers':2,'owner_loss_workers':2,'routing_authority':1,'routing_broker':1}
     totals={'infrastructure':{'containers':sum(infrastructure.values()),'networks':0},'A':{'containers':1,'networks':0},'B':{'containers':1,'networks':0}}
     details=[]
     for row in rows or matrix():
@@ -68,6 +81,17 @@ def launch_derivation(rows=None):
     totals['whole']={k:sum(v[k] for v in totals.values()) for k in ('containers','networks','segments')}
     if totals['whole']['containers']>1600 or totals['whole']['networks']>256:raise ValueError('Planning hard launch ceiling exceeded')
     return {**totals,'infrastructure_paths':infrastructure,'batches':details}
+
+
+def campaign_counts(rows):
+    """Cells, segment ceilings/expectations and coding pipelines for exactly these rows."""
+    real=[r for r in rows if r['real_model']];scripted=[r for r in rows if not r['real_model']]
+    expected_real=sum(r['segments_ceiling'] for r in real)
+    expected_scripted=sum(predecessor.expected_fault_segments(r['lane']) for r in scripted)
+    return {'planned_cells':sum(r['cells'] for r in rows),'segments_ceiling':sum(r['segments_ceiling'] for r in rows),
+            'expected_segments':expected_real+expected_scripted,'expected_real_segments':expected_real,
+            'expected_scripted_segments':expected_scripted,
+            'coding_pipelines':sum(r['cells'] for r in rows if r['kind']=='coding')}
 
 
 def store_inventory(path):
@@ -106,22 +130,22 @@ def dedicated_lease(lock_file,root):
     return str(path)
 
 
-def freeze(root,profiles_file,images_file,session,lock_file=None):
+def freeze(root,profiles_file,images_file,session,lock_file=None,releases=None):
     root=Path(root).resolve()
     if root.exists():raise ValueError('Fresh qualification root required')
-    lease=dedicated_lease(lock_file,root)
+    lease=dedicated_lease(lock_file,root);releases=selected_releases(releases)
     raw=experiments.read_json(profiles_file);indexed_contract.fields(raw,('a','b','scope','deployment_limits'))
     configurations={name:indexed_contract.configuration(raw[name],lab.normalize_endpoint) for name in ('a','b')}
     if configurations['a']['credential'].get('name')==configurations['b']['credential'].get('name') and configurations['a']['credential']!=configurations['b']['credential']:
         raise indexed_contract.IndexedError('selection-conflict')
     images=experiments.read_json(images_file)
     selected={}
-    for release in release_contracts.RELEASES:
+    for release in releases:
         for kind in ('core','browser'):
             name=kind+'-'+release;entry=images[name]
             if entry.get('platform')!='linux/arm64' or not isinstance(entry.get('id'),str) or not __import__('re').fullmatch('sha256:[a-f0-9]{64}',entry['id']):raise ValueError('Recorded native ARM64 image identity required')
             selected[name]={'id':entry['id'],'platform':'linux/arm64'}
-    rows=matrix();identity=str(uuid.uuid4());root.mkdir(mode=0o700,parents=True)
+    rows=matrix(releases);counts=campaign_counts(rows);identity=str(uuid.uuid4());root.mkdir(mode=0o700,parents=True)
     private=Path(tempfile.mkdtemp(prefix='pi-indexed-qualification-')).resolve();store=private/'store';store.mkdir(mode=0o700)
     catalog=inference_catalog.Catalog(lab.normalize_endpoint,private/'catalog',store)
     original=inference_catalog.Catalog(lab.normalize_endpoint,private/'source-catalog')
@@ -133,10 +157,10 @@ def freeze(root,profiles_file,images_file,session,lock_file=None):
             secret_store.write_secret(source['name'],key,store)
             canonical={**configuration,'endpoint':{k:v for k,v in configuration['endpoint'].items() if k!='api_key_env'},'credential':{'source':'store','name':source['name']}}
             catalog.register(name,canonical);catalog.confirm(name,session);bindings[name]=catalog.freeze(name,session)
-        manifest={'schema':1,'qualification_id':identity,'source':pi_release.source_identity(),'images':selected,'session':session,'lock_file':lease,
+        manifest={'schema':1,'qualification_id':identity,'source':pi_release.source_identity(),'images':selected,'releases':list(releases),'session':session,'lock_file':lease,
             'private_root':str(private),'catalog':str(catalog.root),'store':str(store),'profiles':bindings,
             'scope':raw['scope'],'deployment_limits':raw['deployment_limits'],'worker_resources':WORKER,'concurrency':CONCURRENCY,
-            'batches':rows,'planned_cells':220,'segments_ceiling':312,'expected_segments':292,'expected_real_segments':240,'expected_scripted_segments':52,
+            'batches':rows,**{k:v for k,v in counts.items() if k!='coding_pipelines'},
             'launch_derivation':launch_derivation(rows),'docker_launches_ceiling':launch_derivation(rows)['whole']['containers'],
             'registry_capacity':{'committed_records_limit':predecessor.ownership_registry.MAX_RECORDS,
                 'transient_records_limit':predecessor.ownership_registry.MAX_TRANSIENT_RECORDS,
@@ -151,7 +175,7 @@ def freeze(root,profiles_file,images_file,session,lock_file=None):
         controls.atomic(root/'worker.json',WORKER,0o444);controls.atomic(root/'manifest.json',manifest,0o444)
         controls.atomic(root/'integrity.json',{'manifest_sha256':hashlib.sha256((root/'manifest.json').read_bytes()).hexdigest(),'worker_sha256':hashlib.sha256((root/'worker.json').read_bytes()).hexdigest()})
         controls.atomic(root/'state.json',{'phase':'frozen','attempted_batches':[],'batches':[],'segments':0,'remaining_not_run':[r['id'] for r in rows]})
-        return {'qualification':str(root),'planned_cells':220,'segments_ceiling':312,'launches':manifest['launch_derivation']['whole'],'source':manifest['source']['runner'],'scope':raw['scope']}
+        return {'qualification':str(root),'releases':list(releases),'planned_cells':counts['planned_cells'],'segments_ceiling':counts['segments_ceiling'],'launches':manifest['launch_derivation']['whole'],'source':manifest['source']['runner'],'scope':raw['scope']}
     except BaseException:
         shutil.rmtree(private);raise
 
@@ -159,10 +183,11 @@ def freeze(root,profiles_file,images_file,session,lock_file=None):
 def verify(root):
     root=Path(root).resolve();manifest=experiments.read_json(root/'manifest.json');integrity=experiments.read_json(root/'integrity.json')
     if integrity['manifest_sha256']!=hashlib.sha256((root/'manifest.json').read_bytes()).hexdigest() or integrity['worker_sha256']!=hashlib.sha256((root/'worker.json').read_bytes()).hexdigest():raise ValueError('Frozen intent changed')
-    if manifest['source']!=pi_release.source_identity() or manifest['batches']!=matrix() or manifest['launch_derivation']!=launch_derivation():raise ValueError('Frozen source or matrix changed')
+    rows=matrix(manifest.get('releases'))
+    if manifest['source']!=pi_release.source_identity() or manifest['batches']!=rows or manifest['launch_derivation']!=launch_derivation(rows):raise ValueError('Frozen source or matrix changed')
     expected_capacity={'committed_records_limit':predecessor.ownership_registry.MAX_RECORDS,
         'transient_records_limit':predecessor.ownership_registry.MAX_TRANSIENT_RECORDS,
-        'new_records_ceiling':sum(launch_derivation()['whole'][key] for key in ('containers','networks'))}
+        'new_records_ceiling':sum(launch_derivation(rows)['whole'][key] for key in ('containers','networks'))}
     if manifest.get('registry_capacity')!=expected_capacity:raise ValueError('Frozen registry capacity changed')
     if original_inventory(manifest)!=manifest['original_store_inventory']:raise ValueError('Operator credential store changed')
     if manifest['worker_resources']!=WORKER or manifest['concurrency']!=CONCURRENCY:raise ValueError('Frozen limits changed')
@@ -346,7 +371,7 @@ def admission_oracles(root,batch,manifest):
 
 
 def authority_owner(root,manifest):
-    owner=predecessor.AuthorityOwner(root,manifest['images']['core-0.87.1']['id'],manifest['profiles']['a']['configuration']['endpoint'],read_model_key=False)
+    owner=predecessor.AuthorityOwner(root,predecessor.primary_core_image(manifest),manifest['profiles']['a']['configuration']['endpoint'],read_model_key=False)
     owner.store=Path(manifest['store']);owner.second_inference=secrets.token_hex(32)
     owner.config['inference_keys']=[owner.inference,owner.second_inference];owner.write()
     original_close=owner.close;closed=False
@@ -367,7 +392,7 @@ def infrastructure_routes(root,manifest):
     authority.config.update(routing_fixture=True,route_keys={'route-a':authority.inference,'route-b':authority.second_inference},opaque_tokens=tokens);authority.write()
     try:
         authority.start()
-        args=lab.parser().parse_args(['run','--image',manifest['images']['core-0.87.1']['id'],'--platform','linux/arm64','--resources',str(root/'worker.json')])
+        args=lab.parser().parse_args(['run','--image',predecessor.primary_core_image(manifest),'--platform','linux/arm64','--resources',str(root/'worker.json')])
         routes={name:{'endpoint':{'base_url':authority.child+'/'+name+'/v1','host_base_url':authority.host+'/'+name+'/v1','model':'qualification-diagnostic','max_tokens':1024},
             'upstream_key':authority.config['route_keys'][name],'limits':{'queue_wait_seconds':10,'request_timeout_seconds':30}} for name in ('route-a','route-b')}
         config={'routes':routes,'tokens':{token:{'route':name} for token,name in zip(tokens,routes)},'token_prefix':prefix,'active_tokens_file':True}
@@ -549,7 +574,7 @@ def infrastructure(root):
         infrastructure_routes(root,manifest)
         infrastructure_old_client(root)
         predecessor.infrastructure_overlap(root,manifest);predecessor.infrastructure_cancel(root,manifest);predecessor.infrastructure_owner_loss(root,manifest)
-        for release in release_contracts.RELEASES:
+        for release in manifest_releases(manifest):
             result=predecessor.invoke(root,'dom-'+release,['browser-check','--image',manifest['images']['browser-'+release]['id'],'--profile','browser',
                 '--platform','linux/arm64','--browser-sandbox-policy','chromium-userns','--resources',str(root/'worker.json'),'--results-dir',str(root/'dom')],
                 min(240,experiments.read_json(root/'budget.json')['phase_deadline']-time.monotonic()),qualification_environment(root,manifest,'infrastructure'))
@@ -599,7 +624,7 @@ def collect_phase(root,collection):
             state['remaining_not_run'].remove(batch['id']);controls.atomic(root/'state.json',state)
             print(json.dumps({'collection':collection,'batch':batch['id'],'passed':True,'segments':state['segments']}),flush=True)
         if collection=='B':
-            for release in release_contracts.RELEASES:
+            for release in manifest_releases(manifest):
                 admission_oracles(root,{'id':'admission-'+release,'release':release},manifest)
         state['phase']=collection+'_qualified'
     except BaseException as exc:state.update(phase='blocked',reason=type(exc).__name__);raise
@@ -641,7 +666,8 @@ def inspection_targets(root,manifest):
             if not target.is_file() or not final.is_file() or record['protected_inputs']['status']!='unchanged':raise RuntimeError('Coding inspection artifacts missing')
             targets.append({'run_id':record['run_id'],'implementation':str(target),'reviewer':str(final),
                 'implementation_sha256':hashlib.sha256(target.read_bytes()).hexdigest(),'reviewer_sha256':hashlib.sha256(final.read_bytes()).hexdigest()})
-    if len(targets)!=36 or len({row['run_id'] for row in targets})!=36:raise RuntimeError('Expected 36 independent coding/reviewer inspections')
+    expected=campaign_counts(matrix(manifest.get('releases')))['coding_pipelines']
+    if len(targets)!=expected or len({row['run_id'] for row in targets})!=expected:raise RuntimeError('Expected '+str(expected)+' independent coding/reviewer inspections')
     return targets
 
 
@@ -649,7 +675,7 @@ def finish(root,inspection):
     root,manifest,state=verify(root)
     if state['phase']!='B_qualified' or state['remaining_not_run']:raise ValueError('Complete A/B qualification required')
     targets=inspection_targets(root,manifest);reviews=experiments.read_json(inspection)
-    if not isinstance(reviews,list) or len(reviews)!=36:raise RuntimeError('All coding pipelines require independent inspection')
+    if not isinstance(reviews,list) or len(reviews)!=len(targets):raise RuntimeError('All coding pipelines require independent inspection')
     expected={row['run_id']:row for row in targets}
     for review in reviews:
         target=expected.pop(review.get('run_id'),None)
@@ -668,18 +694,19 @@ def finish(root,inspection):
     if inventory!=manifest['original_store_inventory']:raise RuntimeError('Operator credential store changed')
     shutil.rmtree(manifest['private_root']);state.update(phase='qualified',private_namespace_removed=True,known_key_matches=0)
     controls.atomic(root/'state.json',state)
-    return {'phase':'qualified','cells':220,'segments':state['segments'],'scope':manifest['scope']}
+    return {'phase':'qualified','releases':list(manifest_releases(manifest)),'cells':manifest['planned_cells'],'segments':state['segments'],'scope':manifest['scope']}
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__);commands=parser.add_subparsers(dest='op',required=True)
     freeze_parser=commands.add_parser('freeze');freeze_parser.add_argument('--root',required=True);freeze_parser.add_argument('--profiles',required=True);freeze_parser.add_argument('--images',required=True);freeze_parser.add_argument('--session',required=True)
     freeze_parser.add_argument('--lock-file',help='Fresh absolute dedicated lease for this campaign; defaults to the shared host lease')
+    freeze_parser.add_argument('--release',action='append',help='Reviewed Pi release to qualify (repeatable); defaults to all reviewed releases')
     run=commands.add_parser('run');run.add_argument('--root',required=True);run.add_argument('--approval',required=True)
     inspect=commands.add_parser('inspect');inspect.add_argument('--root',required=True)
     final=commands.add_parser('finish');final.add_argument('--root',required=True);final.add_argument('--inspection',required=True)
     args=parser.parse_args()
-    if args.op=='freeze':value=freeze(args.root,args.profiles,args.images,args.session,args.lock_file)
+    if args.op=='freeze':value=freeze(args.root,args.profiles,args.images,args.session,args.lock_file,args.release)
     elif args.op=='finish':value=finish(args.root,args.inspection)
     elif args.op=='inspect':
         root,manifest,state=verify(args.root);value={'phase':state['phase'],'cells':manifest['planned_cells'],'segments_ceiling':manifest['segments_ceiling'],'launches':manifest['launch_derivation']['whole'],'scope':manifest['scope']}
