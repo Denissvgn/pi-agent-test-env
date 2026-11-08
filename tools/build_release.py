@@ -32,7 +32,8 @@ def source_files(repository=REPO):
     files.extend(repository/'tests/fixtures/application-contracts'/name
                  for name in APPLICATION_TEST_FIXTURES)
     if (repository/'tests/__init__.py').is_file(): files.append(repository/'tests/__init__.py')
-    files.extend(repository/'tools'/name for name in ('build_release.py','verify_release.py','check_package.py','check_examples.py'))
+    files.extend(repository/'tools'/name for name in ('build_release.py','verify_release.py','check_package.py','check_examples.py',
+                                                     'docker_ci.py','ci/Dockerfile'))
     files.extend(sorted((repository/'tools/qualification').glob('*.py')))
     validation = repository/'tools/validation'
     spec = importlib.util.spec_from_file_location('published_standard_validation',validation/'validate_standard.py')

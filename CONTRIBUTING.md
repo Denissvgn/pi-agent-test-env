@@ -27,6 +27,51 @@ qualify Docker/model execution. Some environments require loopback permission.
 Examples retain their own subject tests because those files are acceptance
 inputs, separate from the maintainer suite.
 
+The suite also needs `node` (Node.js 24 or later) on `PATH`: several tests run
+the bundled JavaScript extensions and fail, rather than skip, without it.
+
+To repeat the checks on native Linux with an exact Python, build the test image
+and run the bounded container runner. It stages the published source allowlist,
+mounts it read-only, disables the network and records a JSON report:
+
+```bash
+docker build -f tools/ci/Dockerfile \
+  --build-arg PYTHON_IMAGE=python:3.10-slim-bookworm -t pi-agent-ci:py3.10 tools/ci
+python3 tools/docker_ci.py --image pi-agent-ci:py3.10 --report /tmp/pi-ci-py3.10.json
+```
+
+Repeat with the newest supported Python as well. The runner does not supply the
+synthetic read-only providers that the isolated owner-consumer tests use
+(`PI_SYNTHETIC_READER_PROVIDER`) or the operation SDK container fixture
+(`tools/qualification/operation_sdk_fixture.py`); those tests skip without them.
+
+## Native qualification campaigns
+
+Offline checks never qualify live execution. A release that claims native
+qualification needs a fresh campaign on its exact code: the campaign tools record
+a hash of `skill/scripts`, `skill/runtime`, the assets/docker/examples inputs and
+`tools/qualification`, so change those first and only documentation afterwards.
+A begun or failed campaign is never resumed or repaired; fix the cause, freeze a
+new root and run again. Keys stay in disposable owner-only stores outside the
+repository and evidence; campaigns need the confirmed environment gate
+(`env status --session` ready) and exact native ARM64 images.
+
+| Tool | Gates | Covers |
+|---|---|---|
+| `tools/qualification/pi_release.py` | `freeze --evidence NEW --session S`, then `images`, `collect`, `status` | Serial Pi 0.87.1/1.2.0 matrix: smoke, coding/review, fixture lookup, scoped credentials, sandboxed browser and fault lanes |
+| `tools/qualification/parallel.py` | `freeze --root NEW --images I --endpoint E --session S`, then `infrastructure`, `collect` | Opt-in two-trial parallel execution |
+| `tools/qualification/indexed.py` | `freeze --root NEW --profiles P --images I --session S`, `inspect`, `run --approval A`, `finish --inspection J` | Indexed, serial, parallel and legacy-endpoint runs, experiments, fixture lookup, credentials, browser and all fault lanes on both Pi releases |
+
+The images file maps `core-<release>` and `browser-<release>` for each reviewed
+Pi release to `{"platform": "linux/arm64", "id": "sha256:..."}` from admitted
+`ensure-image` receipts. The indexed profiles file holds two inference
+configurations `a` and `b`, a `scope` and `deployment_limits`. Its approval file
+must contain the SHA-256 of the frozen `manifest.json` as
+`approved_manifest_sha256` and `"older_clients_quiesced": true`. The indexed
+`freeze` makes no native call, so it also checks that the campaign still fits
+changed code before any collection.
+Record the dated outcome, its cell counts and limits in `skill/QUALIFICATION.md`.
+
 ## Prepare distributables
 
 Before merging a PR, read all review submissions and inline threads, including
