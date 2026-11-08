@@ -33,6 +33,10 @@
   version (`--candidate` builds are marked unpublishable), and archives are
   byte-reproducible. `tools/docker_ci.py` repeats the offline checks in a
   bounded native Linux container; the maintainer suite requires Node.js 24+.
+- An absolute `PI_LAB_LOCK_FILE` selects a dedicated host lease (and its own
+  registry) as every command's default; unset keeps the shared per-user lease.
+  The indexed qualification campaign can freeze a fresh dedicated lease with
+  `--lock-file` and exports it to every phase and child command.
 
 ## 4.8.0 (experimental candidate)
 

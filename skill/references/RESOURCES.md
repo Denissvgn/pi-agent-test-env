@@ -62,7 +62,12 @@ A second cooperating invocation exits busy by default, or waits with
 `--lock-wait-seconds 300`. The lease stays held by cooperating host controllers until they exit;
 the file remains to avoid unlink races. Registry-aware clients reconcile surviving
 ownership after lease release instead of assuming all containers stopped. Do not select different lock files merely
-to bypass the budget. This is not a scheduler for other users, other tools, or the
+to bypass the budget. An absolute `PI_LAB_LOCK_FILE` replaces the default for every
+command's `--lock-file`; its adjacent `.registry` is a separate ownership history.
+Use it only for a deliberately dedicated lease, such as one qualification campaign.
+Clients on different leases do not exclude each other, and a dedicated lease never
+reads, resolves or bypasses the shared registry's retained ownership.
+This is not a scheduler for other users, other tools, or the
 whole Docker daemon. If you introduce separate parallel jobs, the aggregate
 ceiling is approximately `parallel jobs * per-job CPU/RAM limit`; use a real parent
 scheduler or cgroup budget before doing that. Explicit schema-2 collections use a weighted parent scheduler for two independent

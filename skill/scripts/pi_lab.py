@@ -1996,12 +1996,28 @@ def default_runs_dir() -> str:
     return str(new_dir)
 
 
-def default_lock_file() -> str:
+def host_lock_file() -> str:
+    """The shared per-user host lease used when no explicit lease is selected."""
     new_lock = Path.home() / '.local/state/pi-agent-test-env/operation.lock'
     old_lock = Path.home() / '.local/state/pi-agentic-development/operation.lock'
     if not new_lock.parent.exists() and old_lock.parent.exists():
         return str(old_lock)
     return str(new_lock)
+
+
+def default_lock_file() -> str:
+    """An explicit PI_LAB_LOCK_FILE lease, otherwise the shared host lease.
+
+    A dedicated lease has its own adjacent registry. Clients exclude each other
+    only when they use the same lease file; selecting another lease neither
+    reads nor resolves the shared registry's retained ownership.
+    """
+    explicit = os.environ.get('PI_LAB_LOCK_FILE')
+    if explicit is None:
+        return host_lock_file()
+    if not explicit or '\0' in explicit or not os.path.isabs(explicit):
+        raise SystemExit('PI_LAB_LOCK_FILE must be an absolute lease path')
+    return explicit
 
 
 def parser():
