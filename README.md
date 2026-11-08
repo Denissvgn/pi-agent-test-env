@@ -335,20 +335,27 @@ new handles in the same process cannot erase it. The Python audit guard constrai
 reviewed code and is not a sandbox for a malicious provider. Synthetic Linux
 qualification does not qualify an operational macOS deployment or real cleanup.
 
-The source distribution also includes a pure [registration trace validator](tools/qualification/secret_registration_contract.py).
-It checks bounded create-only observation models against independent expectations,
-including partial writes, persistence, ambiguous descriptor closure and separate
-receiver acceptance. It performs no filesystem operation and supplies no
-registration handler. Passing a model does not establish native observations,
-credential delivery or operational authority.
+The installed skill includes an experimental [operation SDK](skill/references/OPERATION-SDK.md)
+that runs fixed validation, redaction, credential and resource operations in a
+fresh verified worker under an independently approved policy. Its only execution
+profile is Linux ARM64 CPython 3.12.13; the CLI does not use it.
 
-An experimental [create-only primitive](tools/qualification/secret_registration_primitive.py)
-provides explicit borrowed-FD mechanics for maintainer qualification. It requires
-an existing private store, independent caller authority and coordination, and
-complete call/FD/control budgets before lookup. Its fixed POSIX adapter retains
+The SDK's pure [registration trace validator](skill/scripts/operation_sdk/secret_registration_contract.py)
+checks bounded create-only observation models against independent expectations,
+including partial writes, persistence, ambiguous descriptor closure and separate
+receiver acceptance. It performs no filesystem operation. Passing a model does
+not establish native observations, credential delivery or operational authority.
+
+The SDK's experimental [create-only primitive](skill/scripts/operation_sdk/secret_registration_primitive.py)
+provides explicit borrowed-FD mechanics behind its policy-gated
+`secret_register_create_only_v1` operation. It requires an existing private
+store, independent caller authority and coordination, and complete
+call/FD/control budgets before lookup. Its fixed POSIX adapter retains
 individual C-library returns, including interrupted close, without retries.
 Fresh synthetic macOS and Linux checks do not qualify real credentials, crash
-durability, IPC or a deployment. No installed registration handler is enabled.
+durability, IPC or a deployment, and the CLI has no registration command.
+The matching `tools/qualification/secret_registration_*.py` paths are maintainer
+aliases for these installed modules.
 
 MIT licensed. This is an independent project, not an official Pi or Docker release.
 

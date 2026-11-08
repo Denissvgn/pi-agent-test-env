@@ -1256,8 +1256,10 @@ def requires_proof(registry, record):
 
 
 def add_arguments(sub, default_lock):
+    helps = {'application-owner-inspect': 'Read-only inspection of retained application owner proof; never authorizes admission',
+             'application-owner-recover': 'Explicit cleanup of exact released-helper owned files with immutable proof; no dispatch'}
     for name in ('application-owner-inspect', 'application-owner-recover'):
-        parser = sub.add_parser(name, help='Inspect or clean exact historical application ownership without dispatch')
+        parser = sub.add_parser(name, help=helps[name])
         parser.add_argument('--lock-file', default=default_lock)
         parser.add_argument('--lock-wait-seconds', type=float, default=0)
         if name == 'application-owner-inspect':
