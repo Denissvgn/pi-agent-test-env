@@ -319,6 +319,44 @@ reproducible release verification. The maintainer suite uses synthetic protocol
 fixtures and local services; it does not require a model server or establish live
 Pi performance.
 
+The source distribution also includes an experimental, standard-library-only
+[isolated owner-proof consumer](tools/qualification/application_owner_consumer.py)
+and its [closed policy compiler](tools/qualification/application_owner_consumer_policy.py).
+Distribute its three source files as a separately pinned consumer artifact;
+they are not part of the installed skill. The caller must already trust its
+consumer bootstrap and independently approve the exact policy digest, complete
+provider inventory, interpreter identity and bounded typed read closure.
+The fixed worker requires a genuinely read-only provider filesystem. Its
+`origins` mode observes loaded provider modules/resources without historical
+reads; `replay` validates only the approved exact subject under the original
+existing lease. Neither mode authorizes CLI validation, credential helpers,
+application dispatch or admission. Preserve one consumer's selected-state memory;
+new handles in the same process cannot erase it. The Python audit guard constrains
+reviewed code and is not a sandbox for a malicious provider. Synthetic Linux
+qualification does not qualify an operational macOS deployment or real cleanup.
+
+The installed skill includes an experimental [operation SDK](skill/references/OPERATION-SDK.md)
+that runs fixed validation, redaction, credential and resource operations in a
+fresh verified worker under an independently approved policy. Its only execution
+profile is Linux ARM64 CPython 3.12.13; the CLI does not use it.
+
+The SDK's pure [registration trace validator](skill/scripts/operation_sdk/secret_registration_contract.py)
+checks bounded create-only observation models against independent expectations,
+including partial writes, persistence, ambiguous descriptor closure and separate
+receiver acceptance. It performs no filesystem operation. Passing a model does
+not establish native observations, credential delivery or operational authority.
+
+The SDK's experimental [create-only primitive](skill/scripts/operation_sdk/secret_registration_primitive.py)
+provides explicit borrowed-FD mechanics behind its policy-gated
+`secret_register_create_only_v1` operation. It requires an existing private
+store, independent caller authority and coordination, and complete
+call/FD/control budgets before lookup. Its fixed POSIX adapter retains
+individual C-library returns, including interrupted close, without retries.
+Fresh synthetic macOS and Linux checks do not qualify real credentials, crash
+durability, IPC or a deployment, and the CLI has no registration command.
+The matching `tools/qualification/secret_registration_*.py` paths are maintainer
+aliases for these installed modules.
+
 MIT licensed. This is an independent project, not an official Pi or Docker release.
 
 ## Indexed inference environments (experimental)

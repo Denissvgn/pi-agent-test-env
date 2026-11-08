@@ -217,7 +217,7 @@ def _empty(reader, path):
     try:
         info = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
         _require(stat.S_ISREG(info.st_mode) and info.st_size == 0, 'owner_scope_unsupported')
-        body, ref = reader.read_bytes(path, private=True, maximum=0)
+        body, ref = reader.read_bytes(path, private=True, parent_fd=parent, maximum=0)
         _require(body == b'')
         return ref
     finally:os.close(parent)

@@ -88,6 +88,21 @@ class Reader:
         self.references = {}; self.bytes = 0; self.private_paths = set(); self.private_parent_paths = set(); self._scopes = []
         self.maximums = {}
 
+    def read_requirements(self):
+        """Describe consulted reads for a separately reviewed consumer policy.
+
+        This private planning projection performs no IO and grants no authority.
+        File and parent privacy are distinct; repeated reads retain the strongest
+        requirements and the smallest byte limit, including failed upgrades.
+        A failed or partial validation does not establish a complete read scope.
+        Semantic roles, complete namespaces and runtime/original-lease approval
+        remain separate consumer-policy inputs.
+        """
+        return [dict(self.references[name], maximum_bytes=self.maximums[name],
+                     private=name in self.private_paths,
+                     private_parent=name in self.private_parent_paths)
+                for name in sorted(self.references)]
+
     @contextlib.contextmanager
     def custody_scope(self):
         """Track consulted evidence without resetting the shared graph budget."""
@@ -117,18 +132,19 @@ class Reader:
         try:
             require(not stat.S_IMODE(os.fstat(parent).st_mode) & (0o077 if private_parent else 0o022), 'unsafe_path')
             fd = os.open(value.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
-            with os.fdopen(fd, 'rb') as stream:
-                before = os.fstat(stream.fileno())
+            try:
+                before = os.fstat(fd)
                 require(stat.S_ISREG(before.st_mode) and before.st_uid == os.getuid() and before.st_nlink == 1
                         and not stat.S_IMODE(before.st_mode) & (0o077 if private else 0o022)
                         and before.st_size <= limit, 'unsafe_record')
                 if str(value) not in self.references:
                     require(len(self.references) < MAX_REFERENCES
                             and self.bytes + before.st_size <= MAX_AGGREGATE_BYTES, 'inventory_unbounded')
-                body = stream.read(limit + 1); after = os.fstat(stream.fileno())
+                body = ownership._read_bounded(fd, 0 if limit == 0 else limit + 1); after = os.fstat(fd)
                 named = os.stat(value.name, dir_fd=parent, follow_symlinks=False)
                 signature = lambda s: (s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns, s.st_nlink)
                 require(signature(before) == signature(after) == signature(named) and len(body) == before.st_size)
+            finally:os.close(fd)
             held = os.fstat(parent)
             require(held.st_uid == os.getuid() and not stat.S_IMODE(held.st_mode) & (0o077 if private_parent else 0o022),
                     'unsafe_path')
@@ -1240,8 +1256,10 @@ def requires_proof(registry, record):
 
 
 def add_arguments(sub, default_lock):
+    helps = {'application-owner-inspect': 'Read-only inspection of retained application owner proof; never authorizes admission',
+             'application-owner-recover': 'Explicit cleanup of exact released-helper owned files with immutable proof; no dispatch'}
     for name in ('application-owner-inspect', 'application-owner-recover'):
-        parser = sub.add_parser(name, help='Inspect or clean exact historical application ownership without dispatch')
+        parser = sub.add_parser(name, help=helps[name])
         parser.add_argument('--lock-file', default=default_lock)
         parser.add_argument('--lock-wait-seconds', type=float, default=0)
         if name == 'application-owner-inspect':

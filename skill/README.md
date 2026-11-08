@@ -26,6 +26,11 @@ cleanup proof or package version does not qualify an integration or change an
 original failed campaign. Use the [owner compatibility boundary](references/OWNER-CLEANUP-COMPATIBILITY.md)
 and qualify a supported reader/provider before consuming the new cohort.
 
+The experimental [operation SDK](references/OPERATION-SDK.md) exposes fixed
+validation, redaction, credential and resource operations under an independently
+approved policy. Its first execution profile is Linux ARM64 CPython 3.12.13;
+source integration tests do not qualify native-host or real application use.
+
 ## Install the complete skill
 
 Use [HARNESSES.md](references/HARNESSES.md) for preserving project installation,

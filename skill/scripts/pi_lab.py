@@ -654,7 +654,19 @@ def working_directory(value: str) -> str:
     return safe_relative(value)
 
 
-def check_project_contract(workspace: Path, plan: dict) -> None:
+def check_project_contract(workspace: Path, plan: dict, *, metadata_reader=None) -> None:
+    # The operation SDK supplies a fixed scoped observer. Legacy CLI callers
+    # retain their existing path checks; payload data cannot select an observer.
+    if metadata_reader is not None:
+        for name in list(dict.fromkeys(plan.get('required_paths', []) + plan['protected_paths'])):
+            path = workspace / safe_relative(name)
+            if not metadata_reader(path, 'exists'):
+                raise LabError('Required/protected project metadata unavailable')
+        for stage in plan['agents'] + plan['setup'] + plan['checks']:
+            relative = working_directory(stage.get('cwd', '.'))
+            if not metadata_reader(workspace / relative, 'directory'):
+                raise LabError('Stage directory metadata unavailable')
+        return
     for name in list(dict.fromkeys(plan.get('required_paths', []) + plan['protected_paths'])):
         path = workspace / name
         if not path.exists():
@@ -677,7 +689,7 @@ def safe_relative(value: str) -> str:
     return p.as_posix()
 
 
-def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=False) -> dict:
+def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=False, *, dependency_reader=None) -> dict:
     agent_profile=agent_profile or agent_profiles.builtin()
     if not isinstance(value, dict):
         raise LabError('Plan must be a JSON object')
@@ -685,7 +697,7 @@ def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=
         import indexed_contract
         if 'inference_bindings' not in value:raise indexed_contract.IndexedError('selection-conflict')
         plain={k:copy.deepcopy(v) for k,v in value.items() if k!='inference_bindings'};plain['schema']=1
-        normalized=validate_plan(plain,base,agent_profile)
+        normalized=validate_plan(plain,base,agent_profile,dependency_reader=dependency_reader)
         names=[t['name'] for t in normalized['agents']];mapping=value['inference_bindings']
         if mapping=='external':
             if not external_bindings:raise indexed_contract.IndexedError('selection-conflict')
@@ -725,8 +737,17 @@ def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=
         if ('prompt' in t) == ('prompt_file' in t):
             raise LabError('Each agent needs exactly one of prompt or prompt_file')
         if 'prompt_file' in t:
-            source = (base / t.pop('prompt_file')).resolve()
-            t['prompt'] = source.read_text()
+            selected = t.pop('prompt_file')
+            if dependency_reader is None:
+                source = (base / selected).resolve()
+                t['prompt'] = source.read_text()
+            else:
+                source = base / safe_relative(selected)
+                body = dependency_reader(source, 128 * 1024)
+                if type(body) is not bytes or len(body) > 128 * 1024:
+                    raise LabError('Prompt dependency exceeds its bound')
+                try: t['prompt'] = body.decode('utf-8')
+                except UnicodeError: raise LabError('Prompt dependency is not UTF-8') from None
         if not isinstance(t['prompt'], str) or not t['prompt'].strip() or len(t['prompt'].encode()) > 128 * 1024:
             raise LabError('Agent prompt must be nonempty and at most 128 KiB')
         t.setdefault('name', f'agent-{i+1}')
@@ -1085,7 +1106,25 @@ def resolve_endpoint_path(args) -> Path:
         raise LabError(str(exc), 'environment-' + exc.state, steps.get(exc.state, '')) from None
 
 
-def run_suite(args, smoke=False, initial_record=None):
+def _suite_admission(args, existing_identity):
+    if existing_identity is None:
+        return admission_lock(args.lock_file,args.lock_wait_seconds)
+    from resources import existing_admission_lock
+    return existing_admission_lock(args.lock_file,existing_identity,args.lock_wait_seconds)
+
+
+def run_suite(args, smoke=False, initial_record=None, *, existing_lease_identity=None):
+    """Run under ordinary admission or an explicitly bound existing native lease.
+
+    The keyword is a trusted parent library binding, not a CLI selector or an
+    operation approval. The existing registry must pass unchanged admission and
+    terminal gates. No lease/registry creation or ordinary fallback is permitted
+    for this explicit route. Parallel cohort admission remains separate.
+    """
+    # The identity is data, never a callback-bearing object. Preserve a plain
+    # dictionary snapshot; the native admission primitive validates its fields.
+    if type(existing_lease_identity) is dict:
+        existing_lease_identity=dict(existing_lease_identity)
     initial=copy.deepcopy(initial_record) if initial_record is not None else outcomes.initial()
     try:attempt=outcomes.Attempt(args,initial)
     except (OSError,ValueError,controls.ControlError):
@@ -1107,7 +1146,9 @@ def run_suite(args, smoke=False, initial_record=None):
             if lease==project or project in lease.parents or project in lease.resolve().parents:
                 raise LabError('The host admission lock must remain outside the project')
         private=getattr(args,'_parallel_session',None)
-        lease=private.admission(args,attempt) if private is not None else admission_lock(args.lock_file,args.lock_wait_seconds)
+        if existing_lease_identity is not None and private is not None:
+            raise AdmissionError('resource-policy-invalid')
+        lease=private.admission(args,attempt) if private is not None else _suite_admission(args,existing_lease_identity)
         with lease as registry:
             if registry is not None:
                 registry.runroot=attempt.root
@@ -1135,7 +1176,7 @@ def run_suite(args, smoke=False, initial_record=None):
         else:attempt.cancel()
         if not owner_lost and getattr(args,'score_after_cancel',False) and attempt.record['scoring']['status']=='skipped':
             try:
-                with admission_lock(args.lock_file,args.lock_wait_seconds):
+                with _suite_admission(args,existing_lease_identity):
                     plan=controls.read(attempt.root/'plan.json')
                     receipts={i:controls.read(attempt.root/'scorers'/(str(i)+'.json')) for i,t in enumerate(plan['checks']) if t.get('scorer')}
                     score_artifacts(args,attempt,plan,attempt.record['image'],Path(attempt.record['workspace']),receipts,post_cancel=True)

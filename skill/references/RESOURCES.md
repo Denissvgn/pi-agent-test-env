@@ -201,6 +201,22 @@ Registry-aware admission also reports `host-registry-unsafe` with bounded guidan
 when ownership, daemon identity, writer absence or sensitive/inference cleanup
 cannot be reconciled. Do not delete the registry or bypass its host lease.
 
+Native host integrations that must preserve an already selected lease can use
+`resources.existing_admission_lock(path, expected_identity, wait_seconds=0,
+before_registry=None)`. The expected identity is an exact `device`/`inode` mapping
+from independently approved native configuration. The lease and adjacent registry
+must already exist. The primitive opens the lease read-only and never creates,
+truncates, chmods or replaces it. It retains normal registry reconciliation,
+current-registry context and terminal closure; unresolved ownership still blocks
+entry. Named/held lease identity is rechecked around the preflight, reconciliation,
+caller body and closure, and a close failure vetoes final success.
+
+This primitive is separate from the ordinary CLI's lease metadata behavior. It
+does not authorize historical maintenance, dispatch agents, select credentials or
+implement a host-to-guest carrier. Guest inode numbers are not native lease
+identities. Keep any dependent execution route disabled until its complete source,
+placement, admission and effect contract has been separately qualified.
+
 `host-registry-capacity` means the finite ownership inventory cannot admit another
 intent or the planned collection's headroom. The registry retains at most 8192
 committed records; observation separately bounds 32 secure atomic temporary files.

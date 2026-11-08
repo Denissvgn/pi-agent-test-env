@@ -1,5 +1,6 @@
 """Published-content boundaries and safe verifier rejection behavior."""
 import hashlib
+import os
 from pathlib import Path
 import stat
 import shutil
@@ -24,6 +25,53 @@ class PublishingTests(unittest.TestCase):
             check_package.export_skill.update_manifest(source)
             with self.assertRaisesRegex(ValueError,'required'):
                 check_package.check(source)
+
+    def test_operation_sdk_runtime_is_required_even_with_regenerated_manifest(self):
+        for name in ('scripts/operation_sdk/worker.py', 'references/OPERATION-SDK.md'):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                source=Path(temporary)/'skill';shutil.copytree(REPOSITORY/'skill',source)
+                (source/name).unlink()
+                check_package.export_skill.update_manifest(source)
+                with self.assertRaisesRegex(ValueError,'required'):
+                    check_package.check(source)
+
+    def copied_repository(self, root):
+        repository=root/'source'
+        for path in build_release.source_files(REPOSITORY):
+            target=repository/path.relative_to(REPOSITORY);target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(path,target)
+        return repository
+
+    def set_changelog_entry(self, repository, heading):
+        path=repository/'skill/CHANGELOG.md';lines=path.read_text().splitlines(True)
+        index=next(i for i,line in enumerate(lines) if line.startswith('## '))
+        lines[index]='## '+heading+'\n';path.write_text(''.join(lines))
+
+    def test_release_build_requires_the_changelog_to_name_the_package_version(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary).resolve();repository=self.copied_repository(root)
+            version=check_package.export_skill.package_metadata(repository/'skill')['version']
+            self.set_changelog_entry(repository,'Unreleased')
+            before=(repository/'skill/MANIFEST.sha256').read_bytes()
+            with self.assertRaisesRegex(ValueError,'CHANGELOG top entry'):
+                build_release.build(root/'refused',repository)
+            self.assertFalse((root/'refused').exists())
+            self.assertEqual((repository/'skill/MANIFEST.sha256').read_bytes(),before)
+            self.assertFalse(build_release.build(root/'candidate',repository,candidate=True)['publishable'])
+            self.set_changelog_entry(repository,version+' (release)')
+            self.assertTrue(build_release.build(root/'release',repository)['publishable'])
+
+    def test_archives_are_byte_reproducible_regardless_of_file_times(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary).resolve();repository=self.copied_repository(root)
+            build_release.build(root/'first',repository,candidate=True)
+            for path in repository.rglob('*'):
+                if path.is_file():os.utime(path,(1_000_000_000,1_000_000_000))
+            build_release.build(root/'second',repository,candidate=True)
+            self.assertEqual((root/'first/SHA256SUMS').read_bytes(),(root/'second/SHA256SUMS').read_bytes())
+            with zipfile.ZipFile(root/'first/pi-agent-test-env-claude.zip') as archive:
+                command=archive.getinfo('.claude/commands/pi-agent-test-env.md')
+                self.assertEqual(stat.S_IMODE(command.external_attr>>16),0o600)
+                self.assertEqual(stat.S_IFMT(command.external_attr>>16),stat.S_IFREG)
 
     def test_source_allowlist_retains_tests_and_runtime_plans_without_internal_history(self):
         paths={p.relative_to(REPOSITORY).as_posix() for p in build_release.source_files(REPOSITORY)}

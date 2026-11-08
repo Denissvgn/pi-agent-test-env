@@ -201,16 +201,18 @@ class InPlaceAdmissionTests(unittest.TestCase):
             active.discard(fd)
 
         @contextlib.contextmanager
+        def partial_enumeration(path):
+            with original_scandir(path) as entries:
+                def broken():
+                    yield next(entries)
+                    raise PermissionError(errno.EACCES, 'injected partial enumeration failure')
+                yield broken()
+
         def enumeration(path):
             info = os.fstat(path) if isinstance(path, int) else os.stat(path)
-            with original_scandir(path) as entries:
-                if info.st_ino == inode:
-                    def broken():
-                        yield next(entries)
-                        raise PermissionError(errno.EACCES, 'injected partial enumeration failure')
-                    yield broken()
-                else:
-                    yield entries
+            # Preserve scandir's iterable/context interface for unrelated
+            # provenance walks, including pathlib.walk on Python 3.12.
+            return partial_enumeration(path) if info.st_ino == inode else original_scandir(path)
 
         with patch.object(lab.os, 'open', side_effect=opening), patch.object(lab.os, 'close', side_effect=closing):
             error = self.assert_rejected(inspection=patch.object(lab.os, 'scandir', side_effect=enumeration))

@@ -61,7 +61,7 @@ class ReaderContractTests(unittest.TestCase):
         for private in (str(Path.home()),'reports/'):
             self.assertNotIn(private,text)
 
-    def _reader(self,vector):
+    def _reader(self,vector, *, replay=None):
         # Provider/test fixture imports occur only after the modeled policy gate.
         from tests import test_application_owner_legacy_dispatch as fixtures
         from tests.test_application_owner_legacy_support import AcceptanceFixture
@@ -130,15 +130,18 @@ class ReaderContractTests(unittest.TestCase):
                         if mutation=='reference_budget':field='MAX_REFERENCES';limit=len(refs)-1
                         elif mutation=='aggregate_budget':field='MAX_AGGREGATE_BYTES';limit=sum(Path(p).stat().st_size for p in refs)-1
                         else:field='MAX_BYTES';limit=max(Path(p).stat().st_size for p in refs)-1
-                        stack.enter_context(mock.patch.object(cleanup,field,limit))
+                        if replay is None:stack.enter_context(mock.patch.object(cleanup,field,limit))
                     elif mutation=='strongest_privacy':
+                        if replay is not None:
+                            case.receipt_path.chmod(0o644);return replay(case,terminal,mutation)
                         reader=cleanup.Reader();reader.read(case.receipt_path,private=True);case.receipt_path.chmod(0o644)
                         reader.read(case.receipt_path,private=False);return True
                     elif mutation=='strongest_role_limit':
+                        if replay is not None:return replay(case,terminal,mutation)
                         path=case.root/'empty.bin';path.write_bytes(b'');path.chmod(0o600);reader=cleanup.Reader()
                         reader.read_bytes(path,maximum=0);path.write_bytes(b'changed');reader.read_bytes(path);return True
                     elif mutation!='none':raise AssertionError('Unknown vector mutation')
-                    return case.replay()
+                    return case.replay() if replay is None else replay(case,terminal,mutation)
         finally:case.doCleanups()
 
     def test_published_vectors(self):

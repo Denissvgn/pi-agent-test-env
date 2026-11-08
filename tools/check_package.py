@@ -21,7 +21,11 @@ REQUIRED_FILES = {'SKILL.md','skill.json','LICENSE','MANIFEST.sha256','scripts/p
                   'references/OWNER-CLEANUP-COMPATIBILITY.md',
                   'assets/application-owner-reader-v1.json','assets/application-owner-reader-vectors-v1.json',
                   *('scripts/application_owner_legacy'+suffix+'.py' for suffix in
-                    ('','_catalog','_controller','_launchers','_roots','_namespace','_protocol','_native','_discard','_publication'))}
+                    ('','_catalog','_controller','_launchers','_roots','_namespace','_protocol','_native','_discard','_publication')),
+                  'references/OPERATION-SDK.md',
+                  *('scripts/operation_sdk/'+name+'.py' for name in
+                    ('__init__','client','collect','policy','runtime','source','state','wire','worker',
+                     'secret_registration_contract','secret_registration_posix','secret_registration_primitive'))}
 REQUIRED_DIRECTORIES = {'scripts','runtime','assets','examples','docker','references'}
 
 

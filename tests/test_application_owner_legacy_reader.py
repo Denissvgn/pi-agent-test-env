@@ -1,6 +1,7 @@
 """Reader and version fences shared by source bytes and JSON evidence."""
 import hashlib
 import os
+import stat
 from pathlib import Path
 import tempfile
 import unittest
@@ -27,6 +28,20 @@ class LegacyReaderTests(unittest.TestCase):
             reader.read_bytes(ref['path'],private=True)
         self.assertEqual(cleanup.diagnostics.diagnostic(caught.exception)['condition'],'unsafe_record')
 
+    def test_zero_byte_role_never_reads_a_payload_inserted_after_fstat(self):
+        ref=self.put('empty-race.bin',b'');target=Path(ref['path'])
+        original=os.fstat;mutated=[];reader=cleanup.Reader()
+        def observe(fd):
+            info=original(fd)
+            if stat.S_ISREG(info.st_mode) and info.st_size==0 and not mutated:
+                mutated.append(True);target.write_bytes(b'unreviewed payload')
+            return info
+        with (mock.patch.object(os,'fstat',side_effect=observe),
+              mock.patch.object(os,'read',side_effect=AssertionError('Zero-byte role must not read payload'))):
+            with self.assertRaises(cleanup.ownership.RegistryError):
+                reader.read_bytes(ref['path'],private=True,maximum=0)
+        self.assertEqual(mutated,[True]);self.assertEqual(reader.bytes,0);self.assertEqual(reader.references,{})
+
     def test_source_bytes_are_data_and_share_json_graph_budget(self):
         ref = self.put('source.py', b'raise RuntimeError("source must never run")\n')
         other = self.put('metadata.json', b'{"schema":1}')
@@ -35,6 +50,46 @@ class LegacyReaderTests(unittest.TestCase):
         self.assertEqual(reader.reference(other), {'schema': 1})
         self.assertEqual(reader.bytes, sum(Path(r['path']).stat().st_size for r in (ref, other)))
         self.assertEqual(len(reader.references), 2)
+
+    def test_read_requirements_preserve_file_and_parent_privacy_separately(self):
+        parent = self.root / 'readable'; parent.mkdir(mode=0o755); parent.chmod(0o755)
+        target = parent / 'private.json'; target.write_bytes(b'{}'); target.chmod(0o600)
+        public = self.put('public.json', b'{}', mode=0o644)
+        reader = cleanup.Reader()
+        reader.read(target, private=True, private_parent=False)
+        reader.reference(public)
+        requirements = {row['path']: row for row in reader.read_requirements()}
+        self.assertEqual(requirements[str(target)], {
+            'path': str(target), 'sha256': hashlib.sha256(b'{}').hexdigest(),
+            'maximum_bytes': cleanup.MAX_BYTES, 'private': True, 'private_parent': False})
+        self.assertFalse(requirements[public['path']]['private'])
+        self.assertFalse(requirements[public['path']]['private_parent'])
+
+    def test_read_requirements_keep_zero_limit_and_strongest_repeated_read(self):
+        ref = self.put('empty', b''); reader = cleanup.Reader()
+        reader.read_bytes(ref['path'], maximum=0)
+        reader.read_bytes(ref['path'], private=True)
+        self.assertEqual(reader.read_requirements(), [{
+            **ref, 'maximum_bytes': 0, 'private': True, 'private_parent': True}])
+
+    def test_read_requirements_are_pure_detached_and_only_include_consulted_files(self):
+        reader = cleanup.Reader(); self.assertEqual(reader.read_requirements(), [])
+        self.put('unconsulted', b'private data')
+        second = self.put('z.json', b'{}'); first = self.put('a.json', b'{}')
+        reader.reference(second); reader.reference(first)
+        with (mock.patch('os.open', side_effect=AssertionError('footprint performed IO')),
+              mock.patch('os.stat', side_effect=AssertionError('footprint performed metadata IO'))):
+            observed = reader.read_requirements()
+        self.assertEqual([row['path'] for row in observed], sorted((first['path'], second['path'])))
+        observed[0]['sha256'] = '0' * 64
+        self.assertEqual(reader.read_requirements()[0]['sha256'], first['sha256'])
+
+    def test_read_requirements_cannot_erase_a_failed_privacy_upgrade(self):
+        ref = self.put('public.json', b'{}', mode=0o644); reader = cleanup.Reader()
+        reader.reference(ref)
+        with self.assertRaises(cleanup.ownership.RegistryError):reader.reference(ref, private=True)
+        self.assertTrue(reader.read_requirements()[0]['private'])
+        self.assertTrue(reader.read_requirements()[0]['private_parent'])
 
     def test_reusing_bytes_as_json_does_not_reset_limits(self):
         ref = self.put('metadata.json', b'{"schema":1}')

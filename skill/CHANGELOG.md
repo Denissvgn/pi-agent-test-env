@@ -1,5 +1,39 @@
 # Changelog
 
+## Unreleased
+
+- Add an experimental fixed-operation SDK with independent code/runtime/policy
+  approval, fresh workers, private framing, exact-reference reads, bounded
+  redaction and create-only registration. Initial execution support is Linux
+  ARM64 CPython 3.12.13; native-host and real application integration remain
+  separate qualification gates.
+- Preserve legacy validation APIs while adding explicit bounded dependency and
+  project-metadata readers for the SDK. Validation does not execute a plan or
+  freeze scorer assets. Existing releases and historical evidence are unchanged.
+- SDK dependency reads clamp fixed provider requests to the approved grant and
+  file cap, so legacy plan validation works under caps below 1 MiB. Larger
+  files are still refused, never truncated.
+- The SDK worker waits for its bootstrap frame with `poll`, accepting inherited
+  descriptor numbers above `FD_SETSIZE`. The registration receiver checks the
+  stored file's owner, 0600 mode, single link and value size itself.
+- The SDK pattern forecast is recalibrated to 259 bytes per protected byte, a
+  proven bound for three escape layers; protected references can total about
+  32 KB. Registration size remains bounded by the call forecast (about 4 KB).
+- Add `resources.existing_admission_lock` and the trusted-library
+  `run_suite(existing_lease_identity=...)` binding for native hosts that must
+  keep an already selected lease. Ordinary CLI admission is unchanged.
+- Add `Reader.read_requirements()` for separately reviewed consumer policies and
+  the `artifact_tool_observation` consumer role for the diagnostic adapter.
+- Registry and owner-proof reads use bounded descriptor IO without a second
+  file wrapper; registry records reject growth beyond 1 MiB after observation.
+- `application-owner-inspect` and `application-owner-recover` have distinct
+  help text. The `tools/qualification` registration modules are aliases of the
+  installed SDK modules.
+- Release builds refuse unless this changelog's top entry names the package
+  version (`--candidate` builds are marked unpublishable), and archives are
+  byte-reproducible. `tools/docker_ci.py` repeats the offline checks in a
+  bounded native Linux container; the maintainer suite requires Node.js 24+.
+
 ## 4.8.0 (experimental candidate)
 
 - Add the versioned `legacy_derived_v1` owner-proof method and
