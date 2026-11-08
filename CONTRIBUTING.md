@@ -69,6 +69,17 @@ excludes plans, backlogs, development reports, stored test output and earlier
 distributions. Source archives include the maintainer tests and publishing tools;
 skill archives contain only the installable skill.
 
+A release build refuses unless the first `## ` entry in `skill/CHANGELOG.md`
+names the `skill.json` version, so archives can never reuse an already published
+version name for different bytes. For candidate verification before the version
+bump, pass `--candidate`; its output and the verification report record
+`"publishable": false`. Before tagging, confirm the version is new on the remote
+with `git ls-remote --tags origin "v<version>"`; local clones can lack newer tags.
+
+Archives are byte-reproducible from the same tree: members carry a fixed time
+(`SOURCE_DATE_EPOCH` when set, otherwise 1980-01-01) and explicit Unix modes,
+so file timestamps and checkout times do not change `SHA256SUMS`.
+
 Verification safely extracts every layout, checks complete manifests, versions,
 permissions and resource hashes, runs the pinned official validator on all five
 named skill roots, then runs the maintainer suite against extracted package

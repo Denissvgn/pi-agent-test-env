@@ -88,7 +88,9 @@ def verify(archives,report,repository=REPO,*,test_timeout_seconds=DEFAULT_TEST_T
     require(all(check_package.sha(archives/n)==h for n,h in sums.items()),'Published checksums differ')
     require((archives/'pi-agent-test-env.zip').read_bytes()==(archives/f'pi-agent-test-env-{version}.zip').read_bytes()
             ==(archives/'pi-agent-test-env-antigravity.zip').read_bytes(),'Universal aliases are not byte-identical')
-    result={'status':'pass','version':version,'archive_sha256':sums,'package':{k:v for k,v in package.items() if k!='files'},'layouts':[],
+    entry=build_release.changelog_entry(source)
+    result={'status':'pass','version':version,'changelog_entry':entry,'publishable':entry==version,
+            'archive_sha256':sums,'package':{k:v for k,v in package.items() if k!='files'},'layouts':[],
             'test_timeout_seconds':test_timeout_seconds}
     with tempfile.TemporaryDirectory(prefix='pi-published-verification-') as temporary:
         temp=Path(temporary).resolve();roots=[]
@@ -144,7 +146,7 @@ def main():
         value={'status':'fail','reason':str(exc)}
         if isinstance(exc,VerificationCommandError): value['failed_command']=exc.row
         print(json.dumps(value));return 2
-    print(json.dumps({k:result[k] for k in ('status','version','tests_run','test_seconds','no_internal_planning_artifacts','published')},indent=2));return 0
+    print(json.dumps({k:result[k] for k in ('status','version','publishable','tests_run','test_seconds','no_internal_planning_artifacts','published')},indent=2));return 0
 
 
 if __name__=='__main__':sys.exit(main())

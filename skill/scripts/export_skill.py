@@ -9,6 +9,7 @@ import re
 import os
 from pathlib import Path
 import sys
+import time
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +19,28 @@ EXCLUDE_NAMES = {'.DS_Store'}
 SKILL_NAME = 'pi-agent-test-env'
 HARNESS_PATHS = {'claude': '.claude/skills', 'codex': '.agents/skills', 'antigravity': '.agents/skills'}
 EXCLUDE_DIRS = {'__pycache__'}
+ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
+
+
+def zip_timestamp() -> tuple:
+    """Fixed member time: SOURCE_DATE_EPOCH when set, otherwise the ZIP epoch."""
+    value = os.environ.get('SOURCE_DATE_EPOCH')
+    if value is None:
+        return ZIP_EPOCH
+    if not value.isdigit():
+        raise ValueError('SOURCE_DATE_EPOCH must be a nonnegative integer')
+    return max(ZIP_EPOCH, tuple(time.gmtime(int(value))[:6]))
+
+
+def write_entry(archive: zipfile.ZipFile, source: Path | None, name: str, *,
+                data: bytes | None = None, mode: int | None = None) -> None:
+    """Write one regular-file member reproducibly: fixed time, explicit Unix mode."""
+    body = source.read_bytes() if data is None else data
+    info = zipfile.ZipInfo(name, date_time=zip_timestamp())
+    info.create_system = 3
+    info.external_attr = (stat.S_IFREG | ((source.stat().st_mode & 0o777) if mode is None else mode)) << 16
+    info.compress_type = zipfile.ZIP_DEFLATED
+    archive.writestr(info, body)
 
 
 def file_list(base: Path) -> list[Path]:
@@ -44,7 +67,9 @@ def update_manifest(base: Path) -> Path:
             continue
         digest = hashlib.sha256(p.read_bytes()).hexdigest()
         lines.append(f'{digest}  {rel}')
-    manifest_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+    body = '\n'.join(lines) + '\n'
+    if not manifest_path.is_file() or manifest_path.read_text(encoding='utf-8') != body:
+        manifest_path.write_text(body, encoding='utf-8')
     return manifest_path
 
 
@@ -92,9 +117,9 @@ def build_zip(base: Path, dest: Path, prefix: str, *, claude_command: bool = Fal
         raise ValueError(f'Refusing linked archive destination: {dest}')
     with zipfile.ZipFile(dest, 'w', compression=zipfile.ZIP_DEFLATED) as zf:
         for p in file_list(base):
-            zf.write(p, f'{prefix}/{p.relative_to(base).as_posix()}')
+            write_entry(zf, p, f'{prefix}/{p.relative_to(base).as_posix()}')
         if claude_command:
-            zf.writestr(f'.claude/commands/{SKILL_NAME}.md', CLAUDE_COMMAND)
+            write_entry(zf, None, f'.claude/commands/{SKILL_NAME}.md', data=CLAUDE_COMMAND.encode(), mode=0o600)
     return dest
 
 
