@@ -250,6 +250,16 @@ def docker_args(args, image: str, workspace: Path, control: Path, state: Path,
     return result + [image, '/opt/pi-lab/worker.py']
 
 
+# Bounded Docker calls made by stream_run. Inspecting or removing an exited
+# container can take several seconds on a loaded daemon, so post-exit cleanup
+# gets its own window instead of whatever process grace remains (10 seconds for
+# an unstaged run such as a preflight). In-run signals keep a short bound so the
+# supervision loop stays responsive. Unconfirmed cleanup still fails closed.
+DOCKER_SIGNAL_SECONDS = 5
+DOCKER_CLEANUP_COMMAND_SECONDS = 30
+DOCKER_CLEANUP_WINDOW_SECONDS = 60
+
+
 def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
                secret: str = '', max_bytes: int = 64 * 1024 * 1024, stage=None, keep_budget=False, resume_budget=False,
                application_secrets=None, redaction_secrets=(), native_control=None) -> dict:
@@ -306,9 +316,9 @@ def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
             pipe.close()
     def cleanup_time():
         return max(.1,(cleanup_deadline or (time.monotonic()+grace))-time.monotonic())
-    def docker_command(argv):
+    def docker_command(argv,limit=DOCKER_CLEANUP_COMMAND_SECONDS):
         try:
-            return command(argv,timeout=min(5,cleanup_time()),required=False)
+            return command(argv,timeout=min(limit,cleanup_time()),required=False)
         except (LabError,OSError) as exc:
             return argparse.Namespace(returncode=1,stdout='',stderr=str(exc))
     try:
@@ -330,7 +340,7 @@ def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
                 state=controls.resolve(stage[0],stage[1]['stage_id'])[1]
                 for directive in segments.pending(stage[0],stage[1],state.get('segment_id'),set(result.get('interrupts_applied',[]))):
                     if directive.get('interrupt'):
-                        sent=docker_command(['docker','kill','--signal=SIGUSR1',name]) if argv[:2]==['docker','run'] else None
+                        sent=docker_command(['docker','kill','--signal=SIGUSR1',name],DOCKER_SIGNAL_SECONDS) if argv[:2]==['docker','run'] else None
                         if sent is None:
                             try:p.send_signal(signal.SIGUSR1)
                             except ProcessLookupError:sent=argparse.Namespace(returncode=1)
@@ -379,6 +389,7 @@ def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
             except (OSError,ValueError,controls.ControlError) as exc:
                 result['budget_error']=str(exc);result['exit_code']=2
         if argv[:2] == ['docker', 'run']:
+            cleanup_deadline=max(cleanup_deadline,time.monotonic()+DOCKER_CLEANUP_WINDOW_SECONDS)
             inspect = docker_command(['docker', 'inspect', name])
             if inspect.returncode == 0:
                 try:

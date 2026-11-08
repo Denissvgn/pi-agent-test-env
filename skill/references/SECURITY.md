@@ -229,8 +229,11 @@ for a bounded host response. Worker views transmit a remaining duration, never
 a host clock timestamp. A revision is applied at most once and rereading it
 cannot renew the worker timer. The host independently enforces the actual bound.
 Cleanup grace is recorded separately; timeout, log limit, OOM observation and
-cleanup failure remain distinct. Actual worker ingestion and resource behavior
-require observations from the selected runtime.
+cleanup failure remain distinct. After the process exits, container inspection
+and removal share a separate 60-second window with at most 30 seconds per Docker
+call; a removal that cannot be confirmed in it is `cleanup_error`, never a pass.
+Actual worker ingestion and resource behavior require observations from the
+selected runtime.
 
 ## Intervention evidence
 

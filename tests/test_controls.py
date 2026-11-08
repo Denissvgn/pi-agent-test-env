@@ -310,6 +310,71 @@ class DeadlineTests(unittest.TestCase):
             self.assertEqual(result['termination_trigger'],'oom')
             self.assertFalse(result['cleanup_confirmed'])
 
+    def docker_cleanup(self,durations):
+        """Run an exited unstaged container while Docker calls take simulated seconds."""
+        import io,types
+        process=mock.Mock();process.poll.return_value=0;process.wait.return_value=0
+        process.stdout=io.BytesIO();process.stderr=io.BytesIO()
+        clock=[1000.0];calls=[]
+        def cmd(argv,**kw):
+            calls.append((argv[1],kw['timeout']))
+            if durations[argv[1]]>kw['timeout']:
+                clock[0]+=kw['timeout'];raise lab.LabError(f"docker: Command {argv!r} timed out after {kw['timeout']} seconds")
+            clock[0]+=durations[argv[1]]
+            if argv[1]=='inspect':return argparse.Namespace(returncode=0,stdout=json.dumps([{'State':{'ExitCode':0},'HostConfig':{}}]),stderr='')
+            return argparse.Namespace(returncode=0,stdout='fake\n',stderr='')
+        fake_time=types.SimpleNamespace(monotonic=lambda:clock[0],sleep=lambda seconds:None)
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch.object(lab.subprocess,'Popen',return_value=process),mock.patch.object(lab,'command',side_effect=cmd),mock.patch.object(lab,'time',fake_time):
+                result=lab.stream_run(['docker','run','fixture'],Path(td),1,'fake')
+        return result,calls
+
+    def test_slow_removal_of_exited_container_is_confirmed(self):
+        # The removal outlasts both the former 5-second bound and the 10-second
+        # unstaged process grace; the cleanup window still confirms it.
+        result,calls=self.docker_cleanup({'inspect':.2,'rm':12})
+        self.assertEqual(calls,[('inspect',lab.DOCKER_CLEANUP_COMMAND_SECONDS),('rm',lab.DOCKER_CLEANUP_COMMAND_SECONDS)])
+        self.assertTrue(result['cleanup_confirmed'])
+        self.assertEqual(result['termination_reason'],'completed')
+        self.assertEqual(result['exit_code'],0)
+        self.assertNotIn('cleanup_warning',result)
+
+    def test_stalled_docker_cleanup_is_bounded_and_fails_closed(self):
+        result,calls=self.docker_cleanup({'inspect':45,'rm':45})
+        self.assertEqual(calls,[('inspect',30),('rm',30)])
+        self.assertEqual(lab.DOCKER_CLEANUP_WINDOW_SECONDS,60)
+        self.assertEqual(result['elapsed_seconds'],60)
+        self.assertFalse(result['cleanup_confirmed'])
+        self.assertEqual(result['termination_reason'],'cleanup_error')
+        self.assertEqual(result['termination_trigger'],'completed')
+        self.assertIn('timed out after 30 seconds',result['cleanup_warning'])
+        self.assertIn('timed out after 30 seconds',result['inspection_warning'])
+
+    def test_in_run_interrupt_signal_keeps_short_docker_bound(self):
+        import io
+        process=mock.Mock();polls=iter([None])
+        process.poll.side_effect=lambda:next(polls,0);process.wait.return_value=0
+        process.stdout=io.BytesIO();process.stderr=io.BytesIO()
+        calls=[]
+        def cmd(argv,**kw):
+            calls.append((argv[1],kw['timeout']))
+            if argv[1]=='inspect':return argparse.Namespace(returncode=0,stdout=json.dumps([{'State':{'ExitCode':0},'HostConfig':{}}]),stderr='')
+            return argparse.Namespace(returncode=0,stdout='',stderr='')
+        limits={'timeout_seconds':1}
+        budget={'deadline_host_monotonic':float('inf'),'original_limits':limits,'effective_limits':limits,'revision':0,'cleanup_grace_seconds':30}
+        with tempfile.TemporaryDirectory() as td:
+            stage=(Path(td),{'stage_id':'stage','original_limits':limits})
+            with mock.patch.object(lab.subprocess,'Popen',return_value=process),mock.patch.object(lab,'command',side_effect=cmd), \
+                 mock.patch.multiple(lab.controls,start_budget=mock.DEFAULT,capture_observations=mock.DEFAULT,
+                                     process_budget_requests=mock.DEFAULT,resolve=mock.DEFAULT,audit=mock.DEFAULT) as stubs, \
+                 mock.patch.object(lab.segments,'pending',return_value=[{'id':'directive','interrupt':True}]):
+                stubs['start_budget'].return_value=budget;stubs['process_budget_requests'].return_value=budget
+                stubs['resolve'].return_value=(None,{'segment_id':'segment'})
+                result=lab.stream_run(['docker','run','fixture'],Path(td)/'logs',31,'fake',stage=stage)
+        self.assertEqual(calls,[('kill',lab.DOCKER_SIGNAL_SECONDS),('inspect',30),('rm',30)])
+        self.assertEqual(result['interrupts_applied'],['directive'])
+        self.assertTrue(result['cleanup_confirmed'])
+
     def test_wait_reports_host_application_and_stale_queued_request_rejection(self):
         import threading,time,io,contextlib
         import stage_control as controls
