@@ -37,6 +37,10 @@
   registry) as every command's default; unset keeps the shared per-user lease.
   The indexed qualification campaign can freeze a fresh dedicated lease with
   `--lock-file` and exports it to every phase and child command.
+- The indexed campaign can qualify a subset of reviewed Pi releases with
+  `--release`; its cell, segment, inspection and launch totals are derived from
+  the selected matrix (the default for both releases is unchanged), and the
+  infrastructure checks use the first selected release's core image.
 
 ## 4.8.0 (experimental candidate)
 

@@ -49,6 +49,18 @@ CONCURRENCY={'scheduler':'parallel-trials-v1','host_generation':1,'registry_awar
                'max_inflight':1,'max_pending':4,'queue_wait_seconds':180,'request_timeout_seconds':180}}
 POSITIVE=('coding','lookup','credentials','browser')
 FAULTS=('abort','timeout','recovery','crash','discovery','boundary','contamination','provider-fatal')
+FULL_FAULTS=('recovery','crash','discovery','boundary')
+
+
+def expected_fault_segments(kind):
+    """Frozen segment accounting for one scripted fault batch."""
+    return 6 if kind=='recovery' else 4 if kind in FULL_FAULTS else 2
+
+
+def primary_core_image(manifest):
+    """Core image of the first selected release; unselected campaigns keep 0.87.1."""
+    releases=manifest.get('releases') or list(release_contracts.RELEASES)
+    return manifest['images']['core-'+releases[0]]['id']
 
 
 def matrix():
@@ -210,7 +222,7 @@ def infrastructure(root):
 
 
 def infrastructure_overlap(root,manifest):
-    image=manifest['images']['core-0.87.1']['id'];args=lab.parser().parse_args(['run','--image',image,'--platform','linux/arm64','--resources',str(root/'worker.json')])
+    image=primary_core_image(manifest);args=lab.parser().parse_args(['run','--image',image,'--platform','linux/arm64','--resources',str(root/'worker.json')])
     observations=[];owned=[]
     with resources.admission_lock(args.lock_file) as registry:
         registry.command=lambda argv:command(argv,required=False);lab.require_host(args)
@@ -444,7 +456,7 @@ def validate_fault(exp,kind,rows,invocation,batch):
     if len(rows)!=batch['cells'] or any(len(row['attempts'])!=1 for row in attempted):
         raise RuntimeError('Fault accounting lost planned cells or introduced retries')
     records=[row['attempts'][0]['result'] for row in attempted]
-    full=kind in ('recovery','crash','discovery','boundary')
+    full=kind in FULL_FAULTS
     if len(attempted)!=(4 if full else 2):raise RuntimeError('Fault attempted/pending denominator differs from frozen policy')
     if not all(row['attempts'] for row in rows[:2]):raise RuntimeError('Both first active trials were not retained')
     codes={'PASS':0,'FAIL':1,'INTERRUPTED':2,'RECOVERED':1,'BLOCKED':2}
@@ -508,7 +520,7 @@ def validate_fault(exp,kind,rows,invocation,batch):
         if invocation['exit_code']!=0 or any(r['status']!='PASS' for r in records):raise RuntimeError('Namespace/discovery lane failed')
         if kind=='boundary' and (not observed.get('protected_before') or len(observed['protected_before'])!=2 or observed.get('protected_after')!=observed['protected_before']):
             raise RuntimeError('Boundary protection evidence missing')
-    expected_segments=6 if kind=='recovery' else 4 if full else 2
+    expected_segments=expected_fault_segments(kind)
     if sum(len(v) for v in by_run.values())!=expected_segments:raise RuntimeError('Fault segment/attempt accounting mismatch')
 
 
@@ -621,7 +633,7 @@ def collect(root):
     root,manifest,state=verify(root)
     if state['phase']!='infrastructure_qualified':raise ValueError('Infrastructure gate required; failed/running collection cannot repeat')
     state['phase']='collecting';start=time.monotonic();controls.atomic(root/'state.json',state)
-    endpoint=lab.load_endpoint(root/'endpoint.json');authority=AuthorityOwner(root,manifest['images']['core-0.87.1']['id'],endpoint)
+    endpoint=lab.load_endpoint(root/'endpoint.json');authority=AuthorityOwner(root,primary_core_image(manifest),endpoint)
     try:
         authority.start()
         for batch in manifest['batches']:
@@ -701,7 +713,7 @@ def infrastructure_owner(root,image):
 
 
 def infrastructure_owner_loss(root,manifest):
-    image=manifest['images']['core-0.87.1']['id']
+    image=primary_core_image(manifest)
     with (root/'owner-loss-owner.log').open('w') as output:
         # Keep the frozen helper in this source file; no generated code gets promoted.
         source="import sys;from pathlib import Path;sys.path.insert(0,sys.argv[1]);import parallel;parallel.infrastructure_owner(Path(sys.argv[2]),sys.argv[3])"
@@ -729,7 +741,7 @@ def infrastructure_owner_loss(root,manifest):
 
 
 def infrastructure_cancel(root,manifest):
-    image=manifest['images']['core-0.87.1']['id'];args=lab.parser().parse_args(['run','--image',image,'--platform','linux/arm64','--resources',str(root/'worker.json')])
+    image=primary_core_image(manifest);args=lab.parser().parse_args(['run','--image',image,'--platform','linux/arm64','--resources',str(root/'worker.json')])
     records=[];processes=[]
     with resources.admission_lock(args.lock_file) as registry:
         registry.command=lambda argv:command(argv,required=False);lab.require_host(args)
@@ -764,11 +776,11 @@ def infrastructure_gateway(root,manifest):
     folder=root/'infrastructure-gateway';folder.mkdir()
     endpoint={'base_url':'http://example.invalid/v1','model':'qualification-diagnostic','api_key_env':'QUALIFICATION_INFERENCE',
               'context_window':32768,'max_tokens':1024,'reasoning':False}
-    authority=AuthorityOwner(folder,manifest['images']['core-0.87.1']['id'],endpoint,read_model_key=False)
+    authority=AuthorityOwner(folder,primary_core_image(manifest),endpoint,read_model_key=False)
     try:
         authority.start();endpoint.update(base_url=authority.child+'/v1',host_base_url=authority.host+'/v1')
         controls.atomic(folder/'endpoint.json',endpoint)
-        args=lab.parser().parse_args(['run','--image',manifest['images']['core-0.87.1']['id'],'--platform','linux/arm64','--resources',str(root/'worker.json')])
+        args=lab.parser().parse_args(['run','--image',primary_core_image(manifest),'--platform','linux/arm64','--resources',str(root/'worker.json')])
         with resources.admission_lock(args.lock_file) as registry:
             registry.command=lambda argv:command(argv,required=False);lab.require_host(args)
             pool=Allocator(CONCURRENCY['aggregate']);trial=str(uuid.uuid4());work=[{'trial_id':trial,'endpoint':'endpoint.json'}]

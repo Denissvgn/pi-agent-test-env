@@ -179,6 +179,41 @@ class IntentTests(unittest.TestCase):
             with self.subTest(lease=lease),patch.object(indexed.lab,'host_lock_file',return_value=str(host)):
                 with self.assertRaises(ValueError):self.frozen_with_lease(lease)
                 self.assertFalse((self.root/'intent').exists())
+    def test_release_selection_derives_matrix_totals_and_infrastructure_paths(self):
+        both=indexed.campaign_counts(indexed.matrix())
+        self.assertEqual((both['planned_cells'],both['segments_ceiling'],both['expected_segments'],
+                          both['expected_real_segments'],both['expected_scripted_segments'],both['coding_pipelines']),(220,312,292,240,52,36))
+        rows=indexed.matrix(['1.2.0']);self.assertEqual({r['release'] for r in rows},{'1.2.0'})
+        one=indexed.campaign_counts(rows)
+        self.assertEqual((one['planned_cells'],one['segments_ceiling'],one['expected_segments'],one['coding_pipelines']),(110,156,146,18))
+        self.assertEqual(one['expected_scripted_segments'],sum(indexed.predecessor.expected_fault_segments(k) for k in indexed.predecessor.FAULTS))
+        paths=indexed.launch_derivation(rows)['infrastructure_paths']
+        self.assertEqual((paths['image_admission'],paths['dom_image_probes'],paths['dom_workers']),(2,1,1))
+        self.assertEqual(indexed.matrix(['1.2.0','0.87.1']),indexed.matrix())
+    def test_release_selection_rejects_empty_duplicate_or_unreviewed_releases(self):
+        for value in ([],['1.2.0','1.2.0'],['9.9.9']):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):indexed.selected_releases(value)
+                with patch.object(secret_store,'default_store',return_value=self.store),self.assertRaises(ValueError):
+                    indexed.freeze(self.root/'intent',self.root/'profiles.json',self.root/'images.json','fixture',releases=value)
+                self.assertFalse((self.root/'intent').exists())
+    def test_single_release_freeze_needs_only_its_images_and_selects_its_core_image(self):
+        images={kind+'-1.2.0':{'id':'sha256:'+digit*64,'platform':'linux/arm64'} for kind,digit in (('core','b'),('browser','c'))}
+        self.write('images.json',images)
+        with patch.object(secret_store,'default_store',return_value=self.store),patch.object(indexed.lab,'command',side_effect=AssertionError('No Docker permitted')),patch.object(indexed.pi_release,'native',side_effect=AssertionError('No native execution permitted')):
+            result=indexed.freeze(self.root/'intent',self.root/'profiles.json',self.root/'images.json','fixture',releases=['1.2.0'])
+        manifest=experiments.read_json(self.root/'intent/manifest.json');self.addCleanup(shutil.rmtree,manifest['private_root'],ignore_errors=True)
+        self.assertEqual((result['releases'],result['planned_cells'],result['segments_ceiling']),(['1.2.0'],110,156))
+        self.assertEqual(manifest['releases'],['1.2.0']);self.assertEqual(set(manifest['images']),{'core-1.2.0','browser-1.2.0'})
+        self.assertEqual((manifest['planned_cells'],manifest['expected_segments']),(110,146))
+        self.assertEqual(manifest['registry_capacity']['new_records_ceiling'],724+98)
+        indexed.verify(self.root/'intent')
+        self.assertEqual(indexed.predecessor.primary_core_image(manifest),'sha256:'+'b'*64)
+        self.assertEqual(indexed.manifest_releases(manifest),('1.2.0',))
+    def test_unselected_parallel_manifests_keep_the_first_reviewed_core_image(self):
+        manifest={'images':{'core-0.87.1':{'id':'sha256:'+'1'*64},'core-1.2.0':{'id':'sha256:'+'2'*64}}}
+        self.assertEqual(indexed.predecessor.primary_core_image(manifest),'sha256:'+'1'*64)
+        self.assertEqual([indexed.predecessor.expected_fault_segments(k) for k in ('recovery','crash','abort')],[6,4,2])
     def test_counter_charges_before_launch_and_rejects_architecture_caps_cleanup(self):
         self.frozen();root=self.root/'intent';now=time.monotonic()
         value={'phase':'A','whole_deadline':now+100,'phase_deadline':now+50,'docker':'/synthetic/docker','counts':{p:{'containers':0,'networks':0} for p in ('infrastructure','A','B')}}
