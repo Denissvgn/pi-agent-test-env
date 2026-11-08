@@ -70,7 +70,16 @@ must contain the SHA-256 of the frozen `manifest.json` as
 `approved_manifest_sha256` and `"older_clients_quiesced": true`. The indexed
 `freeze` makes no native call, so it also checks that the campaign still fits
 changed code before any collection.
-Record the dated outcome, its cell counts and limits in `skill/QUALIFICATION.md`.
+
+Campaigns use the shared host lease and registry by default. When that registry
+is blocked by retained ownership or lacks headroom (the indexed campaign reserves
+up to 1,633 records of the 8,192 limit), pass `--lock-file` to the indexed
+`freeze` with a fresh absolute path outside the qualification root. The frozen
+manifest records it, and every later phase and child command uses it through
+`PI_LAB_LOCK_FILE`. A dedicated lease leaves the shared registry untouched and
+still blocked for ordinary runs; resolve that separately with the owner tools.
+Record the dated outcome, its cell counts, limits and lease choice in
+`skill/QUALIFICATION.md`.
 
 ## Prepare distributables
 

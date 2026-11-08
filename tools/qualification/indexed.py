@@ -89,9 +89,27 @@ def positive_usage(record):
         if type(tokens) is not int or not 0<tokens<=128000 or type(turns) is not int or not 0<turns<=12:raise RuntimeError('Frozen positive stage token/turn limits unverified')
 
 
-def freeze(root,profiles_file,images_file,session):
+def dedicated_lease(lock_file,root):
+    """Validate an explicit fresh campaign lease; None keeps the shared host lease.
+
+    A dedicated lease starts an empty adjacent registry. It never reads, resolves
+    or bypasses retained ownership in the shared registry, which stays blocked for
+    ordinary runs until its own recovery gates pass.
+    """
+    if lock_file is None:return None
+    path=Path(lock_file)
+    if not path.is_absolute():raise ValueError('Dedicated campaign lease must be an absolute path')
+    if str(path)==lab.host_lock_file():raise ValueError('Dedicated campaign lease must differ from the shared host lease')
+    if path.resolve().is_relative_to(root):raise ValueError('Dedicated campaign lease must be outside the qualification root')
+    registry=Path(str(path)+'.registry')
+    if any(p.exists() or p.is_symlink() for p in (path,registry)):raise ValueError('Dedicated campaign lease and registry must not exist yet')
+    return str(path)
+
+
+def freeze(root,profiles_file,images_file,session,lock_file=None):
     root=Path(root).resolve()
     if root.exists():raise ValueError('Fresh qualification root required')
+    lease=dedicated_lease(lock_file,root)
     raw=experiments.read_json(profiles_file);indexed_contract.fields(raw,('a','b','scope','deployment_limits'))
     configurations={name:indexed_contract.configuration(raw[name],lab.normalize_endpoint) for name in ('a','b')}
     if configurations['a']['credential'].get('name')==configurations['b']['credential'].get('name') and configurations['a']['credential']!=configurations['b']['credential']:
@@ -115,7 +133,7 @@ def freeze(root,profiles_file,images_file,session):
             secret_store.write_secret(source['name'],key,store)
             canonical={**configuration,'endpoint':{k:v for k,v in configuration['endpoint'].items() if k!='api_key_env'},'credential':{'source':'store','name':source['name']}}
             catalog.register(name,canonical);catalog.confirm(name,session);bindings[name]=catalog.freeze(name,session)
-        manifest={'schema':1,'qualification_id':identity,'source':pi_release.source_identity(),'images':selected,'session':session,
+        manifest={'schema':1,'qualification_id':identity,'source':pi_release.source_identity(),'images':selected,'session':session,'lock_file':lease,
             'private_root':str(private),'catalog':str(catalog.root),'store':str(store),'profiles':bindings,
             'scope':raw['scope'],'deployment_limits':raw['deployment_limits'],'worker_resources':WORKER,'concurrency':CONCURRENCY,
             'batches':rows,'planned_cells':220,'segments_ceiling':312,'expected_segments':292,'expected_real_segments':240,'expected_scripted_segments':52,
@@ -148,6 +166,9 @@ def verify(root):
     if manifest.get('registry_capacity')!=expected_capacity:raise ValueError('Frozen registry capacity changed')
     if original_inventory(manifest)!=manifest['original_store_inventory']:raise ValueError('Operator credential store changed')
     if manifest['worker_resources']!=WORKER or manifest['concurrency']!=CONCURRENCY:raise ValueError('Frozen limits changed')
+    # Select exactly the frozen lease in-process; an ambient override cannot redirect it.
+    if manifest.get('lock_file'):os.environ['PI_LAB_LOCK_FILE']=manifest['lock_file']
+    else:os.environ.pop('PI_LAB_LOCK_FILE',None)
     return root,manifest,experiments.read_json(root/'state.json')
 
 
@@ -259,6 +280,8 @@ def qualification_environment(root,manifest,phase):
         'PI_LAB_STATE_DIR':str(private/'legacy-state'),'PI_LAB_SECRETS_DIR':manifest['store'],'PI_LAB_CATALOG_DIR':manifest['catalog'],
         'PI_INDEXED_QUALIFICATION_ROOT':str(root),'PI_INDEXED_QUALIFICATION_PHASE':phase})
     env['PATH']=str(private/'bin')+os.pathsep+os.environ['PATH']
+    if manifest.get('lock_file'):env['PI_LAB_LOCK_FILE']=manifest['lock_file']
+    else:env.pop('PI_LAB_LOCK_FILE',None)
     return env
 
 
@@ -651,11 +674,12 @@ def finish(root,inspection):
 def main():
     parser=argparse.ArgumentParser(description=__doc__);commands=parser.add_subparsers(dest='op',required=True)
     freeze_parser=commands.add_parser('freeze');freeze_parser.add_argument('--root',required=True);freeze_parser.add_argument('--profiles',required=True);freeze_parser.add_argument('--images',required=True);freeze_parser.add_argument('--session',required=True)
+    freeze_parser.add_argument('--lock-file',help='Fresh absolute dedicated lease for this campaign; defaults to the shared host lease')
     run=commands.add_parser('run');run.add_argument('--root',required=True);run.add_argument('--approval',required=True)
     inspect=commands.add_parser('inspect');inspect.add_argument('--root',required=True)
     final=commands.add_parser('finish');final.add_argument('--root',required=True);final.add_argument('--inspection',required=True)
     args=parser.parse_args()
-    if args.op=='freeze':value=freeze(args.root,args.profiles,args.images,args.session)
+    if args.op=='freeze':value=freeze(args.root,args.profiles,args.images,args.session,args.lock_file)
     elif args.op=='finish':value=finish(args.root,args.inspection)
     elif args.op=='inspect':
         root,manifest,state=verify(args.root);value={'phase':state['phase'],'cells':manifest['planned_cells'],'segments_ceiling':manifest['segments_ceiling'],'launches':manifest['launch_derivation']['whole'],'scope':manifest['scope']}

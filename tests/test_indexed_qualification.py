@@ -150,6 +150,35 @@ class IntentTests(unittest.TestCase):
         with patch.dict(os.environ,{'SYNTHETIC_B':'synthetic-different-env-authority'}),patch.object(secret_store,'default_store',return_value=self.store):
             with self.assertRaises(ValueError):indexed.freeze(self.root/'intent',self.root/'profiles.json',self.root/'images.json','fixture')
         self.assertFalse((self.root/'intent').exists())
+    def frozen_with_lease(self,lease):
+        with patch.object(secret_store,'default_store',return_value=self.store),patch.object(indexed.lab,'command',side_effect=AssertionError('No Docker permitted')),patch.object(indexed.pi_release,'native',side_effect=AssertionError('No native execution permitted')):
+            indexed.freeze(self.root/'intent',self.root/'profiles.json',self.root/'images.json','fixture',str(lease))
+        manifest=experiments.read_json(self.root/'intent/manifest.json');self.addCleanup(shutil.rmtree,manifest['private_root'],ignore_errors=True)
+        return manifest
+    def test_dedicated_lease_is_frozen_and_exported_over_any_ambient_override(self):
+        lease=self.root/'campaign-lease/operation.lock'
+        manifest=self.frozen_with_lease(lease);self.assertEqual(manifest['lock_file'],str(lease))
+        self.assertFalse(lease.exists());self.assertFalse(Path(str(lease)+'.registry').exists())
+        with patch.dict(os.environ,{'PI_LAB_LOCK_FILE':'/ambient/other.lock'}):
+            unused,verified,unused_state=indexed.verify(self.root/'intent')
+            self.assertEqual(os.environ['PI_LAB_LOCK_FILE'],str(lease))
+            self.assertEqual(indexed.lab.default_lock_file(),str(lease))
+            self.assertEqual(indexed.predecessor.lab.default_lock_file(),str(lease))
+            self.assertEqual(indexed.qualification_environment(self.root/'intent',verified,'A')['PI_LAB_LOCK_FILE'],str(lease))
+    def test_shared_lease_manifest_clears_an_ambient_override(self):
+        unused,manifest=self.frozen();self.assertIsNone(manifest['lock_file'])
+        with patch.dict(os.environ,{'PI_LAB_LOCK_FILE':'/ambient/other.lock'}):
+            indexed.verify(self.root/'intent')
+            self.assertNotIn('PI_LAB_LOCK_FILE',os.environ)
+            self.assertNotIn('PI_LAB_LOCK_FILE',indexed.qualification_environment(self.root/'intent',manifest,'A'))
+    def test_dedicated_lease_must_be_fresh_absolute_outside_root_and_not_shared(self):
+        existing=self.root/'used/operation.lock';existing.parent.mkdir();existing.write_text('')
+        registry=self.root/'stale/operation.lock';Path(str(registry)+'.registry').mkdir(parents=True)
+        host=self.root/'host/operation.lock'
+        for lease in ('relative/operation.lock',existing,registry,host,self.root/'intent/operation.lock'):
+            with self.subTest(lease=lease),patch.object(indexed.lab,'host_lock_file',return_value=str(host)):
+                with self.assertRaises(ValueError):self.frozen_with_lease(lease)
+                self.assertFalse((self.root/'intent').exists())
     def test_counter_charges_before_launch_and_rejects_architecture_caps_cleanup(self):
         self.frozen();root=self.root/'intent';now=time.monotonic()
         value={'phase':'A','whole_deadline':now+100,'phase_deadline':now+50,'docker':'/synthetic/docker','counts':{p:{'containers':0,'networks':0} for p in ('infrastructure','A','B')}}
