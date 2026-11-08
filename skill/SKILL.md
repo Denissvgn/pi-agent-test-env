@@ -14,7 +14,7 @@ description: >-
 
 # Local agent evaluation with Pi
 
-Package version: 4.8.0. Instructions are in English.
+Package version: 4.9.0. Instructions are in English.
 
 Exact reviewed Pi releases: 0.87.1 and 1.2.0. Use
 [PI-1.2.0.md](references/PI-1.2.0.md) for the newer contract and migration limits;
@@ -28,6 +28,18 @@ macOS/Linux/WSL. Builds need Buildx. Native Windows Python is unsupported by the
 POSIX host lock. Use the host/daemon's native Linux architecture; on Apple Silicon
 select `linux/arm64` explicitly and verify image architecture before launch.
 Cross-architecture emulation requires explicit user authorization.
+
+## Stability
+
+Version 4.9.0 is stable for the capabilities qualified in 4.5.0: serial,
+parallel and indexed runs, legacy endpoints, frozen experiments, the reviewed
+fixture lookup integration, scoped application credentials and sandboxed browser
+tasks. Its release campaign covered native ARM64 with Pi 1.2.0; Pi 0.87.1 was
+not requalified and native AMD64 is unqualified. The compiled application client,
+application owner cleanup and legacy owner proof, `registry-inspect`/`registry-recover`
+and the operation SDK are experimental: use them only when the user opts in, and
+report their results as unqualified. Qualification never transfers to another
+image, model or configuration; see [QUALIFICATION.md](QUALIFICATION.md#stability).
 
 ## Choose the evaluation contract
 

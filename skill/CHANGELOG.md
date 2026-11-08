@@ -1,6 +1,57 @@
 # Changelog
 
-## Unreleased
+## 4.9.0
+
+First stable release since 4.5.0. It contains the changes from the 4.6.0, 4.6.1,
+4.7.0 and 4.8.0 prereleases (entries below) and the changes listed here.
+
+### Stability
+
+- **Stable:** the capabilities qualified for 4.5.0, on native ARM64 with Pi
+  1.2.0: serial, parallel and indexed runs, legacy saved and explicit endpoints,
+  frozen experiments, the reviewed fixture lookup integration, scoped
+  application credentials and sandboxed browser tasks.
+- **Experimental:** the compiled application client and native call budgets
+  (4.6.0), `registry-inspect` and `registry-recover` (4.6.1),
+  `application-owner-inspect` and `application-owner-recover` (4.7.0), the
+  legacy owner proof (4.8.0) and the operation SDK. They are opt-in and outside
+  this release's qualification.
+- Pi 0.87.1 keeps its reviewed contract but was not requalified for this
+  release. Native AMD64 remains unqualified.
+
+### Qualification
+
+- On 8 November 2026 a fresh native ARM64 campaign on the release code
+  (`9a80496`) passed all 110 planned cell oracles for Pi 1.2.0: 78 real-model
+  positive cells and 32 scripted fault oracles, in 146 actual Pi segments. All
+  18 coding pipelines were independently inspected, owned cleanup was confirmed
+  and evidence scans found no inference keys. See
+  [QUALIFICATION.md](QUALIFICATION.md) for budgets, limits and earlier attempts.
+- Known limitation: the supplied image has no `fd`, so Pi's `find` tool reports
+  `fd is not available` in offline runs. Agents in the campaign fell back to
+  `ls` and `grep`.
+
+### Upgrading from 4.5.0
+
+- Application helpers launched by 4.7.0 or later write schema-3 registry
+  records, which 4.5.0 and 4.6.x clients reject before dispatch. Upgrade every
+  client that shares a host lease at the same time, and do not roll back after
+  running application helpers. Never downgrade or delete records to satisfy an
+  older client.
+- Experiments prepared with 4.5.0 cannot be run or resumed by this version,
+  because the runner content changed. Prepare new experiments; existing results
+  still report. Saved environments, plans and historical results stay readable.
+- New commands, all experimental: `compile-application-plan` with
+  `run --compiled-plan`, `registry-inspect`, `registry-recover`,
+  `application-owner-inspect` and `application-owner-recover`.
+- An absolute `PI_LAB_LOCK_FILE` selects a dedicated host lease, with its own
+  registry, for every command. Clients exclude each other only when they use
+  the same lease file; leave it unset to keep the shared per-user lease.
+- Maintainers: the regression suite needs Node.js 24 or later on `PATH`, and
+  `tools/build_release.py` builds only when this changelog's top entry names the
+  package version (`--candidate` makes an unpublishable verification build).
+
+### Changes since 4.8.0
 
 - Add an experimental fixed-operation SDK with independent code/runtime/policy
   approval, fresh workers, private framing, exact-reference reads, bounded

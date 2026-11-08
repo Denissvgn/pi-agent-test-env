@@ -1,7 +1,7 @@
 # Owner cleanup compatibility and qualification
 
-Package 4.8.0 is an experimental owner-proof candidate. It adds
-`legacy_derived_v1`, cohort `application_owner_legacy_1` and reader contract
+The owner-proof additions from package 4.8.0 remain experimental in 4.9.0. They
+are `legacy_derived_v1`, cohort `application_owner_legacy_1` and reader contract
 `application_owner_legacy_reader_1` version 1. Existing `runtime_finalization` and
 `retained_terminals` receipt meaning and historical record/intent bytes remain.
 The new method creates sidecars; it never upgrades an old record to schema 3,
