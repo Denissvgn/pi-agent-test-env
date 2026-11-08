@@ -41,6 +41,12 @@
   `--release`; its cell, segment, inspection and launch totals are derived from
   the selected matrix (the default for both releases is unchanged), and the
   infrastructure checks use the first selected release's core image.
+- Container cleanup after a run has its own 60-second window, and each
+  `docker inspect` or `docker rm -f` call may take up to 30 seconds. Previously
+  each call had 5 seconds, taken from the remaining process grace (10 seconds
+  for an unstaged run such as a preflight), so a loaded Docker daemon could turn
+  a completed run into `cleanup_error`. In-run signals keep the 5-second bound,
+  and unconfirmed cleanup still fails closed.
 
 ## 4.8.0 (experimental candidate)
 
