@@ -1,6 +1,108 @@
 # Qualification and support
 
-## Unreleased operation SDK
+## Stability
+
+Version 4.9.0 is a stable release. Its stable scope is the set of capabilities
+qualified for 4.5.0: serial, parallel and indexed runs, legacy saved and
+explicit endpoints, frozen experiments, the reviewed fixture lookup integration,
+scoped application credentials and sandboxed browser tasks. The release campaign
+below requalified that scope on native ARM64 with Pi 1.2.0 at executable head
+`9a80496eaa13615ed0d16a5501952d6d610ef62a`.
+
+| Scope | Status for 4.9.0 |
+|---|---|
+| Stable scope, native ARM64, Pi 1.2.0 | Qualified on 8 November 2026 for the recorded image, model and configuration |
+| Pi 0.87.1 | Reviewed contract unchanged; last qualified for 4.5.0 on earlier code, not requalified |
+| Native AMD64 | Unqualified |
+| Compiled application client and native call budgets (4.6.0) | Experimental; partial native qualification, authenticated browser workflows unqualified |
+| `registry-inspect` and `registry-recover` (4.6.1) | Experimental; not exercised by the release campaign |
+| Application owner cleanup (4.7.0) and legacy owner proof (4.8.0) | Experimental; synthetic conformance only, no real owner cleanup or replay |
+| Operation SDK | Experimental; fixture-only integration checks |
+
+A dedicated `PI_LAB_LOCK_FILE` lease, new in 4.9.0, was used by every phase of
+the release campaign. Experimental features are opt-in; report their results as
+unqualified until evidence covers the exact scope. Distinct backends, models or
+API protocols, downstream applications and the items under
+[Unqualified capabilities](#unqualified-capabilities) remain separate claims.
+
+## Stable 4.9.0 release campaign
+
+On 8 November 2026, a fresh frozen native ARM64 campaign at executable head
+`9a80496eaa13615ed0d16a5501952d6d610ef62a` passed all 110 planned cell oracles
+for Pi 1.2.0. Its 78 real-model positive cells passed; 32 scripted fault oracles
+established the expected stop, recovery and pending-cell behavior. Actual Pi
+execution comprised 146 process segments: 120 real-model and 26 explicitly
+scripted segments. No automatic campaign retry occurred. The campaign selected
+only Pi 1.2.0; Pi 0.87.1 was deferred and is not requalified by this release.
+
+Collection A covered indexed single/serial selection, per-stage role assignments,
+legacy saved/explicit endpoints, serial experiments and homogeneous parallel
+execution. Collection B covered indexed parallel coding/review, built-in and
+reviewed fixture lookup, scoped disposable application credentials and sandboxed
+browser tasks, followed by all eight fault lanes. Two exact ARM64 image
+admissions (core and browser), the sandboxed DOM gate, token-bound
+routing/redaction, revocation, one-slot quarantine, physical overlap with FIFO
+admission, cancellation and owner-loss recovery passed. The predecessor-format
+oracle again accepted schema 1 and rejected schema 2 with one-record witnesses.
+
+The two live profiles used separate explicit store references against the same
+retained backend and model, with reasoning requested at the low level; the model
+and reasoning request match the 4.5.0 campaign. These observations qualify the
+implemented Chat Completions adapter within the recorded scope; they do not
+establish distinct-backend/model/API-protocol compatibility, provider/account
+independence, server-wide concurrency, performance improvements or live
+downstream application acceptance.
+
+Resource and time ceilings matched the 4.5.0 campaign: 2.5 CPUs, 3328 MiB RAM and
+1152 PIDs in aggregate, with equal memory+swap; two workers at 1 CPU/1536 MiB/512
+PIDs; broker and disposable authority at 0.25 CPU/128 MiB/64 PIDs each; and one
+cooperating inference slot. Positive stages retained 12 turns, 600 seconds and
+128,000 total reported tokens; reply cap was 8192, queue/upstream deadlines
+180/180 seconds and preflight request/container ceilings 360/390 seconds. The
+whole ceiling was 7 hours 28 minutes; the campaign took about 90 minutes. The
+retained model deployment's CPU/GPU/RAM limits remain unknown.
+
+The campaign ran under a fresh dedicated host lease and registry selected with
+`--lock-file`; it neither read nor resolved the shared per-user registry. The
+empty dedicated registry was checked against the 822-record campaign ceiling and
+the 8192-record limit before dispatch. The campaign charged 676 container
+launches and 90 network creations, below the frozen 724/98 ceilings. All 763
+registered resources (673 containers and 90 networks), the disposable
+authorities and private stores were independently confirmed absent. Retained
+evidence had zero selected-key matches and original credential-store metadata
+was unchanged.
+
+All 18 coding implementations and reviewer reports were independently read with
+exact hashes and protected inputs unchanged, and every reviewer had read the
+exact final implementation. The inspection also ran each distinct
+implementation, in an isolated host Python process, against an independent
+reference written from the task specification: 20,051 inputs each, with no
+mismatch. Reviewer prose included advisory inaccuracies and is not approval or a
+measurement of model-review quality; generated fixture code was not promoted.
+Pi's built-in `find` tool failed in most reviewer stages because the supplied
+image has no `fd`; reviewers fell back to `ls` and `grep`.
+
+Two earlier attempts the same day, at executable head
+`41263aee5bdf3a5cf472b23ada3f2fe616aa3779`, stopped in collection A and were not
+resumed. The first, with a different model, stopped when a standalone positive
+invocation failed. The second stopped when a completed run was recorded as
+`cleanup_error`: removing an exited container on a loaded Docker daemon took
+longer than the old 5-second per-call bound. Post-exit cleanup now has its own
+60-second window with at most 30 seconds per Docker call, and that runner change
+required the fresh campaign above. The earlier attempts retain their own
+identities, outcomes and unrun cells.
+
+The pull requests merged for this release (15 to 18) have no completed automated
+exact-head review. The configured reviewer returned only insufficient-quota
+notices, and the maintainer explicitly waived that requirement for each merge
+after the remaining review gate passed: no unresolved threads, pending review
+requests or status checks.
+
+These measurements retain their executable, harness and frozen inputs. The later
+4.9.0 version metadata, documentation and manifest update changes package
+identity while preserving the tested executable and fixture bytes.
+
+## Experimental operation SDK
 
 The fixed-operation SDK is experimental source functionality with fixture-only
 integration checks. Its first execution profile is Linux ARM64 CPython 3.12.13
@@ -26,10 +128,11 @@ files and unsupported authority still deny. Current filesystem observations
 cannot replace absent original facts.
 
 No real legacy owner cleanup, new SDK proof-read policy or downstream integration
-has been qualified for this candidate. Exact final native/ARM64 Docker artifact
-checks and any real owner pilot/replay remain separate release gates. Existing
-live measurements below retain their original executable/configuration identities;
-they are not evidence for the changed runner. No campaign is resumed or repaired.
+has been qualified for this candidate or for 4.9.0; the 4.9.0 release campaign
+exercised none of them. Exact final native/ARM64 Docker artifact checks and any
+real owner pilot/replay remain separate release gates. Earlier live measurements
+below retain their original executable/configuration identities; they are not
+evidence for the changed runner. No campaign is resumed or repaired.
 See the [compatibility boundary](references/OWNER-CLEANUP-COMPATIBILITY.md) and
 [reader contract](references/APPLICATION-OWNER-READER.md).
 
@@ -61,7 +164,7 @@ preserving the executable and fixture bytes reviewed in merged main at
 it does not expand runtime or parent-discovery qualification. Use the normal
 environment, image, resource and sensitive-cleanup gates before any live use.
 
-## Experimental 4.5.0 indexed inference scope
+## Historical 4.5.0 indexed inference campaign
 
 On 15 October 2026, a fresh frozen native ARM64 campaign at executable head
 `a81eec954245db962110dc4277502e6d7b25fa66` passed all 220 planned cell oracles for
@@ -117,7 +220,7 @@ package checks remain separate evidence. See
 [INFERENCE-ENVIRONMENTS.md](references/INFERENCE-ENVIRONMENTS.md) for selection,
 authorization, private/public outputs and recovery boundaries.
 
-## Experimental 4.4.0 parallel scope
+## Historical 4.4.0 parallel campaign
 
 On 14 October 2026, a fresh frozen native ARM64 collection passed all 124
 planned cell oracles across Pi 0.87.1 and 1.2.0. All 60 real-model positive cells
@@ -254,11 +357,16 @@ package metadata.
 ## Unqualified capabilities
 
 Application browser flows, comprehensive WebGL tests, native AMD64 execution,
-forced live OOM, image input, broader child
-integrations and unavailable parent discovery remain unqualified. Requested or
-observed reasoning/sampling settings do not establish server enforcement,
+forced live OOM, image input, broader child integrations and unavailable parent
+discovery remain unqualified. Pi 0.87.1 was not requalified for 4.9.0. Requested
+or observed reasoning/sampling settings do not establish server enforcement,
 weights identity, deterministic replay or inference timing. Container resource
 limits do not cap the model server or unrelated host processes.
+
+The supplied Docker recipe installs ripgrep but not `fd`. Pi's built-in `find`
+tool needs `fd` and cannot download it in offline runs, so it reports
+`fd is not available and could not be downloaded`. Grant `ls` and `grep` with
+`find`; in the 4.9.0 campaign, reviewers fell back to them and completed.
 
 Read [SECURITY.md](references/SECURITY.md), [PI-COMPATIBILITY.md](references/PI-COMPATIBILITY.md)
 and [VALIDATION.md](VALIDATION.md) for operational requirements and evidence limits.

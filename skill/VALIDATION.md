@@ -11,6 +11,15 @@ clear historical uncertainty. See the current scope in
 [QUALIFICATION.md](QUALIFICATION.md); the dated live evidence below remains
 attached to its original executable and environment.
 
+## 4.9.0 release checks
+
+Each pull request merged for 4.9.0 passed the full maintainer suite on macOS.
+`tools/docker_ci.py` also passed on native Linux ARM64 with Python 3.10 and 3.12
+for the release candidate and for the later lease and cleanup changes. A
+candidate build passed `tools/verify_release.py` before the version bump,
+including the full suite from extracted source and all five layouts. These are
+offline checks; the dated live evidence below is separate.
+
 ## 4.8.0 owner-proof candidate
 
 The owner-proof implementation has synthetic native filesystem/lease, metadata
@@ -44,14 +53,23 @@ with bundled, hash-locked dependencies outside the skill.
 
 ## Live evidence
 
-On 15 October 2026, the indexed inference campaign passed 220 frozen cell oracles
-on native ARM64 for Pi 0.87.1 and 1.2.0: 156 real-model positives and 64 scripted
-fault oracles, with 292 actual Pi segments (240 real-model/52 scripted). All 36
-coding pipelines were independently inspected and owned physical/private cleanup
-and selected-key scans passed. Live profiles used the same retained backend/model
-with separate credential references; broader backend/model/API claims remain
-unqualified. [QUALIFICATION.md](QUALIFICATION.md) records budgets, source identity,
-legacy compatibility, evidence distinctions and limits.
+On 8 November 2026, the 4.9.0 release campaign passed 110 frozen cell oracles on
+native ARM64 for Pi 1.2.0 at executable head `9a80496`: 78 real-model positives
+and 32 scripted fault oracles, with 146 actual Pi segments (120 real-model/26
+scripted). All 18 coding pipelines were independently inspected, and owned
+physical/private cleanup and selected-key scans passed. Pi 0.87.1 was not part
+of this campaign. [QUALIFICATION.md](QUALIFICATION.md) records budgets, earlier
+attempts, review waivers and limits.
+
+For 4.5.0, on 15 October 2026, the indexed inference campaign passed 220 frozen
+cell oracles on native ARM64 for Pi 0.87.1 and 1.2.0: 156 real-model positives
+and 64 scripted fault oracles, with 292 actual Pi segments (240 real-model/52
+scripted). All 36 coding pipelines were independently inspected and owned
+physical/private cleanup and selected-key scans passed. Live profiles used the
+same retained backend/model with separate credential references; broader
+backend/model/API claims remain unqualified. [QUALIFICATION.md](QUALIFICATION.md)
+records budgets, source identity, legacy compatibility, evidence distinctions
+and limits.
 
 Native ARM64 core executor, application comparison and fixture integration checks
 were observed on 7 October 2026 with Pi 0.87.1 and exact recorded image/model

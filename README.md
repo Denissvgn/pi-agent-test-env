@@ -1,6 +1,6 @@
 # pi-agent-test-env
 
-[![Version](https://img.shields.io/badge/version-4.8.0-blue)](skill/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.9.0-blue)](skill/CHANGELOG.md)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](skill/README.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-compatible-7B61FF)](skill/SKILL.md)
@@ -12,6 +12,27 @@ and evaluate their work with checks you control.
 Use it from the terminal or install it as a skill for a parent development agent.
 The host runner uses the Python standard library; Pi and the task toolchain run
 inside the selected image. You provide the model server separately.
+
+## Stability
+
+Version 4.9.0 is a stable release for the capabilities qualified for 4.5.0:
+serial, parallel and indexed runs, legacy saved and explicit endpoints, frozen
+experiments, the reviewed fixture lookup integration, scoped application
+credentials and sandboxed browser tasks. On 8 November 2026 a fresh native ARM64
+campaign on the release code passed all 110 planned cell oracles for Pi 1.2.0.
+Pi 0.87.1 keeps its reviewed contract but was not requalified for this release,
+and native AMD64 remains unqualified.
+
+These opt-in features are experimental and outside that qualification:
+
+- the [compiled application client](skill/references/APPLICATION-CLIENT.md) and its native call budgets
+- [application owner cleanup](skill/references/APPLICATION-OWNER-CLEANUP.md) and the [legacy owner proof](skill/references/OWNER-CLEANUP-COMPATIBILITY.md)
+- the offline `registry-inspect` and `registry-recover` commands
+- the [operation SDK](skill/references/OPERATION-SDK.md)
+
+Qualification applies only to the recorded image, model and configuration; see
+[QUALIFICATION.md](skill/QUALIFICATION.md). Before upgrading from 4.5.0, read the
+[upgrade notes](skill/CHANGELOG.md#upgrading-from-450).
 
 ## What can you try?
 
@@ -41,17 +62,17 @@ The [authenticated participant example](skill/examples/authenticated-application
 provides explicit API/browser plans, disposable personas and a key-free root oracle.
 Offline protocol tests and existing coding/fixture qualification do not establish
 native application-client/model qualification.
-The 4.6.0 application-client and native-budget additions remain experimental
-with partial native qualification. Authenticated browser workflows and the
-affected runtime admission/cleanup scope remain unqualified; see the
+The application client and its native call budgets remain experimental with
+partial native qualification. Authenticated browser workflows and the affected
+runtime admission/cleanup scope remain unqualified; see the
 [current qualification boundary](skill/QUALIFICATION.md).
 
-The 4.8.0 owner-proof candidate adds a versioned legacy cleanup/read-only reader
-contract with immutable sidecar publication. It preserves failed history and
-requires genuine original custody. Only the reviewed diagnostic-disposable
-producer is enabled; standard-workspace vectors are synthetic interface checks.
-Real owner/SDK/integration qualification remains pending. See
-[owner compatibility](skill/references/OWNER-CLEANUP-COMPATIBILITY.md).
+The experimental legacy owner proof, added in 4.8.0, provides a versioned
+cleanup and read-only reader contract with immutable sidecar publication. It
+preserves failed history and requires genuine original custody. Only the
+reviewed diagnostic-disposable producer is enabled; standard-workspace vectors
+are synthetic interface checks. Real owner/SDK/integration qualification remains
+pending. See [owner compatibility](skill/references/OWNER-CLEANUP-COMPATIBILITY.md).
 
 ## How a run works
 
@@ -151,19 +172,20 @@ continuing. Keys stay out of plans and chat. See the
 ### 3. Prepare a native core image
 
 The reviewed Pi releases are **0.87.1 and 1.2.0**. This walkthrough selects
-[Pi 0.87.1](skill/references/PI-COMPATIBILITY.md); the
-[Pi 1.2.0 guide](skill/references/PI-1.2.0.md) covers its separate image and
-fixture-profile contract. Select the exact release explicitly and qualify it
+[Pi 1.2.0](skill/references/PI-1.2.0.md), the release qualified for 4.9.0;
+[Pi 0.87.1](skill/references/PI-COMPATIBILITY.md) keeps its reviewed contract
+but was not requalified. Select the exact release explicitly and qualify it
 before execution.
 The commands below select Apple Silicon's native `linux/arm64`. On an AMD64
-host/daemon, replace it with native `linux/amd64` in every command. Live
-qualification scope is recorded separately in [QUALIFICATION.md](skill/QUALIFICATION.md).
+host/daemon, replace it with native `linux/amd64` in every command; native AMD64
+remains unqualified. Live qualification scope is recorded separately in
+[QUALIFICATION.md](skill/QUALIFICATION.md).
 
 ```bash
-IMAGE='pi-agent-tests:core-0.87.1'
+IMAGE='pi-agent-tests:core-1.2.0'
 python3 "$SKILL_DIR/scripts/pi_lab.py" ensure-image \
   --image "$IMAGE" --profile core --policy auto \
-  --pi-version 0.87.1 --platform linux/arm64 \
+  --pi-version 1.2.0 --platform linux/arm64 \
   --resources "$SKILL_DIR/assets/resources/low-impact.json" \
   --receipt /tmp/pi-core-image.json
 ```
@@ -171,7 +193,7 @@ python3 "$SKILL_DIR/scripts/pi_lab.py" ensure-image \
 `auto` probes the selected image for compatibility and builds if needed. Use
 `--policy reuse` for an existing trusted image when you want no build. Review its
 provenance first: probing executes image programs. `--pi-version` pins a build;
-it does not change a reused image. Confirm the receipt reports Pi 0.87.1 before
+it does not change a reused image. Confirm the receipt reports Pi 1.2.0 before
 continuing this walkthrough. Architecture is checked before execution;
 cross-architecture emulation requires explicit authorization.
 
@@ -252,9 +274,10 @@ statuses/counts while private evidence remains in the owned run.
 
 ## Next experiments
 
-The fixed application and fixture walkthroughs target native ARM64 with Pi 0.87.1.
-In the fixture walkthrough's `ensure-image` command, substitute your trusted
-`"$IMAGE"` for its historical example tag.
+The fixed application and fixture walkthroughs run on native ARM64 and reuse your
+trusted `"$IMAGE"`. Their configure scripts take the Pi release from the image
+receipt; with the 1.2.0 core image above, the fixture walkthrough selects the
+reviewed 1.2.0 lookup profile.
 
 - **Node feature:** reuse the qualified core environment and substitute
   `examples/node-project` and `assets/node-cli.plan.json` in the run command.
@@ -359,7 +382,7 @@ aliases for these installed modules.
 
 MIT licensed. This is an independent project, not an official Pi or Docker release.
 
-## Indexed inference environments (experimental)
+## Indexed inference environments
 
 Root can explicitly bind different credential sources, base URLs, models and
 settings to uniform runs or individual implementation/review stages. The opt-in
@@ -369,10 +392,11 @@ keys stay in a bounded broker, with one global request slot, isolated worker
 snapshots and scoped stage/recovery tokens.
 
 Start with the [root workflow](skill/references/INFERENCE-ENVIRONMENTS.md) and
-[executable examples](skill/examples/indexed-inference/README.md). Native indexed
-qualification passed on ARM64 for both reviewed Pi releases on 15 October 2026:
-220 cell oracles, including 156 real-model positive cells and 64 scripted fault
-oracles. The live profiles used two credential references on the same backend and
-model; distinct-backend/model/API-protocol acceptance remains unqualified. See
-[the recorded scope and limits](skill/QUALIFICATION.md). Legacy saved environments
-and experiment schemas 1/2 keep their existing behavior.
+[executable examples](skill/examples/indexed-inference/README.md). For 4.9.0,
+native indexed qualification passed on ARM64 for Pi 1.2.0 on 8 November 2026:
+110 cell oracles, including 78 real-model positive cells and 32 scripted fault
+oracles. The 15 October 2026 campaign for 4.5.0 covered both reviewed releases on
+earlier code. The live profiles used two credential references on the same
+backend and model; distinct-backend/model/API-protocol acceptance remains
+unqualified. See [the recorded scope and limits](skill/QUALIFICATION.md). Legacy
+saved environments and experiment schemas 1/2 keep their existing behavior.
