@@ -1,6 +1,6 @@
 # pi-agent-test-env
 
-[![Version](https://img.shields.io/badge/version-4.9.0-blue)](skill/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.9.1-blue)](skill/CHANGELOG.md)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](skill/README.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-compatible-7B61FF)](skill/SKILL.md)
@@ -15,13 +15,13 @@ inside the selected image. You provide the model server separately.
 
 ## Stability
 
-Version 4.9.0 is a stable release for the capabilities qualified for 4.5.0:
-serial, parallel and indexed runs, legacy saved and explicit endpoints, frozen
-experiments, the reviewed fixture lookup integration, scoped application
-credentials and sandboxed browser tasks. On 8 November 2026 a fresh native ARM64
-campaign on the release code passed all 110 planned cell oracles for Pi 1.2.0.
-Pi 0.87.1 keeps its reviewed contract but was not requalified for this release,
-and native AMD64 remains unqualified.
+Version 4.9.1 is a stable patch release with the same stable scope as 4.9.0:
+the capabilities qualified for 4.5.0, namely serial, parallel and indexed runs,
+legacy saved and explicit endpoints, frozen experiments, the reviewed fixture
+lookup integration, scoped application credentials and sandboxed browser tasks.
+On 9 November 2026 a fresh native ARM64 campaign on the release code passed all
+110 planned cell oracles for Pi 1.2.0. Pi 0.87.1 keeps its reviewed contract but
+was not requalified for this release, and native AMD64 remains unqualified.
 
 These opt-in features are experimental and outside that qualification:
 
@@ -29,10 +29,12 @@ These opt-in features are experimental and outside that qualification:
 - [application owner cleanup](skill/references/APPLICATION-OWNER-CLEANUP.md) and the [legacy owner proof](skill/references/OWNER-CLEANUP-COMPATIBILITY.md)
 - the offline `registry-inspect` and `registry-recover` commands
 - the [operation SDK](skill/references/OPERATION-SDK.md)
+- [transient provider retries](skill/references/PI-COMPATIBILITY.md#transient-provider-retries) for direct endpoints, new in 4.9.1
 
 Qualification applies only to the recorded image, model and configuration; see
-[QUALIFICATION.md](skill/QUALIFICATION.md). Before upgrading from 4.5.0, read the
-[upgrade notes](skill/CHANGELOG.md#upgrading-from-450).
+[QUALIFICATION.md](skill/QUALIFICATION.md). Before upgrading, read the upgrade
+notes [from 4.9.0](skill/CHANGELOG.md#upgrading-from-490) and, for older
+installs, [from 4.5.0](skill/CHANGELOG.md#upgrading-from-450).
 
 ## What can you try?
 
@@ -172,7 +174,7 @@ continuing. Keys stay out of plans and chat. See the
 ### 3. Prepare a native core image
 
 The reviewed Pi releases are **0.87.1 and 1.2.0**. This walkthrough selects
-[Pi 1.2.0](skill/references/PI-1.2.0.md), the release qualified for 4.9.0;
+[Pi 1.2.0](skill/references/PI-1.2.0.md), the release qualified for 4.9.1;
 [Pi 0.87.1](skill/references/PI-COMPATIBILITY.md) keeps its reviewed contract
 but was not requalified. Select the exact release explicitly and qualify it
 before execution.
@@ -392,11 +394,12 @@ keys stay in a bounded broker, with one global request slot, isolated worker
 snapshots and scoped stage/recovery tokens.
 
 Start with the [root workflow](skill/references/INFERENCE-ENVIRONMENTS.md) and
-[executable examples](skill/examples/indexed-inference/README.md). For 4.9.0,
-native indexed qualification passed on ARM64 for Pi 1.2.0 on 8 November 2026:
+[executable examples](skill/examples/indexed-inference/README.md). For 4.9.1,
+native indexed qualification passed on ARM64 for Pi 1.2.0 on 9 November 2026:
 110 cell oracles, including 78 real-model positive cells and 32 scripted fault
-oracles. The 15 October 2026 campaign for 4.5.0 covered both reviewed releases on
-earlier code. The live profiles used two credential references on the same
+oracles. The 8 November 2026 campaign for 4.9.0 covered the same matrix on
+earlier code, and the 15 October 2026 campaign for 4.5.0 covered both reviewed
+releases. The live profiles used two credential references on the same
 backend and model; distinct-backend/model/API-protocol acceptance remains
 unqualified. See [the recorded scope and limits](skill/QUALIFICATION.md). Legacy
 saved environments and experiment schemas 1/2 keep their existing behavior.

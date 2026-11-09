@@ -36,7 +36,7 @@ They are executable trusted input, not safe to copy blindly from untrusted tasks
 This contract verifies a supplied image; it does not install missing toolchains.
 
 The stock image provides Node 24, Debian Python with venv support and ripgrep.
-After 4.9.0 it also installs a pinned, checksum-verified upstream `fd` 10.5.0
+From 4.9.1 it also installs a pinned, checksum-verified upstream `fd` 10.5.0
 for Pi's `find` tool, so `find` needs no download offline. Images built from the
 4.9.0 recipe or earlier have no `fd`: rebuild them, or grant `ls` and `grep`
 alongside `find`. A reused image needs Node >=22.19 for the baseline and the

@@ -1,6 +1,53 @@
 # Changelog
 
-## Unreleased
+## 4.9.1
+
+Stable patch release on 4.9.0. It fixes an indexed inference gateway race that
+its own release campaign found, stops stages that keep repeating one tool call,
+adds opt-in transient provider retries for direct endpoints and ships `fd` in the
+stock image.
+
+### Stability
+
+- **Stable:** unchanged from 4.9.0, on native ARM64 with Pi 1.2.0: serial,
+  parallel and indexed runs, legacy saved and explicit endpoints, frozen
+  experiments, the reviewed fixture lookup integration, scoped application
+  credentials and sandboxed browser tasks.
+- **Experimental:** the features that were experimental in 4.9.0, plus the new
+  endpoint field `transient_retries`. The release campaign did not opt into
+  retries.
+- The repeated-tool-call guard is always on. It stopped no stage in the release
+  campaign; its stop path is covered by offline tests.
+- Pi 0.87.1 keeps its reviewed contract but was not requalified. Native AMD64,
+  including the AMD64 `fd` build, remains unqualified.
+
+### Qualification
+
+- On 9 November 2026 a fresh native ARM64 campaign on the release code
+  (`51f1134`) passed all 110 planned cell oracles for Pi 1.2.0: 78 real-model
+  positive cells and 32 scripted fault oracles, in 146 actual Pi segments. All
+  18 coding pipelines were independently inspected, owned cleanup was confirmed
+  and evidence scans found no inference keys.
+- The campaign images were built from the 4.9.1 recipe, and all 88 of its
+  offline `find` calls succeeded.
+- Three earlier attempts the same day were blocked and not resumed: by a
+  reviewer that looped on one tool call, by a stalled model-server request and by
+  the gateway race fixed in this release. See [QUALIFICATION.md](QUALIFICATION.md)
+  for budgets, limits and the earlier attempts.
+
+### Upgrading from 4.9.0
+
+- Experiments prepared with 4.9.0 cannot be run or resumed by this version,
+  because the runner content changed. Prepare new experiments; existing results
+  still report.
+- Rebuild images with `ensure-image --policy build` to get `fd`. Reused images
+  without it keep working, and `find` then reports `fd` as unavailable offline.
+- Result readers should accept the new termination reason `repeated_tool_call`
+  and the new evidence fields `tool_repetition` and `provider_retries`.
+- If you are upgrading from 4.5.0, also follow the
+  [4.9.0 upgrade notes](#upgrading-from-450).
+
+### Changes since 4.9.0
 
 - Fixed spurious `401 unauthorized` replies from the indexed inference gateway
   on Docker Desktop for macOS. When the host atomically replaces the gateway's
@@ -31,8 +78,12 @@
   uses it, so `find` no longer needs a download in offline runs. Debian
   bookworm's `fd-find` (8.6.0) is not used: `find` passes `--no-require-git`
   outside git repositories, and fd added that flag in 8.7.0. Existing images keep
-  working without `fd` until rebuilt with `ensure-image --policy build`. Offline
-  `find` with it is not yet natively qualified.
+  working without `fd` until rebuilt with `ensure-image --policy build`. The
+  4.9.1 release campaign used it natively on ARM64; the AMD64 build is
+  unqualified.
+- Two maintainer tests no longer depend on timing. One compared floating-point
+  times inexactly, and the other could read a test server's record before the
+  server wrote it; both could fail under `tools/docker_ci.py` on Linux.
 
 ## 4.9.0
 
