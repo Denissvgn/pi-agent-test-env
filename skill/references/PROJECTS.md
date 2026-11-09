@@ -35,11 +35,16 @@ contract. They run in addition to baseline Pi/Node/Python/Git/Bash/ripgrep check
 They are executable trusted input, not safe to copy blindly from untrusted tasks.
 This contract verifies a supplied image; it does not install missing toolchains.
 
-The stock image provides Node 24 and Debian Python with venv support. It has no
-`fd`, so Pi's `find` tool reports `fd` as unavailable in offline runs; grant `ls`
-and `grep` alongside it. A reused image needs Node >=22.19 for the baseline and
-the required Pi flags; your project contract can require Node 24, another
-application interpreter, or exact versions.
+The stock image provides Node 24, Debian Python with venv support and ripgrep.
+After 4.9.0 it also installs a pinned, checksum-verified upstream `fd` 10.5.0
+for Pi's `find` tool, so `find` needs no download offline. Images built from the
+4.9.0 recipe or earlier have no `fd`: rebuild them, or grant `ls` and `grep`
+alongside `find`. A reused image needs Node >=22.19 for the baseline and the
+required Pi flags; your project contract can require Node 24, `fd`, another
+application interpreter, or exact versions. Outside a git repository, which
+includes every snapshot, `find` passes `--no-require-git`, so a reused image
+needs fd 8.7.0 or later as `fd` or `fdfind`; Debian bookworm's `fd-find` is
+8.6.0.
 For a project pinned to an older Node incompatible with Pi, put its runtime behind
 an explicit alternate executable in a reviewed image while Pi retains a supported
 Node. Do not downgrade the agent runtime to satisfy the application accidentally.

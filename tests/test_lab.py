@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -253,6 +254,20 @@ class ImageTests(unittest.TestCase):
             with self.assertRaises(lab.LabError): lab.image_info('fixture', 'linux/arm64')
     def test_valid_image_id(self):
         with self.image(): self.assertEqual(lab.image_info('fixture', 'linux/arm64')['id'], 'sha256:fixture')
+    def test_stock_recipe_pins_fd_for_pi_find(self):
+        # Pi's find passes --no-require-git outside git repositories, which includes
+        # every snapshot; fd added it in 8.7.0, after Debian bookworm's fd-find 8.6.0.
+        recipe = (ROOT / 'docker/Dockerfile').read_text()
+        packages = recipe.split('apt-get install -y --no-install-recommends', 1)[1].split('&&', 1)[0].split()
+        self.assertIn('ripgrep', packages)
+        self.assertNotIn('fd-find', packages)
+        version = re.search(r'fd_version=(\d+)\.(\d+)\.(\d+)', recipe)
+        self.assertIsNotNone(version)
+        self.assertGreaterEqual(tuple(map(int, version.groups())), (8, 7, 0))
+        digests = dict(re.findall(r'fd_target=(\S+) \\\s+fd_sha256=([0-9a-f]{64}) ;;', recipe))
+        self.assertEqual(set(digests), {'aarch64-unknown-linux-musl', 'x86_64-unknown-linux-musl'})
+        self.assertIn('| sha256sum -c -', recipe)
+        self.assertIn(' && fd --version\n', recipe)
 
 
 
