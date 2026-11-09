@@ -563,9 +563,9 @@ def load_endpoint(path: Path) -> dict:
 def normalize_endpoint(value: dict) -> dict:
     c = copy.deepcopy(value)
     required = {'base_url', 'model', 'context_window', 'max_tokens', 'api_key_env'}
-    allowed = required | {'input', 'compat', 'reasoning','host_base_url','sampling','server_provenance'}
+    allowed = required | {'input', 'compat', 'reasoning','host_base_url','sampling','server_provenance','transient_retries'}
     if not isinstance(c, dict) or not required.issubset(c) or set(c) - allowed:
-        raise LabError('Endpoint needs base_url, model, context_window, max_tokens, api_key_env; optional input, compat, reasoning, host_base_url. No literal keys or unknown fields.')
+        raise LabError('Endpoint needs base_url, model, context_window, max_tokens, api_key_env; optional input, compat, reasoning, host_base_url, sampling, server_provenance, transient_retries. No literal keys or unknown fields.')
     for route in ('base_url','host_base_url'):
         value=c.get(route,c['base_url'])
         if not isinstance(value,str):raise LabError(f'{route} must be a URL string')
@@ -602,7 +602,7 @@ def normalize_endpoint(value: dict) -> dict:
                     raise LabError('reasoning.budget_tokens must be an integer between 1 and context_window')
         else:
             raise LabError("reasoning must be a boolean or a dict with 'enabled', 'level', 'budget_tokens'")
-    try:pi_contract.sampling_settings(c)
+    try:pi_contract.sampling_settings(c);pi_contract.transient_retry_settings(c)
     except ValueError as exc:raise LabError(str(exc)) from exc
     declared=c.get('server_provenance',{})
     if not isinstance(declared,dict) or set(declared)-{'engine','version','weights','quantization','configuration_digest'} or any(not isinstance(x,str) or not x.strip() or len(x)>512 for x in declared.values()):
@@ -1420,15 +1420,18 @@ def _execute_suite(args,attempt,smoke=False):
             if not r.get('cleanup_confirmed',False):attempt.cause('cleanup_error')
             version=re.search(r'\b(\d+\.\d+\.\d+)\b',image.get('capabilities',{}).get('pi',''))
             evidence = r.get('evidence') or analyze(runroot / label / 'stdout.jsonl', endpoint['model'], task['require_tools'], r['exit_code'], args.event_contract,
-                               release=version.group(1) if version else None)
+                               release=version.group(1) if version else None, provider_retries=endpoint.get('transient_retries',0))
             save(runroot / label / 'evidence.json', evidence)
             (runroot / label / 'final.txt').write_text(evidence['final_text'])
             observations=[{'segment_id':s['segment_id'],**s['evidence'].get('agent_profile',{})} for s in r.get('segments',[])]
             summary['agent_profile'].setdefault('observed_stages',[]).append({'name':task['name'],'segments':observations})
             if observations and all(s.get('loading')=='observed' for row in summary['agent_profile']['observed_stages'] for s in row['segments']):summary['agent_profile']['loading']='observed'
+            retried = evidence.get('provider_retries', 0)
+            retried = retried.get('attempts', 0) if isinstance(retried, dict) else retried
             summary['agents'].append({'name': task['name'], 'logs': label, 'process': r,
                                       'invocation_verified': evidence['agent_invocation_verified'], 'errors': evidence['errors'],
-                                      **({'inference_binding':copy.deepcopy(args._indexed_binding)} if indexed else {})})
+                                      **({'inference_binding':copy.deepcopy(args._indexed_binding)} if indexed else {}),
+                                      **({'provider_retries': retried} if endpoint.get('transient_retries') else {})})
             if native_required:
                 summary['native_tool_budgets']=native_budget_reporting.record_projection(summary,
                     stage_names=[stage['name'] for stage in plan['agents']],required_stages=native_required)

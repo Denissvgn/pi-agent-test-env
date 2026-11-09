@@ -221,6 +221,28 @@ merges those keys last into the request. This runner permits only `temperature`
 fields and unqualified releases reject explicitly. Configure endpoint `sampling`
 or `env save --sampling '{"temperature":0.5,"seed":123}'`.
 
+### Transient provider retries
+
+By default the runner disables every Pi retry layer, so one failed provider
+request fails the stage. A direct endpoint may opt in with integer
+`transient_retries` (0..3, default 0). For Pi 1.2.0 only, whose retry settings
+were source-inspected, the runner then enables Pi's agent-level retry with that
+`maxRetries` and a 2-second base delay; SDK-level provider retries stay off. Pi
+retries only errors its own rule classifies as transient (overload, rate limits,
+5xx statuses and dropped or truncated streams such as "Stream ended without
+finish_reason") and omits the failed attempt from the model's context.
+
+Every attempt stays in the trace. `auto_retry_start` must report the endpoint
+budget as `maxAttempts`; each traced retry accounts for one failed attempt;
+exhausted retries and any other failed message still fail the stage. Stage
+evidence lists the attempts and their error text under `provider_retries`, and
+the run summary records the count per agent. A retried stage can still be
+`verified`, because the model never saw the failed attempt; filter on
+`provider_retries` when comparing cohorts. Indexed bindings reject
+`transient_retries`: their gateway cannot prove an abandoned upstream request has
+stopped, so it keeps quarantining further admission. The field is part of the
+endpoint configuration, so changing it needs a new confirmation.
+
 Requested and emitted values are recorded separately from unverified ingestion
 and server enforcement. Saving a seed does not guarantee deterministic replay.
 Run provenance includes image/platform/Pi identity, runner file content digests

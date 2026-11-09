@@ -13,7 +13,10 @@ fixed finite budgets and the exact selected model. Start with the bundled Python
 slug task, immutable input cases and a parent-held scorer. Collect task success,
 assertion score, invocation validity, elapsed time and reported usage; unknown
 usage remains null. Experiments freeze the intended case/variant/repetition matrix.
-No scheduler, dashboard, server management, automatic retries or model fallback.
+No scheduler, dashboard, server management or model fallback. Retries are never
+automatic unless a direct endpoint opts into bounded `transient_retries` for
+provider transport errors, and every such attempt stays in the trace (see
+[PI-COMPATIBILITY.md](PI-COMPATIBILITY.md#transient-provider-retries)).
 
 The separate optional integration track uses one reviewed Pi extension providing
 a `fixture_lookup` tool. It reads a fixed, read-only fixture table and returns a
@@ -91,7 +94,7 @@ Each attempt has independent fields. Never infer one from another:
 |---|---|
 | `infrastructure.status` | `ready`, `failed`, `not_started`; failures carry reason and phase |
 | `invocation.status` | `not_started`, `verified`, `invalid`, `recovered`; verified requires all planned Pi stages cleanly validated |
-| `termination.reason` | `not_started`, `completed`, `process_error`, `timeout`, `turn_limit`, `token_limit`, `log_limit`, `oom`, `interrupted`, `cancelled`, `cleanup_error`; interrupted is an authorized steering/recovery stop, cancelled is explicit user cancellation; preserve per-segment reasons and actual process exit codes separately |
+| `termination.reason` | `not_started`, `completed`, `process_error`, `timeout`, `turn_limit`, `token_limit`, `repeated_tool_call`, `log_limit`, `oom`, `interrupted`, `cancelled`, `cleanup_error`; interrupted is an authorized steering/recovery stop, cancelled is explicit user cancellation; preserve per-segment reasons and actual process exit codes separately |
 | `scoring.status` | `not_started`, `completed`, `error`, `skipped`, `cancelled`; use reason codes for skipped/error/cancelled |
 | `task_result.status` | `pass`, `fail`, `partial`, `unknown`; unknown when no valid scorer result exists |
 | `assistance.status` | `autonomous`, `assisted`; list authorized intervention IDs |
@@ -103,6 +106,15 @@ takes precedence as the attempt-level termination reason; retain the originating
 timeout/error/cancellation in segment records and `termination.trigger`. Explicit
 user cancellation takes precedence over ordinary process-error classification.
 Successful cleanup after a timeout does not change `timeout` to `completed`.
+
+`repeated_tool_call` means the stage completed more than five consecutive
+identical tool calls: same tool, canonical arguments, result text and error
+flag, so the agent was receiving no new information. The worker stops Pi on the
+sixth; the parent recounts the retained trace before classifying the stop, and
+turn and token limits keep precedence. The guard only ends a stalled stage
+sooner; it never turns a failed stage into a pass. For a model that tends to
+loop, an endpoint `sampling.repetition_penalty` or a higher reasoning level may
+help; both are recorded as requested values without server enforcement.
 
 Result `status` and CLI exit are derived in this order at finalization:
 

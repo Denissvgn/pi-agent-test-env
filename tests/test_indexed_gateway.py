@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 import threading
+import time
 import unittest
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'skill/runtime'))
 import inference_gateway as gateway
@@ -188,6 +189,35 @@ class ActivationTests(unittest.TestCase):
     def test_private_acknowledgement_contains_no_capabilities(self):
         self.write(1,['synthetic-scoped-capability']);self.activation.refresh()
         self.assertNotIn('synthetic-scoped-capability',json.dumps(self.observations))
+    def replace_later(self,revision,tokens,delay):
+        # A shared-filesystem replacement as the container sees it: the path is
+        # briefly absent, then the new private file appears atomically.
+        import os
+        def publish():
+            time.sleep(delay)
+            temp=self.path.with_name('.active.json.tmp')
+            fd=os.open(temp,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+            with os.fdopen(fd,'w') as handle:handle.write(json.dumps({'revision':revision,'tokens':tokens}))
+            os.replace(temp,self.path)
+        thread=threading.Thread(target=publish);thread.start();self.addCleanup(thread.join)
+    def test_briefly_missing_state_is_observed_after_replacement_without_denial(self):
+        self.write(1,['a']);self.assertEqual(self.activation.refresh(),('a',))
+        self.path.unlink();self.replace_later(2,['a','b'],0.02)
+        self.assertEqual(self.activation.refresh(),('a','b'))
+        self.assertEqual(self.activation.accepted(),('a','b'))
+        self.assertNotIn(None,[o['activation_revision'] for o in self.observations if 'activation_revision' in o])
+    def test_persistently_missing_state_still_fails_closed_within_a_bounded_wait(self):
+        self.write(1,['a']);self.activation.refresh();self.path.unlink()
+        started=time.monotonic();self.assertEqual(self.activation.refresh(),())
+        elapsed=time.monotonic()-started
+        self.assertGreaterEqual(elapsed,gateway.ACTIVATION_MISSING_RETRIES*gateway.ACTIVATION_MISSING_DELAY*0.5)
+        self.assertLess(elapsed,2)
+        self.assertIsNone(self.observations[-1]['activation_revision'])
+    def test_malformed_state_is_rejected_without_waiting(self):
+        self.write(1,['a']);self.activation.refresh()
+        self.path.write_text('{"revision": 2, "tokens": ');self.path.chmod(0o600)
+        started=time.monotonic();self.assertEqual(self.activation.refresh(),())
+        self.assertLess(time.monotonic()-started,gateway.ACTIVATION_MISSING_DELAY*5)
 
 
 if __name__=='__main__':unittest.main()

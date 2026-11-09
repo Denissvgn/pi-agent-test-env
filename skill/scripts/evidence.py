@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"runtime"))
 from usage_contract import summarize
+from tool_repetition import RepetitionGuard
 import release_contracts
 
 METADATA={'thinking_level_changed','session_info_changed','entry_appended'}
@@ -15,12 +16,14 @@ UPDATES={'start','text_start','text_delta','text_end','thinking_start','thinking
 
 def analyze(path: Path, model: str, required_tools: list[str], exit_code: int,
             completion_contract: str='settled', *, allow_retries=False, release='0.87.1',
-            allowed_tools=None, historical=False) -> dict:
+            allowed_tools=None, historical=False, provider_retries=0) -> dict:
+    """provider_retries is the endpoint's opt-in transient_retries budget (0 = disabled)."""
     if completion_contract not in ('settled','process-exit'):raise ValueError('Unknown completion contract')
     protocol=[];policy=[];counts={};assistants=[];failed_tools=[];succeeded={}
     agent=False;turn=False;message=None;settled=False;ever_started=False
     retry=False;will_retry=False;compaction=False;compaction_retry=False;summarization=False;queue=False
     declared={};started={};finished=set();turn_calls=set();last_assistant=None;header=None;retry_attempt=0;retry_max=None;truncated_tail=False
+    repetition=RepetitionGuard();retry_starts=0;retried_errors=[]
     def error(text):protocol.append(text)
     selected = None
     if completion_contract == 'process-exit':
@@ -41,6 +44,7 @@ def analyze(path: Path, model: str, required_tools: list[str], exit_code: int,
             if index==len(records):truncated_tail=True
             error(f'Malformed JSONL record {index}');continue
         kind=event['type'];counts[kind]=counts.get(kind,0)+1
+        repetition.observe(event)
         if settled and kind not in METADATA|{'queue_update'}:
             error('Execution event after terminal settlement');continue
         if kind=='session':
@@ -119,8 +123,13 @@ def analyze(path: Path, model: str, required_tools: list[str], exit_code: int,
             if type(attempt) is int and type(maximum) is int:
                 if not 1<=attempt<=maximum or attempt!=retry_attempt+1 or (retry_max is not None and retry_max!=maximum):error('Invalid retry progression')
                 retry_attempt=attempt;retry_max=maximum
-            retry=True;will_retry=False
-            if not allow_retries:policy.append('Retry disabled by invocation policy')
+            retry=True;will_retry=False;retry_starts+=1
+            if provider_retries:
+                # Pi reports its configured maxRetries as maxAttempts; both must match the endpoint budget.
+                if type(maximum) is not int or maximum!=provider_retries or type(attempt) is not int or attempt>provider_retries:
+                    policy.append('Retry exceeds the endpoint transient_retries budget')
+                retried_errors.append(str(event.get('errorMessage',''))[:500])
+            elif not allow_retries:policy.append('Retry disabled by invocation policy')
         elif kind=='auto_retry_end':
             if not retry or type(event.get('success')) is not bool:error('Unpaired retry completion')
             if event.get('success') is False:policy.append('Provider retries exhausted')
@@ -169,19 +178,25 @@ def analyze(path: Path, model: str, required_tools: list[str], exit_code: int,
     missing=[t for t in required_tools if not succeeded.get(t)]
     if missing:policy.append('Required successful tools missing: '+','.join(missing))
     failures=[m.get('stopReason') for m in assistants if m.get('stopReason') in ('error','aborted','length')]
-    if failures and not allow_retries:policy.append('Unsuccessful assistant messages retained')
+    retained=list(failures)
+    if provider_retries:
+        # Each traced provider retry accounts for one failed (error) attempt it replaced.
+        for unused in range(min(retry_starts,retained.count('error'))):retained.remove('error')
+    if retained and not allow_retries:policy.append('Unsuccessful assistant messages retained')
     completion=not protocol and not policy
-    clean=completion and not failures
+    clean=completion and not retained
     measurement=summarize(assistants)
     total=measurement['categories']['total']['reported']
     return {'schema':2,'protocol_valid':not protocol,'protocol_errors':protocol,'policy_errors':policy,
             'completion_verified':completion,'agent_invocation_verified':clean,
-            'invocation_status':'verified' if clean else ('recovered' if completion and failures else 'invalid'),
+            'invocation_status':'verified' if clean else ('recovered' if completion and retained else 'invalid'),
             'completion_contract':completion_contract,'errors':protocol+policy,
             'analysis_scope':'historical trace inspection' if historical else 'release-specific trace analysis; live qualification separate',
             'release_contract':release_contracts.identity(release) if selected else None,
             'unsuccessful_messages':failures,'session_id':header.get('id') if header else None,
             'session_cwd':header.get('cwd') if header else None,'events':counts,'assistant_responses':len(assistants),
-            'successful_tools':succeeded,'failed_tools':failed_tools,'provider_reported_total_tokens':total,
+            'successful_tools':succeeded,'failed_tools':failed_tools,'tool_repetition':repetition.summary(),
+            'provider_retries':{'allowed':provider_retries,'attempts':retry_starts,'retried_errors':retried_errors},
+            'provider_reported_total_tokens':total,
             'usage_reported':total is not None,'usage':measurement,'response_ids':[m['responseId'] for m in assistants if isinstance(m.get('responseId'),str)],
             'final_text':text,'truncated_tail':truncated_tail,'identity_conflict':any('identity' in e for e in policy),'identity_verified':bool(assistants) and not any('identity' in e for e in policy)}

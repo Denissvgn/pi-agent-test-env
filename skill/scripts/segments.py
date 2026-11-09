@@ -15,6 +15,7 @@ import uuid
 import stage_control as controls
 from evidence import analyze
 from usage_contract import combine, summarize
+from tool_repetition import REPEATED_TOOL_CALL_LIMIT
 
 
 def activate(runroot,desc,segment_id,logs):
@@ -71,7 +72,7 @@ def freeze_session(runtime,session_id,cwd,model,target):
 
 
 def aggregate(records,model,required_tools,authorized_ids,execution_identity=None):
-    errors=[];success={};recovered=False
+    errors=[];success={};recovered=False;provider_retries=0
     if not records:return {'agent_invocation_verified':False,'completion_verified':False,'invocation_status':'invalid','errors':['No segments'],'final_text':''}
     session=records[0]['session_id'];seen=set()
     for index,record in enumerate(records):
@@ -100,6 +101,7 @@ def aggregate(records,model,required_tools,authorized_ids,execution_identity=Non
                 if not allowed or not benign:errors.append('Original abort/invalid trace not authorised for recovery')
                 recovered=True
         for name,count in ev.get('successful_tools',{}).items():success[name]=success.get(name,0)+count
+        provider_retries+=(ev.get('provider_retries') or {}).get('attempts',0)
         if not record['process'].get('cleanup_confirmed'):errors.append('Segment cleanup unconfirmed')
     for tool in required_tools:
         if not success.get(tool):errors.append('Required successful tool missing: '+tool)
@@ -108,7 +110,7 @@ def aggregate(records,model,required_tools,authorized_ids,execution_identity=Non
     return {'schema':2,'agent_invocation_verified':complete and not recovered,
             'completion_verified':complete,'invocation_status':'recovered' if complete and recovered else ('verified' if complete else 'invalid'),
             'errors':errors,'successful_tools':success,'final_text':final.get('final_text',''),
-            'session_id':session,'segments':[r['segment_id'] for r in records]}
+            'session_id':session,'segments':[r['segment_id'] for r in records],'provider_retries':provider_retries}
 
 
 
@@ -118,13 +120,17 @@ def classify_worker_limit(process,evidence,prior_turns=0,prior_tokens=0):
     limits=process.get('effective_limits',{})
     observed_turns=prior_turns+evidence.get('events',{}).get('turn_start',0)
     observed_tokens=prior_tokens+evidence.get('usage',{}).get('categories',{}).get('total',{}).get('known_sum',0)
+    # Recounted from this segment's retained trace; the worker's own report is never trusted.
+    repeated=(evidence.get('tool_repetition') or {}).get('longest_identical_run',0)
     reason=None
     if type(limits.get('max_turns')) is int and observed_turns>limits['max_turns']:reason='turn_limit'
     elif type(limits.get('max_total_tokens')) is int and observed_tokens>limits['max_total_tokens']:reason='token_limit'
+    elif type(repeated) is int and repeated>REPEATED_TOOL_CALL_LIMIT:reason='repeated_tool_call'
     if reason:
         process.update(supervisor_termination_reason=process['termination_reason'],termination_reason=reason,
                        termination_origin='parent comparison of retained trace counts to approved effective caps',
-                       observed_budget_counts={'turns':observed_turns,'known_reported_tokens':observed_tokens})
+                       observed_budget_counts={'turns':observed_turns,'known_reported_tokens':observed_tokens,
+                                               'longest_identical_tool_run':repeated})
     return process
 
 def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,access,network,timeout,helpers,application_secrets=None,redaction_secrets=(),native_context_sink=None):
@@ -238,7 +244,8 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
                     if result['native_tool_budget']['accounting']!='available':raise controls.ControlError('Native accounting unavailable')
                 except ValueError:
                     result.update(exit_code=2,native_tool_budget_error='accounting_unavailable')
-            ev=lab.analyze(logs/'stdout.jsonl',endpoint['model'],[],result['exit_code'],args.event_contract,release=getattr(args,'observed_pi_version',None),allowed_tools=task['tools'])
+            ev=lab.analyze(logs/'stdout.jsonl',endpoint['model'],[],result['exit_code'],args.event_contract,release=getattr(args,'observed_pi_version',None),allowed_tools=task['tools'],
+                           provider_retries=endpoint.get('transient_retries',0))
             if receipt:agent_profiles.staged(receipt)
             observation=agent_profiles.observed(logs/'stdout.jsonl',{**context,'asset_root':receipt['root']}) if receipt else {'loading':'unverified','errors':[]}
             ev['agent_profile']=observation

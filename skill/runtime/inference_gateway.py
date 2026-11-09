@@ -16,6 +16,11 @@ from urllib.parse import urlsplit
 
 MAX_BODY=2*1024*1024
 MAX_REPLY=64*1024*1024
+# A host atomic replacement can briefly hide the activation file inside the
+# container on shared filesystems such as Docker Desktop bind mounts (measured
+# at 1-13 ms). Wait up to about 100 ms to observe the new file.
+ACTIVATION_MISSING_RETRIES=20
+ACTIVATION_MISSING_DELAY=0.005
 ALLOWED={'model','messages','stream','stream_options','max_tokens','max_completion_tokens','temperature','top_p','min_p','top_k',
          'repetition_penalty','seed','tools','tool_choice','parallel_tool_calls','frequency_penalty','presence_penalty','stop',
          'reasoning_effort','enable_thinking','chat_template_kwargs','store'}
@@ -204,14 +209,24 @@ class Scrubber:
 
 
 def activation_state(path):
-    """Bounded no-follow reads, reopening only a verified atomic replacement."""
+    """Bounded no-follow reads, reopening only a verified atomic replacement.
+
+    A briefly missing path is waited out (bounded) rather than reported as
+    invalid state; the caller still never authorizes anything it has not read.
+    """
     import os,stat
-    for unused in range(3):
-        fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    opened=0;missing=0
+    while opened<3:
+        try:fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+        except FileNotFoundError:
+            if missing>=ACTIVATION_MISSING_RETRIES:raise
+            missing+=1;time.sleep(ACTIVATION_MISSING_DELAY);continue
+        opened+=1
         with os.fdopen(fd,'rb') as source:
             st=os.fstat(source.fileno())
             if st.st_nlink==0:
-                current=os.stat(path,follow_symlinks=False)
+                try:current=os.stat(path,follow_symlinks=False)
+                except FileNotFoundError:continue
                 if (st.st_dev,st.st_ino)!=(current.st_dev,current.st_ino):continue
             if not stat.S_ISREG(st.st_mode) or st.st_uid!=os.getuid() or st.st_nlink!=1 or st.st_mode&0o077 or st.st_size>1024*1024:
                 raise ValueError('Invalid private activation state')

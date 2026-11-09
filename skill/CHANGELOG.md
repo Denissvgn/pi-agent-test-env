@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- Fixed spurious `401 unauthorized` replies from the indexed inference gateway
+  on Docker Desktop for macOS. When the host atomically replaces the gateway's
+  active-token file, the file can briefly look missing inside the container.
+  The gateway treated that gap as invalid state and rejected every token until
+  its next read, up to 50 ms later, which could fail a running stage. It now
+  waits up to about 100 ms to observe the replacement and still never authorizes
+  state it has not read. A file that stays missing, or is malformed, is still
+  rejected.
+
+- A stage that completes more than five consecutive identical tool calls (same
+  tool, arguments, result text and error flag) now stops early with the new
+  termination reason `repeated_tool_call`. The worker ends Pi; the parent
+  recounts the retained trace before classifying the stop. Stage evidence
+  reports the longest run under `tool_repetition`. This ends a looping stage
+  sooner and makes the cause explicit; it never turns a failure into a pass.
+- Direct endpoints can opt into `transient_retries` (0 to 3, Pi 1.2.0 only).
+  Pi's agent-level retry then retries provider errors it classifies as
+  transient, such as dropped streams, instead of failing the stage on one bad
+  request. Every attempt stays in the trace: stage evidence records the attempts
+  and error text under `provider_retries`, retrying beyond the budget or
+  exhausting it still fails, and the default remains no retries. Indexed
+  bindings reject the field because their gateway still quarantines an
+  uncertain upstream request.
+
 - The supplied image recipe installs a pinned upstream `fd` 10.5.0, the static
   musl build for ARM64 or AMD64, after checking its SHA-256. Pi's `find` tool
   uses it, so `find` no longer needs a download in offline runs. Debian
