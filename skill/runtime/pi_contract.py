@@ -43,11 +43,35 @@ def sampling_settings(config,release=None):
     return copy.deepcopy(value)
 
 
+TRANSIENT_RETRY_MAX=3
+TRANSIENT_RETRY_BASE_DELAY_MS=2000
+# Pi's retry settings were source-inspected for this release only.
+TRANSIENT_RETRY_RELEASES=('1.2.0',)
+
+
+def transient_retry_settings(config,release=None):
+    """Opt-in Pi agent-level retries of retryable provider errors; 0 keeps them disabled."""
+    value=config.get('transient_retries',0)
+    if type(value) is not int or not 0<=value<=TRANSIENT_RETRY_MAX:
+        raise ValueError(f'transient_retries must be an integer from 0 to {TRANSIENT_RETRY_MAX}')
+    if value and release is not None and release not in TRANSIENT_RETRY_RELEASES:
+        raise ValueError('transient_retries is reviewed for Pi '+', '.join(TRANSIENT_RETRY_RELEASES)+' only')
+    return value
+
+
 def model_configuration(config,release):
     enabled,level,settings,receipt=reasoning_settings(config,release)
     sampling=sampling_settings(config,release)
     if sampling and release is None:raise ValueError('Sampling ingestion cannot be qualified with unknown Pi release')
     receipt['sampling']={'requested':sampling,'pi_configuration':sampling,'ingestion':'unverified','server_enforcement':'unverified'}
+    retries=transient_retry_settings(config,release)
+    if retries:
+        if release is None:raise ValueError('Transient retries cannot be configured for an unknown Pi release')
+        # Agent-level retries restart the failed assistant turn and emit auto_retry
+        # events; SDK-level provider retries stay off so every attempt is traced.
+        settings['retry']={'enabled':True,'maxRetries':retries,'baseDelayMs':TRANSIENT_RETRY_BASE_DELAY_MS,'provider':{'maxRetries':0}}
+        receipt['transient_retries']={'requested':retries,'pi_configuration':copy.deepcopy(settings['retry']),
+                                      'scope':'Pi agent-level retry of retryable provider errors; every attempt is retained in the trace'}
     model={'id':config['model'],'name':config['model'],'input':config.get('input',['text']),
            'contextWindow':config['context_window'],'maxTokens':config['max_tokens'],
            'compat':{'maxTokensField':'max_tokens',**config.get('compat',{})},'reasoning':enabled}

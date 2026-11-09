@@ -31,6 +31,7 @@ REASONS={
     'inference-configuration-secret':'Use nonsecret configuration values and named credential references only.',
     'inference-queue-expired':'Inspect the frozen queue budget; prepare an explicitly approved adjustment.',
     'inference-quarantined':'Reconcile upstream uncertainty before new inference admission.',
+    'transient-retries-unsupported':'Omit transient_retries: the indexed gateway quarantines an uncertain upstream request, so retries apply only to direct endpoints.',
 }
 
 
@@ -100,6 +101,7 @@ def configuration(value,normalize):
     if not isinstance(raw,dict) or 'api_key_env' in raw:raise IndexedError()
     raw['api_key_env']=result['credential'].get('name','PI_LAB_NOAUTH')
     result['endpoint']=normalize(raw)
+    if 'transient_retries' in result['endpoint']:raise IndexedError('transient-retries-unsupported')
     for field,maximum in (('base_url',4096),('host_base_url',4096),('model',512)):
         if len(result['endpoint'][field].encode('utf-8'))>maximum:raise IndexedError()
     integer(result['endpoint']['context_window'],2,2**31-1);integer(result['endpoint']['max_tokens'],1,2**31-2)

@@ -31,6 +31,7 @@ from pi_contract import model_configuration
 import release_contracts
 from context_contract import interpret_context, check_context
 from usage_contract import summarize
+from tool_repetition import RepetitionGuard
 
 APPLICATION_PROFILE_ROOT = Path('/opt/pi-profile')
 APPLICATION_RUNTIME_ROOT = Path('/opt/pi-lab')
@@ -616,6 +617,7 @@ def agent(config, task):
     start = time.monotonic()
     last_tool = ''
     recent_tools = []
+    repetition = RepetitionGuard()
     current_prompt = initial_prompt
     is_continue = False
     arch_norm = norm_arch_str(platform.machine())
@@ -636,7 +638,7 @@ def agent(config, task):
                       'tool_timing_origin':'worker event-arrival monotonic intervals; not server timing'},
             'elapsed_seconds': elapsed,
             'timeout_seconds': task['timeout_seconds'], 'last_tool': last_tool,
-            'recent_tools': recent_tools[-5:], 'status': status,
+            'recent_tools': recent_tools[-5:], 'tool_repetition': repetition.summary(), 'status': status,
             'container_arch': arch_norm, 'timestamp': time.time()
         }
         if pid is not None:
@@ -728,6 +730,8 @@ def agent(config, task):
                             if message.get('role') == 'assistant':
                                 completed_messages.append(message)
                                 tokens=task.get('prior_reported_tokens',0)+summarize(completed_messages)['categories']['total']['known_sum']
+                        if repetition.observe(record):
+                            limited = True
                         if turns > task['max_turns'] or tokens > task['max_total_tokens']:
                             limited = True
                     if len(partial) > 16 * 1024 * 1024:
@@ -737,7 +741,10 @@ def agent(config, task):
 
         if limited:
             emit_hb('limited', pid=p.pid)
-            print('PI_LAB_LIMIT: wall time, turn count, token count or event-size budget exceeded', file=sys.stderr)
+            if repetition.exceeded:
+                print(f'PI_LAB_LIMIT: repeated identical tool call ({repetition.longest} consecutive; limit {repetition.limit})', file=sys.stderr)
+            else:
+                print('PI_LAB_LIMIT: wall time, turn count, token count or event-size budget exceeded', file=sys.stderr)
             return 124
 
         emit_hb('cancelled' if cancelled else 'completed',exit_code=code)
