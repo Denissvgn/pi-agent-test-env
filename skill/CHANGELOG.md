@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Fixed spurious `401 unauthorized` replies from the indexed inference gateway
+  on Docker Desktop for macOS. When the host atomically replaces the gateway's
+  active-token file, the file can briefly look missing inside the container.
+  The gateway treated that gap as invalid state and rejected every token until
+  its next read, up to 50 ms later, which could fail a running stage. It now
+  waits up to about 100 ms to observe the replacement and still never authorizes
+  state it has not read. A file that stays missing, or is malformed, is still
+  rejected.
+
 - A stage that completes more than five consecutive identical tool calls (same
   tool, arguments, result text and error flag) now stops early with the new
   termination reason `repeated_tool_call`. The worker ends Pi; the parent

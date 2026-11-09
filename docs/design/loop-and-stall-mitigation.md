@@ -86,6 +86,26 @@ This needs its own changes and campaign evidence:
 - **Assumption.** The capacity promise would rest on an explicit assumption that
   the server ends an abandoned request within the drain period.
 
+## Gateway activation reads (bug fix)
+
+A third attempt was blocked by the indexed gateway itself. An implementer's
+fourth request got `401 unauthorized` 56 ms after another trial's release
+rewrote the gateway's active-token file, although its own token stayed active.
+
+**Cause.** On Docker Desktop for macOS, a host atomic rename of a bind-mounted
+file is not atomic inside the container: the path is briefly absent. In a
+reproduction with the gateway's own reader over the same read-only mount, that
+happened in 9 of 10 single replacements, for about 1–13 ms each. Under
+continuous 20 ms replacements, 5,582 of about 18,600 reads failed.
+`Activation.refresh` treated the "file not found" error as invalid state and
+accepted no tokens until its next read, up to 50 ms later.
+
+**Fix.** `activation_state` waits out a missing path for up to about 100 ms
+before raising. The gateway still never authorizes state it has not read, and a
+file that stays missing or is malformed is still rejected. The same
+reproduction against the fixed reader produced 11,360 successful reads and no
+errors across 948 replacements.
+
 ## Qualification
 
 These changes alter the campaign source identity: runtime, scripts and
