@@ -90,9 +90,11 @@ class APITests(unittest.TestCase):
                         value = value['items']
                 else:
                     payload = json.loads(content)
+                    # Record the effect before any response bytes, so a client that
+                    # stops at an informational status cannot outrun the record.
+                    fixture.effects.append(payload)
                     if fixture.mode == 'informational':
                         self.wfile.write(b'HTTP/1.1 100 Continue\r\n\r\n'); self.wfile.flush()
-                    fixture.effects.append(payload)
                     if fixture.mode == 'upgrade':
                         self.wfile.write(b'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n')
                         self.wfile.flush()
