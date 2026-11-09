@@ -151,7 +151,9 @@ class ControllerTests(unittest.TestCase):
           daemon_capacity={'cpu_millis':64000,'memory_mib':65536})
         raw=json.loads((ledger.root/'ledger.json').read_bytes())
         self.assertEqual(raw['started'],c['started']);self.assertEqual(raw['deadline'],c['deadline'])
-        self.assertEqual(raw['deadline']-raw['started'],900)
+        # Compare the way the ledger validates: (started+900)-started is not
+        # always exactly 900 in floating point when the monotonic clock is small.
+        self.assertEqual(raw['deadline'],raw['started']+900)
         wrong=copy.deepcopy(raw);wrong['deadline']=wrong['started']+14400
         with self.assertRaises(launch.LaunchError):ledger._validate(wrong)
 
