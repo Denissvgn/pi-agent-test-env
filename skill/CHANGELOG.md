@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- The supplied image recipe installs a pinned upstream `fd` 10.5.0, the static
+  musl build for ARM64 or AMD64, after checking its SHA-256. Pi's `find` tool
+  uses it, so `find` no longer needs a download in offline runs. Debian
+  bookworm's `fd-find` (8.6.0) is not used: `find` passes `--no-require-git`
+  outside git repositories, and fd added that flag in 8.7.0. Existing images keep
+  working without `fd` until rebuilt with `ensure-image --policy build`. Offline
+  `find` with it is not yet natively qualified.
+
 ## 4.9.0
 
 First stable release since 4.5.0. It contains the changes from the 4.6.0, 4.6.1,

@@ -363,10 +363,14 @@ or observed reasoning/sampling settings do not establish server enforcement,
 weights identity, deterministic replay or inference timing. Container resource
 limits do not cap the model server or unrelated host processes.
 
-The supplied Docker recipe installs ripgrep but not `fd`. Pi's built-in `find`
-tool needs `fd` and cannot download it in offline runs, so it reports
-`fd is not available and could not be downloaded`. Grant `ls` and `grep` with
-`find`; in the 4.9.0 campaign, reviewers fell back to them and completed.
+Pi's built-in `find` tool needs `fd` and cannot download it in offline runs.
+Images built from the 4.9.0 recipe or earlier have no `fd`, so `find` reports
+`fd is not available and could not be downloaded`; in the 4.9.0 campaign,
+reviewers fell back to `ls` and `grep` and completed. After 4.9.0 the supplied
+recipe installs a pinned upstream `fd` 10.5.0 instead: Debian bookworm's
+`fd-find` (8.6.0) predates `--no-require-git`, which `find` passes outside git
+repositories. Offline `find` with it is not natively qualified, so keep granting
+`ls` and `grep` with `find`.
 
 Read [SECURITY.md](references/SECURITY.md), [PI-COMPATIBILITY.md](references/PI-COMPATIBILITY.md)
 and [VALIDATION.md](VALIDATION.md) for operational requirements and evidence limits.
