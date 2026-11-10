@@ -8,6 +8,11 @@
   changes the published bytes, and `tools/verify_release.py` expects the same
   modes. The Claude Code command entry keeps its 0600 mode. Earlier source
   archives could carry a checkout's private mode for a file.
+- The new maintainer tool `tools/pi_release_intake.py` prepares the review of
+  an upstream Pi release. It checks the npm tarball and provenance commit,
+  hashes every upstream file that the reviewed contracts pin, and writes a
+  review packet, a JSON receipt and draft contract data. It is read-only and
+  ships only in the source archive; it neither admits nor qualifies a release.
 
 ## 4.9.1
 

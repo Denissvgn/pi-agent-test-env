@@ -45,6 +45,38 @@ synthetic read-only providers that the isolated owner-consumer tests use
 (`PI_SYNTHETIC_READER_PROVIDER`) or the operation SDK container fixture
 (`tools/qualification/operation_sdk_fixture.py`); those tests skip without them.
 
+## Adopting a new Pi release
+
+Start with the read-only intake. It fetches the exact upstream tag, the npm
+package and its provenance, hashes every upstream file that the reviewed
+contracts pin, and compares the result with the newest reviewed release
+(`--base` selects another):
+
+```bash
+python3 tools/pi_release_intake.py --release 1.5.1 --output-dir /tmp/pi-intake-1.5.1
+```
+
+Choose a fresh output directory outside `skill/`, `tests/` and `tools/`. The tool
+writes `review-packet.md`, `intake.json` and `draft-contract.json`, using about
+60 requests to public GitHub and npm endpoints; `--skip-tarball` leaves the
+tarball undownloaded and unchecked. It first reproduces the base release's
+recorded commit and pins, checks the downloaded tarball against the registry
+integrity metadata and compares the provenance commit with the tag. A mismatch
+is a blocking finding and exits with 3. A contract finding marks something the
+base contract cannot carry over unchanged, such as a missing required CLI flag
+or a TypeBox pin that no longer describes the tool-argument validator. The
+packet lists each changed pinned file with diff links, CLI flag and built-in
+tool file changes, dependency drift, keyword-filtered release notes and the
+repository files that name the base release.
+
+The packet narrows the review; it does not replace it. Provenance signatures
+are not verified, the release-note filter is a heuristic, and unchanged pins do
+not prove unchanged behavior. `draft-contract.json` holds the target's pins and
+the base contract's behavior fields, marked unreviewed. Read every changed file,
+decide each field, record the result in a `PI-<release>.md` reference, then add
+the release data, fixture profile, tests and documentation. A stable claim still
+needs a native campaign on exact images.
+
 ## Native qualification campaigns
 
 Offline checks never qualify live execution. A release that claims native
