@@ -119,6 +119,7 @@ class PublishingTests(unittest.TestCase):
         self.assertIn('skill/assets/python-feature.plan.json',paths)
         self.assertIn('skill/examples/python-project/tests/test_slug.py',paths)
         self.assertIn('tools/validation/vendor/agentskills-source.tar.gz',paths)
+        self.assertIn('tools/pi_release_intake.py',paths)
         self.assertFalse(any(p.split('/')[0] in {'reports','plans','dist','development'} for p in paths))
         self.assertFalse(any(p.startswith('tools/release-hardening/') for p in paths))
         self.assertFalse(any(p.startswith('skill/tests/') for p in paths))
