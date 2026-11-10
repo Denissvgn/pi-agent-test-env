@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Release and export archives record a canonical mode for every packaged file:
+  0755 when its owner may execute it, otherwise 0644, the rule git uses. Local
+  permission drift, such as a file left at 0600 in one checkout, no longer
+  changes the published bytes, and `tools/verify_release.py` expects the same
+  modes. The Claude Code command entry keeps its 0600 mode. Earlier source
+  archives could carry a checkout's private mode for a file.
+
 ## 4.9.1
 
 Stable patch release on 4.9.0. It fixes an indexed inference gateway race that

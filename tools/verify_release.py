@@ -94,8 +94,11 @@ def verify(archives,report,repository=REPO,*,test_timeout_seconds=DEFAULT_TEST_T
             'test_timeout_seconds':test_timeout_seconds}
     with tempfile.TemporaryDirectory(prefix='pi-published-verification-') as temporary:
         temp=Path(temporary).resolve();roots=[]
+        # Archives carry canonical modes (0644, or 0755 when owner-executable),
+        # not whatever permissions this checkout happens to have.
+        canonical=build_release.export_skill.archive_mode
         for index,(name,prefix) in enumerate(layouts.items()):
-            expected={prefix+'/'+n:r for n,r in source_before.items() if 'sha256' in r and n in package['files']}
+            expected={prefix+'/'+n:dict(r,mode=canonical(r['mode'])) for n,r in source_before.items() if 'sha256' in r and n in package['files']}
             if name.endswith('-claude.zip'):
                 body=build_release.export_skill.CLAUDE_COMMAND.encode()
                 expected['.claude/commands/pi-agent-test-env.md']={'sha256':hashlib.sha256(body).hexdigest(),'mode':0o600,'bytes':len(body)}
@@ -104,7 +107,7 @@ def verify(archives,report,repository=REPO,*,test_timeout_seconds=DEFAULT_TEST_T
             result['layouts'].append({'archive':name,'members':len(expected),'entry_sha256':check_package.sha(root/'SKILL.md')})
         result['standard_validation']=run([sys.executable,str(repository/'tools/validation/validate_standard.py'),*[str(p) for p in roots]],repository)
         clean_files=build_release.source_files(repository)
-        expected={'pi-agent-test-env-source/'+p.relative_to(repository).as_posix():{'sha256':check_package.sha(p),'mode':p.stat().st_mode&0o777,'bytes':p.stat().st_size} for p in clean_files}
+        expected={'pi-agent-test-env-source/'+p.relative_to(repository).as_posix():{'sha256':check_package.sha(p),'mode':canonical(p.stat().st_mode),'bytes':p.stat().st_size} for p in clean_files}
         extract(archives/source_zip,temp/'source',expected)
         checkout=temp/'source/pi-agent-test-env-source'
         require(check_package.inventory(checkout/'skill')==check_package.inventory(roots[0]),'Source and universal extracted packages differ')
