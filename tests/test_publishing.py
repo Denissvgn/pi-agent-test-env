@@ -73,6 +73,42 @@ class PublishingTests(unittest.TestCase):
                 self.assertEqual(stat.S_IMODE(command.external_attr>>16),0o600)
                 self.assertEqual(stat.S_IFMT(command.external_attr>>16),stat.S_IFREG)
 
+    def test_archive_mode_follows_the_git_owner_executable_rule(self):
+        canonical=check_package.export_skill.archive_mode
+        for local,expected in ((0o600,0o644),(0o400,0o644),(0o640,0o644),(0o644,0o644),(0o664,0o644),(0o666,0o644),
+                               (0o700,0o755),(0o500,0o755),(0o744,0o755),(0o755,0o755),(0o775,0o755)):
+            with self.subTest(local=oct(local)):self.assertEqual(canonical(stat.S_IFREG|local),expected)
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary).resolve();script=root/'tool.py';script.write_text('#!/usr/bin/env python3\n');script.chmod(0o700)
+            with zipfile.ZipFile(root/'out.zip','w') as archive:check_package.export_skill.write_entry(archive,script,'tool.py')
+            with zipfile.ZipFile(root/'out.zip') as archive:
+                self.assertEqual(stat.S_IMODE(archive.getinfo('tool.py').external_attr>>16),0o755)
+
+    def test_archives_are_byte_reproducible_regardless_of_local_file_modes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary).resolve();repository=self.copied_repository(root)
+            build_release.build(root/'first',repository,candidate=True)
+            # A private checkout mode on a source fixture once changed the published
+            # source archive; package and tool files drift the same way.
+            for name,mode in (('tests/fixtures/application-contracts/historical-browser-source-identities.json',0o600),
+                              ('skill/references/PROJECTS.md',0o640),('tools/check_examples.py',0o664)):
+                (repository/name).chmod(mode)
+            build_release.build(root/'second',repository,candidate=True)
+            self.assertEqual((root/'first/SHA256SUMS').read_bytes(),(root/'second/SHA256SUMS').read_bytes())
+            for path in sorted((root/'second').glob('*.zip')):
+                with zipfile.ZipFile(path) as archive:
+                    modes={i.filename:stat.S_IMODE(i.external_attr>>16) for i in archive.infolist()}
+                command=modes.pop('.claude/commands/pi-agent-test-env.md',None)
+                self.assertEqual(set(modes.values()),{0o644},path.name)
+                self.assertEqual(command,0o600 if path.name.endswith('-claude.zip') else None)
+            # The verifier expects the same canonical modes from the drifted checkout.
+            def passing(argv,cwd,timeout=180):
+                tests='-m' in argv
+                return {'command':argv,'cwd':str(cwd),'exit_code':0,'stdout':'','stderr':'\nRan 2 tests in 0.001s\n\nOK\n' if tests else ''}
+            with mock.patch.object(verify_release,'run',side_effect=passing):
+                result=verify_release.verify(root/'second',root/'audit.json',repository)
+            self.assertEqual(result['status'],'pass');self.assertEqual(len(result['layouts']),5)
+
     def test_source_allowlist_retains_tests_and_runtime_plans_without_internal_history(self):
         paths={p.relative_to(REPOSITORY).as_posix() for p in build_release.source_files(REPOSITORY)}
         self.assertIn('tests/test_publishing.py',paths)

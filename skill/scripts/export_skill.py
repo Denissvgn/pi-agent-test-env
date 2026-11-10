@@ -32,13 +32,20 @@ def zip_timestamp() -> tuple:
     return max(ZIP_EPOCH, tuple(time.gmtime(int(value))[:6]))
 
 
+def archive_mode(st_mode: int) -> int:
+    """Canonical member mode for a source file, chosen the way git records one:
+    0755 when its owner may execute it, otherwise 0644. Local umask or chmod
+    drift, such as a 0600 checkout, must not change published bytes."""
+    return 0o755 if st_mode & stat.S_IXUSR else 0o644
+
+
 def write_entry(archive: zipfile.ZipFile, source: Path | None, name: str, *,
                 data: bytes | None = None, mode: int | None = None) -> None:
     """Write one regular-file member reproducibly: fixed time, explicit Unix mode."""
     body = source.read_bytes() if data is None else data
     info = zipfile.ZipInfo(name, date_time=zip_timestamp())
     info.create_system = 3
-    info.external_attr = (stat.S_IFREG | ((source.stat().st_mode & 0o777) if mode is None else mode)) << 16
+    info.external_attr = (stat.S_IFREG | (archive_mode(source.stat().st_mode) if mode is None else mode)) << 16
     info.compress_type = zipfile.ZIP_DEFLATED
     archive.writestr(info, body)
 
