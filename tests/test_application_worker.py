@@ -98,7 +98,7 @@ class ApplicationWorkerTests(unittest.TestCase):
         self.assertEqual(worker.validate_application_execution(task,context,'1.2.0'),private)
 
     def test_frozen_prompt_reaches_inference_exactly_without_any_worker_augmentation(self):
-        for release in ('0.87.1', '1.2.0'):
+        for release in release_contracts.RELEASES:
             with self.subTest(release=release):
                 task, context, private = self.fixture(release)
                 home = self.root / release / 'agent'
@@ -126,7 +126,7 @@ class ApplicationWorkerTests(unittest.TestCase):
                 self.assertEqual(extensions, ['/opt/pi-lab/workspace-boundary.mjs', '/opt/pi-lab/profile-monitor.mjs',
                                              '/opt/pi-profile/application-client.mjs'])
                 self.assertEqual(argv[argv.index('--tools') + 1], ','.join(task['tools']))
-                self.assertEqual('--no-mcp' in argv, release == '1.2.0')
+                self.assertEqual('--no-mcp' in argv, '--no-mcp' in release_contracts.contract(release)['extra_cli_flags'])
                 for flag in ('--no-extensions', '--no-skills', '--no-context-files', '--no-prompt-templates'):
                     self.assertIn(flag, argv)
                 serialized = json.dumps(argv) + (home.parent / 'effective-configuration.json').read_text()

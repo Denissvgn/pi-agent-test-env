@@ -14,6 +14,7 @@ from unittest import mock
 ROOT=Path(__file__).resolve().parents[1]/'skill'
 sys.path[:0]=[str(ROOT/'runtime'),str(ROOT/'scripts')]
 import inference_gateway
+import release_contracts
 import outcomes
 import pi_lab as lab
 import worker
@@ -26,7 +27,7 @@ class PreflightReached(Exception):pass
 
 class DeadlineTests(unittest.TestCase):
     def test_parent_propagates_parallel_budget_and_preserves_serial_for_both_releases(self):
-        for release in ('0.87.1','1.2.0'):
+        for release in release_contracts.RELEASES:
             for parallel in (False,True):
                 with self.subTest(release=release,parallel=parallel),tempfile.TemporaryDirectory() as temp,contextlib.ExitStack() as stack:
                     root=Path(temp);args=fixture(root);mocked_suite(stack)

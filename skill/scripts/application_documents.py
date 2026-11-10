@@ -179,7 +179,7 @@ def _binding(value, pointer):
         _uuid(value[field], pointer + '/' + field)
     for field in digests:
         c.sha256(value[field], pointer + '/' + field)
-    c.choice(value['pi_release'], ('0.87.1', '1.2.0'), pointer + '/pi_release')
+    c.choice(value['pi_release'], c.RELEASES, pointer + '/pi_release')
 
 
 def _timestamp(value, pointer):

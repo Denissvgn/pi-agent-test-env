@@ -8,20 +8,9 @@ import json
 import re
 import release_contracts
 
-SOURCE_PINS = {'0.87.1': {'packages/agent/src/agent-loop.ts': 'c3d99a5b0f24d1e7fde41cbeb2cd7a2f3559aa3e9c1df975abef21d7e0ecd189',
-            'packages/agent/src/agent.ts': 'fad42fdcea126f8b47f01876431def6f866ad72260b1e95d1a10e3acb0b6ddeb',
-            'packages/agent/src/types.ts': 'bc8db50886cdf164c55d636f2755da22b2bf12d9172b1fb7383f37c2fe439fe7',
-            'packages/ai/src/utils/validation.ts': '460786b57dead200e411b9afec916a5049c96ebcff4da082096456ac06d44fb7',
-            'packages/coding-agent/src/core/agent-session.ts': 'e5c020bced4ada5c5e116cbd160f66e111016fc717ae30d79994a45527e7f3d7',
-            'packages/coding-agent/src/core/extensions/runner.ts': 'bf68eaf27a3e54f1cfc0982554e0598c050fd9a06c8e8b7d6cd2d8e3d8d5990c',
-            'packages/coding-agent/src/core/extensions/types.ts': '601261b3deee1d61f85c930efed2767d66fe6c8d9637e19f4f53135b5fecf4d1'},
- '1.2.0': {'packages/agent/src/agent-loop.ts': '28a2b03e34a7e32f004aa851e54d3b5be9dad71c392205614cbc9abdf3a9020a',
-           'packages/agent/src/agent.ts': '7024a3145a6ebc951a0f030164adb1dfb12d33d6e0dbbac15ef0efda49c87457',
-           'packages/agent/src/types.ts': '2e116ef60fdaca4e26be5a1ace8d8b47f545d648d365de60b8c9f9d1ba629ee4',
-           'packages/ai/src/utils/validation.ts': '460786b57dead200e411b9afec916a5049c96ebcff4da082096456ac06d44fb7',
-           'packages/coding-agent/src/core/agent-session.ts': 'e2bbf746779fbed5a8c36f023842bf271252d1fd6f17f5a32f70a0d1c63f0b65',
-           'packages/coding-agent/src/core/extensions/runner.ts': '3cd6d1ad18e8e4c7adf722aed9291bc64f06e3a7d461755c21e3cba4819f4e5e',
-           'packages/coding-agent/src/core/extensions/types.ts': 'cb54c7a4fedb3473bb995694bbc1f2988c144fb0b802bfd1b656816bc25d0f25'}}
+# Each release's upstream source pins live in the release_contracts registry.
+SOURCE_PINS = {release: release_contracts.entry(release)['application_runtime_sources']
+               for release in release_contracts.RELEASES}
 
 
 def compiler_contract():

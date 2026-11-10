@@ -113,7 +113,7 @@ class ApplicationCompilerTests(unittest.TestCase):
         return caught.exception
 
     def test_ac05_repeated_compilation_is_byte_identical_and_inputs_are_immutable(self):
-        for release in ('0.87.1', '1.2.0'):
+        for release in contracts.RELEASES:
             with self.subTest(release=release):
                 source = copy.deepcopy(POSITIVE['source'])
                 source['runtime']['pi_release'] = release

@@ -4,13 +4,18 @@ A parent agent must not end a session with "could not start". Every blocker
 returned here names what failed and the next action the user or agent can take.
 """
 from __future__ import annotations
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'runtime'))
+import release_contracts  # noqa: E402
 
 SANDBOX_HINT = ('If this command runs inside an AI agent\'s command sandbox, the sandbox (not Docker) may be '
                 'denying access: re-run the SAME command with elevated/unsandboxed execution after the user '
                 'approves it. Never mount the Docker socket into a Pi child to work around this.')
 
 REMEDIES = {
-    'unsupported-pi-release': 'Select an explicitly reviewed Pi 0.87.1 or 1.2.0 native image. Verify the observed version and contract; do not bypass admission or fall back to another release.',
+    'unsupported-pi-release': f'Select an explicitly reviewed Pi {release_contracts.describe()} native image. Verify the observed version and contract; do not bypass admission or fall back to another release.',
     'browser-sandbox-blocked': 'Review BROWSER.md and the explicit chromium-userns policy. Qualify it with browser-check on the selected native image, then freeze a new admitted run. Do not disable Chromium sandboxing, add capabilities or silently change a frozen campaign.',
     'docker-cli-missing': 'Install Docker Desktop (macOS/Windows) or Docker Engine (Linux) on the host, then re-run `doctor`.',
     'docker-permission-denied': SANDBOX_HINT + ' Outside a sandbox: make sure Docker Desktop is running as this user; '

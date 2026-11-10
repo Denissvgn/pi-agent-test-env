@@ -46,6 +46,19 @@ PURE_AUTHORITY_SOURCE_SHA256 = {
 LEGACY_CREDENTIAL_VALIDATOR_AST_SHA256 = 'c6c025e4331814f0715ca5c5bd46f1433728594b4eaba3d7709c134fc8b57b25'
 # The public authority projection is unchanged by host cleanup instrumentation.
 LEGACY_APPLICATION_LAUNCH_SPEC_AST_SHA256 = 'c2f64d14df8b8508fdc308dcb9b7d2179e0f305e76de6c215b1f203b25168784'
+# Exact normalized ASTs of the pure subsets read from these two files. Deriving
+# their release lists from the reviewed release registry changed only module-level
+# lines; each subset still matches the AST in the pinned file.
+REGISTRY_SUBSET_AST_SHA256 = {
+    ('skill/scripts/application_contracts.py', ('ContractError',),
+     ('fail', 'escape', 'exact', 'text', 'participant', 'safe_json', 'canonical', 'digest'), ()):
+        '2b61b4e836feb1c940d5cf4b35204fbbbac6a6c55f0d35d062559a90f0b3d086',
+    ('skill/scripts/application_contracts.py', ('ContractError',),
+     ('fail', 'escape', 'text', 'safe_json', 'canonical', 'digest'), ()):
+        '4f1f820ed25969ea1b3a19d2cbc8f0673e5bf695f23c164f516f58e3f1165c04',
+    ('skill/scripts/parallel_application.py', (), (), (('ApplicationCohort', ('authorities',)),)):
+        '60f3b9c0308858b6fc827d16c0e8fc05a4b05633db973b9e489b1776ba299a18',
+}
 
 
 # Exact Source039 _profile method fixture; normalized AST is pinned below.
@@ -96,6 +109,10 @@ def pure_authority_subset(relative,*,functions=(),classes=(),methods=None,bindin
         if relative=='skill/scripts/application_credentials.py':
             assert functions==('validate',) and classes==('CredentialError',) and not methods
             assert hashlib.sha256(selected).hexdigest()==LEGACY_CREDENTIAL_VALIDATOR_AST_SHA256
+        elif relative in ('skill/scripts/application_contracts.py','skill/scripts/parallel_application.py'):
+            key=(relative,tuple(classes),tuple(functions),tuple(sorted(methods.items())))
+            assert key in REGISTRY_SUBSET_AST_SHA256
+            assert hashlib.sha256(selected).hexdigest()==REGISTRY_SUBSET_AST_SHA256[key]
         else:
             assert relative=='skill/scripts/application_client.py'
             assert methods=={'Authority':('launch_spec',)} and not functions and not classes

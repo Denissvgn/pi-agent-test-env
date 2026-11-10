@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]/'skill'
 sys.path.insert(0, str(ROOT/'scripts'))
 import outcomes
 import pi_lab as lab
+import release_contracts
 import resources
 from application_credentials import CredentialError
 
@@ -51,7 +52,7 @@ class AdmissionDiagnosticsTests(unittest.TestCase):
         return result
 
     def test_busy_run_and_smoke_are_sealed_without_dispatch_on_both_release_routes(self):
-        for release in ('0.87.1','1.2.0'):
+        for release in release_contracts.RELEASES:
             for op in ('run','smoke'):
                 with self.subTest(release=release,op=op),tempfile.TemporaryDirectory() as td:
                     args=self.args(Path(td),op);args.observed_pi_version=release
@@ -76,7 +77,7 @@ class AdmissionDiagnosticsTests(unittest.TestCase):
 
     def test_registry_capacity_is_sealed_before_dispatch_on_both_release_routes(self):
         import ownership_registry
-        for release in ('0.87.1','1.2.0'):
+        for release in release_contracts.RELEASES:
             for op in ('run','smoke'):
                 with self.subTest(release=release,op=op),tempfile.TemporaryDirectory() as td:
                     args=self.args(Path(td),op);args.observed_pi_version=release

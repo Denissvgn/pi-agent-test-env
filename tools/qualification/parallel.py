@@ -388,7 +388,7 @@ def definition(root,batch,manifest,authority,transform=None,prepare_callback=Non
         concurrency['gateway'].update(queue_wait_seconds=10,request_timeout_seconds=30)
     variants=[{'name':'baseline'},{'name':'candidate','prompt_suffix':'Verify the declared task using the permitted tools.'}]
     if kind=='lookup':
-        profile='profile.json' if release=='0.87.1' else 'profile.pi-1.2.0.json'
+        profile=release_contracts.entry(release)['fixture_profile']
         variants[1]['agent_profile']=str(SKILL/'assets/profiles/fixture-lookup'/profile)
     execution={'image':manifest['images'][('browser-' if kind=='browser' else 'core-')+release]['id'],
                'platform':'linux/arm64','resources':str(root/'worker.json'),'network':'bridge'}

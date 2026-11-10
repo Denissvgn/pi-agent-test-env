@@ -18,8 +18,9 @@ from urllib.parse import unquote, urlsplit
 import resources
 sys.path.insert(0, str(Path(__file__).absolute().parents[1] / 'runtime'))
 import prompt_contract
+import release_contracts
 
-RELEASES = ('0.87.1', '1.2.0')
+RELEASES = release_contracts.RELEASES
 APP_TOOLS = ('app_api', 'app_browser', 'artifact_read', 'artifact_write', 'report_write', 'budget_status')
 SOURCE_FIELDS = {'schema', 'document_type', 'name', 'runtime', 'application', 'stages', 'checks'}
 STAGE_FIELDS = {'id', 'depends_on', 'participant', 'credential_aliases', 'profile', 'prompt',

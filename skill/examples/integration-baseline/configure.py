@@ -13,7 +13,7 @@ import release_contracts
 
 def definition(image, release='0.87.1'):
     release_contracts.contract(release)
-    profile = 'profile.json' if release == '0.87.1' else 'profile.pi-1.2.0.json'
+    profile = release_contracts.entry(release)['fixture_profile']
     return {'schema':1,'name':'fixture-integration','baseline':'builtin','repetitions':2,
             'cases':[{'name':'lookup','project':str(HERE/'project'),'plan':str(HERE/'lookup.plan.json')}],
             'variants':[{'name':'builtin','agent_profile':str(SKILL/'assets/profiles/builtin.json')},

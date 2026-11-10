@@ -1,7 +1,8 @@
 """Exact reviewed native JSON tool declarations; no TypeBox/runtime discovery.
 
 Schemas were emitted from primary pinned Pi sources with their lock-pinned
-TypeBox1.3.27 constructor in isolated research, then frozen here. Missing JSON
+TypeBox1.3.27 constructor in isolated research, then frozen here; each release's
+upstream source and TypeBox pins live in the release_contracts registry. Missing JSON
 keywords remain missing: builtin objects allow extra fields by JSON Schema
 semantics, and all-optional ls omits required. Native preparation/coercion does
 not grant permission to change raw arguments. Source review is not native
@@ -180,45 +181,6 @@ _TOOLS = {'read': {'name': 'read',
                                   'required': [],
                                   'additionalProperties': False}}}
 
-_RELEASES = {'0.87.1': {'upstream_commit': 'f07218c4d4bbc12bef056a7058c3dd49dfe41abe',
-            'source_pins': {'packages/coding-agent/src/core/tools/read.ts': '297d26092979651091f44de8862a6fd55aaf59e7252f8fb8dd3d7cb3f9771518',
-                            'packages/coding-agent/src/core/tools/write.ts': '2ee0a438c24cf83fefd733e349d55a21aa5b633c18934b2c80759fcf14b6f297',
-                            'packages/coding-agent/src/core/tools/edit.ts': '31a368c14cf5437ecac157765660001b16063302d9bd746303d6d1b1dcb5625d',
-                            'packages/coding-agent/src/core/tools/bash.ts': '3f43b6d80b460bd38334975bee2726b5438ee6e54bf52abdb6fc54400aad28d2',
-                            'packages/coding-agent/src/core/tools/grep.ts': '88be3d00217d1a1caf8a9e7bb2b8d2e6d96edfa4b790c2cf76c746ab36b8841b',
-                            'packages/coding-agent/src/core/tools/find.ts': 'b06bcae6821a0e9fda1b63be613a7ce28eb0e66e1d01d16564e59e83f9ce10ea',
-                            'packages/coding-agent/src/core/tools/ls.ts': '3d0a5457e4f5b9e9967c44608b76b060374d047e80d6871ecec4459b612cb6a3',
-                            'packages/coding-agent/src/core/tools/tool-definition-wrapper.ts': '98c04e593457dfefdc4160fa84c4e16f1a693adad21672bdf1fbfa4912ef2f8b',
-                            'packages/coding-agent/src/core/agent-session.ts': 'e5c020bced4ada5c5e116cbd160f66e111016fc717ae30d79994a45527e7f3d7',
-                            'packages/coding-agent/package.json': '627631b613ba4ca29eba8df793f5280fd20b19f01d73826e9ffda14c15def5dc',
-                            'package-lock.json': '95dbf4d7aa54eebf235edccd6926efac42fbf4e1c6a92c625c9ac706a8b367f7',
-                            'packages/coding-agent/src/core/tools/index.ts': '3c66ea1e03530fb85436ee639f35add8bf72718ac6e76b738a1f41be58a2b472',
-                            'packages/coding-agent/src/core/sdk.ts': 'b419cd7aa1515d5f85d68d210daa0d79360a1e8eabe456e96b97857bec0498de',
-                            'packages/coding-agent/src/cli/args.ts': '94d1490f9c0f66ae40482c8fec9a37ab541f92eb813ae859af66ed776da44315',
-                            'packages/coding-agent/src/main.ts': 'd5f38460ed5ff89a8822a56bb40d279c08fe00b4d1d501e83cce0faf0b99addd',
-                            'packages/coding-agent/src/core/tools/truncate.ts': '104e61ea602c7f7894097b2771dad8c68de75c5a10ea6222e615c4ad144451c7'},
-            'typebox': {'version': '1.3.27',
-                        'integrity': 'sha512-zu+jc1pcy4UiNThxikUr36f0Rybk9PEeCg/NE6adeWr/SKsdNO4EzZHYRDlv2YCVAfj3Odq3dESSo/jNyoBXzA=='}},
- '1.2.0': {'upstream_commit': '06a466935536f8c9bcacb2d5efc0fc021be1bdff',
-           'source_pins': {'packages/coding-agent/src/core/tools/read.ts': 'c3c64f7105599455d3066568074796e2ddb143cb210da4981b0eb632aa3d2811',
-                           'packages/coding-agent/src/core/tools/write.ts': '2ee0a438c24cf83fefd733e349d55a21aa5b633c18934b2c80759fcf14b6f297',
-                           'packages/coding-agent/src/core/tools/edit.ts': '31a368c14cf5437ecac157765660001b16063302d9bd746303d6d1b1dcb5625d',
-                           'packages/coding-agent/src/core/tools/bash.ts': 'de2b54d4f4bfbb844ce6d8077f63d715f7d8e80079dd9689b561e45b6679c81b',
-                           'packages/coding-agent/src/core/tools/grep.ts': '88be3d00217d1a1caf8a9e7bb2b8d2e6d96edfa4b790c2cf76c746ab36b8841b',
-                           'packages/coding-agent/src/core/tools/find.ts': 'b06bcae6821a0e9fda1b63be613a7ce28eb0e66e1d01d16564e59e83f9ce10ea',
-                           'packages/coding-agent/src/core/tools/ls.ts': '3d0a5457e4f5b9e9967c44608b76b060374d047e80d6871ecec4459b612cb6a3',
-                           'packages/coding-agent/src/core/tools/tool-definition-wrapper.ts': 'bae3cdd9f2aa21fb168ef42a47584f3b19536c0815ec14d94389af530eef9358',
-                           'packages/coding-agent/src/core/agent-session.ts': 'e2bbf746779fbed5a8c36f023842bf271252d1fd6f17f5a32f70a0d1c63f0b65',
-                           'packages/coding-agent/package.json': 'd4231a02b6a2ccb357a8e9e420fab9c217490137ade958d4a45a12e169daad0c',
-                           'package-lock.json': 'ba5e0b40c10cb67baf8b43c6c64c91fe5b5853c6acdd08674aae60f938479fac',
-                           'packages/coding-agent/src/core/tools/index.ts': '3c66ea1e03530fb85436ee639f35add8bf72718ac6e76b738a1f41be58a2b472',
-                           'packages/coding-agent/src/core/sdk.ts': '61f398403c7510bec849583b2c46272df11ac5aa8d2e24b4ded97a108dd55b28',
-                           'packages/coding-agent/src/cli/args.ts': 'ef7b54f02939d2ebc8ec2defcf4c2d9be90fe979c2c74675d970a4dd14aadad3',
-                           'packages/coding-agent/src/main.ts': '7179a903b492b3c9ab42c093029e3dab0d7627981082aa787f1d66ab2b5c7f9d',
-                           'packages/coding-agent/src/core/tools/truncate.ts': '8e4507c3ed7ca7548cf7c2d7f77d07f2ae63a38b756789cbb44e9062db6c8762'},
-           'typebox': {'version': '1.3.27',
-                       'integrity': 'sha512-zu+jc1pcy4UiNThxikUr36f0Rybk9PEeCg/NE6adeWr/SKsdNO4EzZHYRDlv2YCVAfj3Odq3dESSo/jNyoBXzA=='}}}
-
 _LOCAL_SCHEMA_SOURCES = {'fixture_lookup': {'asset': 'assets/profiles/fixture-lookup/fixture-lookup.mjs',
                     'sha256': '5cd2057772db58a5ac7f6b0ee38eef550226c858e36172d0a84f367350e34cdb'},
  'budget_status': {'asset': 'runtime/tool-budget.mjs',
@@ -259,10 +221,11 @@ def canonical(value):
 
 def _release(release):
     try:
-        release_contracts.contract(release)
-        return _RELEASES[release]
-    except (TypeError, ValueError, KeyError):
+        selected = release_contracts.entry(release)
+    except (TypeError, ValueError):
         raise NativeToolError() from None
+    return {'upstream_commit': selected['upstream_commit'], 'source_pins': selected['native_tool_sources'],
+            'typebox': selected['typebox']}
 
 
 def _names(names):

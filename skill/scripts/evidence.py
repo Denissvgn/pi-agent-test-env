@@ -159,11 +159,11 @@ def analyze(path: Path, model: str, required_tools: list[str], exit_code: int,
             if not ever_started or agent or turn or message is not None or retry or will_retry or compaction or compaction_retry or summarization or queue:error('Premature/incomplete settlement')
             if selected and selected['settlement_aborted'] == 'required_boolean':
                 if type(event.get('aborted')) is not bool:
-                    error('Pi 1.2.0 settlement requires boolean aborted')
+                    error(f'Pi {selected["release"]} settlement requires boolean aborted')
                 elif event['aborted']:
                     policy.append('Pi settled with aborted work; no clean completion')
             elif selected and 'aborted' in event:
-                error('Unexpected settlement aborted field for the Pi 0.87.1 contract')
+                error(f'Unexpected settlement aborted field for the Pi {selected["release"]} contract')
             settled=True
         elif kind not in METADATA:error('Unsupported lifecycle event: '+kind)
     if not ever_started or not counts.get('agent_end') or agent or turn or message is not None or retry or will_retry or compaction or compaction_retry or summarization or queue:

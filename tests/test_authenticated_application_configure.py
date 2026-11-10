@@ -69,7 +69,7 @@ class ConfigureTests(unittest.TestCase):
 
     def test_exact_release_specific_api_and_browser_profiles_compile_for_both_reviewed_releases(self):
         hashes={}
-        for release in ('0.87.1','1.2.0'):
+        for release in c.RELEASES:
             for variant in ('api','browser'):
                 receipt=self.browser(release) if variant=='browser' else {**self.runtime,'capabilities':{'pi':release}}
                 path=self.write('runtime-'+variant+release+'.json',receipt);root=self.root/(variant+release)
