@@ -29,8 +29,8 @@ SCHEMA_HASHES = {
     'fixture_lookup': '3d82e992e0515b8da1130eb9547031ced3e1f4d31998ddd082ce39c03a3b02dc',
     'budget_status': 'd746974fa9afd5e951f76f9af38954b0ad7f436f2120dc974da65e5ee39f856f',
 }
-REGISTRY_HASHES = {'0.87.1': 'd130e44d0ea7fe9537dd16c8aa605836c121495a302c81ca3f802c36503f1abb',
-                   '1.2.0': '23717f1683eef9c647139842fab51e426c0912ae32442dfd2165d825d3684df8'}
+from test_release_registry import REVIEWED_IDENTITIES  # noqa: E402
+REGISTRY_HASHES = {release: value['native_tools'] for release, value in REVIEWED_IDENTITIES.items()}
 
 
 def digest(value):
@@ -40,7 +40,7 @@ def digest(value):
 
 class NativeToolContractTests(unittest.TestCase):
     def test_exact_source_schema_hashes_and_distinct_release_contracts(self):
-        for release in ('0.87.1', '1.2.0'):
+        for release in release_contracts.RELEASES:
             with self.subTest(release=release):
                 current = native.contract(release)
                 self.assertEqual({name: digest(tool['parameters']) for name, tool in current['tools'].items()}, SCHEMA_HASHES)
@@ -52,7 +52,7 @@ class NativeToolContractTests(unittest.TestCase):
         self.assertNotEqual(native.identity('0.87.1'), native.identity('1.2.0'))
 
     def test_real_required_numeric_and_extra_field_semantics_are_not_normalized(self):
-        for release in ('0.87.1', '1.2.0'):
+        for release in release_contracts.RELEASES:
             read = native.parameters(release, 'read')
             self.assertEqual(read['required'], ['path'])
             self.assertEqual(read['properties']['offset']['type'], 'number')
@@ -70,7 +70,7 @@ class NativeToolContractTests(unittest.TestCase):
     def test_only_edit_has_reviewed_pure_preparation_and_canonical_raw_policy(self):
         names = [*native.BUILTINS, 'fixture_lookup', 'budget_status']
         expected = {name: 'reviewed_pure' if name == 'edit' else 'none' for name in names}
-        for release in ('0.87.1', '1.2.0'):
+        for release in release_contracts.RELEASES:
             self.assertEqual(native.prepare_arguments(release, names), expected)
             contract = native.contract(release)
             self.assertTrue(contract['public_parameters_observable'])
@@ -149,7 +149,7 @@ class NativeToolContractTests(unittest.TestCase):
             with self.assertRaises(native.NativeToolError): native.canonical(value)
 
     def test_actual_frozen_schemas_admit_native_shapes_and_reject_invalid_fixture_keys(self):
-        for release in ('0.87.1', '1.2.0'):
+        for release in release_contracts.RELEASES:
             with self.subTest(release=release), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary).resolve(); root.chmod(0o700)
                 binding = {key: str(uuid.uuid4()) for key in ('run_id', 'attempt_id', 'stage_id', 'session_id')}

@@ -24,6 +24,7 @@ import application_client_service as service
 import application_compiler as compiler
 import application_credentials as credentials
 import ownership_registry as ownership
+import release_contracts
 from parallel_allocator import Allocator
 import secret_store
 import test_application_compiler as compiler_fixtures
@@ -521,7 +522,7 @@ class OwnedLifecycleTests(BaseFixture):
         self.assertFalse(hasattr(caught.exception,'application_helper_cleanup'))
 
     def test_reviewed_application_boot_uses_only_actual_frozen_bundle_in_isolated_python(self):
-        for release in ('0.87.1','1.2.0'):
+        for release in release_contracts.RELEASES:
             with self.subTest(release=release):self.frozen_reviewed_boot(release)
 
     def frozen_reviewed_boot(self,release):

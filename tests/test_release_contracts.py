@@ -162,7 +162,7 @@ class MappingTests(unittest.TestCase):
                 self.assertEqual(receipt['release_contract'], contracts.identity(release))
                 args = worker.agent_pi_arguments(config, {'tools': ['read'], 'pi_release': release},
                                                  Path('/synthetic/agent'), thinking)
-                self.assertEqual('--no-mcp' in args, release == '1.2.0')
+                self.assertEqual('--no-mcp' in args, '--no-mcp' in contracts.contract(release)['extra_cli_flags'])
                 self.assertIn('--no-extensions', args)
                 self.assertEqual(args[args.index('--tools')+1], 'read')
 
@@ -345,7 +345,7 @@ class EventContractTests(unittest.TestCase):
     def trace(self, release):
         data = json.loads((ROOT / 'references/pi-0.87.1.examples.json').read_text())
         events = copy.deepcopy(data['event_examples'][0]['records'])
-        if release == '1.2.0': events[-1]['aborted'] = False
+        if contracts.contract(release)['settlement_aborted'] == 'required_boolean': events[-1]['aborted'] = False
         return events
 
     def result(self, release, events=None, exit_code=0, **kwargs):

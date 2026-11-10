@@ -13,6 +13,7 @@ spec=importlib.util.spec_from_file_location('parallel_qualification',HERE/'paral
 qualification=importlib.util.module_from_spec(spec);spec.loader.exec_module(qualification)
 import experiments
 import pi_lab as lab
+import release_contracts
 import secret_store
 
 
@@ -106,17 +107,17 @@ class QualificationTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):qualification.canonical_runs(alias/'runs')
 
     def test_fixed_matrix_contains_both_releases_three_positive_repetitions_and_eight_faults(self):
-        rows=qualification.matrix();self.assertEqual(len(rows),24)
-        self.assertEqual(sum(r['cells'] for r in rows),124);self.assertEqual(sum(r['segments_ceiling'] for r in rows),192)
-        for release in ('0.87.1','1.2.0'):
+        rows=qualification.matrix();self.assertEqual({r['release'] for r in rows},set(release_contracts.RELEASES))
+        for release in release_contracts.RELEASES:
             subset=[r for r in rows if r['release']==release]
+            self.assertEqual((len(subset),sum(r['cells'] for r in subset),sum(r['segments_ceiling'] for r in subset)),(12,62,96))
             self.assertEqual({r['kind'] for r in subset if not r['real_model']},set(qualification.FAULTS))
             self.assertTrue(all(r['repetitions']==3 for r in subset if r['real_model']))
 
     def test_every_definition_freezes_before_dispatch_and_keeps_real_scripted_endpoints_distinct(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp).resolve();qualification.controls.atomic(root/'worker.json',qualification.WORKER)
-            manifest={'images':{p+'-'+r:{'id':'sha256:'+'a'*64} for p in ('core','browser') for r in ('0.87.1','1.2.0')},'coding_max_total_tokens':128000,'other_positive_max_total_tokens':128000}
+            manifest={'images':{p+'-'+r:{'id':'sha256:'+'a'*64} for p in ('core','browser') for r in release_contracts.RELEASES},'coding_max_total_tokens':128000,'other_positive_max_total_tokens':128000}
             endpoint={'base_url':'http://example.invalid/v1','model':'synthetic-real-lane-label','api_key_env':'MODEL_KEY',
                       'context_window':32768,'max_tokens':1024}
             with mock.patch.object(qualification.pi_release,'native',side_effect=lambda image:image),mock.patch.object(secret_store,'resolve_secret',return_value=('synthetic-model-key-0123456789','fixture')):
@@ -253,7 +254,7 @@ class FreezeIntegrityTests(unittest.TestCase):
     def test_changed_worker_policy_rejects_before_any_native_action(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp).resolve()/'frozen';images=Path(temp)/'images.json';endpoint=Path(temp)/'endpoint.json'
-            images.write_text(json.dumps({p+'-'+r:{'id':'sha256:'+'a'*64} for p in ('core','browser') for r in ('0.87.1','1.2.0')}))
+            images.write_text(json.dumps({p+'-'+r:{'id':'sha256:'+'a'*64} for p in ('core','browser') for r in release_contracts.RELEASES}))
             endpoint.write_text(json.dumps({'base_url':'http://example.invalid/v1','model':'fixture','api_key_env':'MODEL_KEY','context_window':32768,'max_tokens':1024}))
             def native(image=None):return image or {'NCPU':18,'MemTotal':8*1024**3,'OSType':'linux','Architecture':'arm64'}
             with mock.patch.object(qualification.pi_release,'native',side_effect=native):qualification.freeze(str(root),str(images),str(endpoint),session='synthetic-confirmed-session')
@@ -288,7 +289,7 @@ class SentinelTests(unittest.TestCase):
 
 class NativeCliTests(unittest.TestCase):
     def test_all_four_image_gates_use_supported_key_free_native_cli_arguments(self):
-        manifest={'session':'synthetic-confirmed-session','images':{p+'-'+r:{'id':'sha256:'+'a'*64} for p in ('core','browser') for r in ('0.87.1','1.2.0')}}
+        manifest={'session':'synthetic-confirmed-session','images':{p+'-'+r:{'id':'sha256:'+'a'*64} for p in ('core','browser') for r in release_contracts.RELEASES}}
         for name in manifest['images']:
             arguments=qualification.image_arguments(Path('/tmp/synthetic-native-evidence'),manifest,name)
             parsed=lab.parser().parse_args(arguments)

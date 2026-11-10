@@ -22,7 +22,6 @@
     }
   },
   "file_sha256": {
-    "skill/runtime/release_contracts.py": "5633815c7f17fff542a15f0f42b0f591f4b749a897932f6e6686f7821d69ea0f",
     "skill/assets/profiles/fixture-lookup/config.json": "5814fe91550e523a7692fa5c5df7a62345ebeef6ec3a366da2c8b307226f6b5d",
     "skill/assets/profiles/fixture-lookup/fixture-lookup.mjs": "5cd2057772db58a5ac7f6b0ee38eef550226c858e36172d0a84f367350e34cdb",
     "skill/assets/profiles/fixture-lookup/fixtures.json": "baaa1173c021ce18bf70d234347324611be918e8cb514b83e31942bf8599c5ab",

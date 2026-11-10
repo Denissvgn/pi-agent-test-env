@@ -498,7 +498,7 @@ def admit_image(image, expected=None):
             release_contracts.validate_binding(reported, selected['release'])
     except ValueError as exc:
         raise LabError(str(exc), 'unsupported-pi-release',
-                       'Select and qualify an exact reviewed Pi 0.87.1 or 1.2.0 image; no fallback.') from exc
+                       f'Select and qualify an exact reviewed Pi {release_contracts.describe()} image; no fallback.') from exc
     return selected
 
 

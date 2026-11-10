@@ -26,7 +26,7 @@ class ApplicationProfileTests(unittest.TestCase):
 
     def test_exact_release_bundle_and_profile_binding_assets_freeze_without_legacy_changes(self):
         baseline = json.loads((ROOT / 'tests/fixtures/application-contracts/legacy-baseline.json').read_text())
-        for release in ('0.87.1', '1.2.0'):
+        for release in release_contracts.RELEASES:
             with self.subTest(release=release):
                 legacy = release_contracts.identity(release)
                 application_identity = application_runtime_contracts.identity(release)
@@ -52,7 +52,7 @@ class ApplicationProfileTests(unittest.TestCase):
                 self.assertEqual(hashlib.sha256((ROOT / relative).read_bytes()).hexdigest(), expected)
 
     def test_exact_component_rejects_release_substitution(self):
-        for release in ('0.87.1', '1.2.0'):
+        for release in release_contracts.RELEASES:
             profile = profiles.application(release)
             other = '1.2.0' if release == '0.87.1' else '0.87.1'
             with self.assertRaises(profiles.ProfileError): profiles.admit(profile, other)

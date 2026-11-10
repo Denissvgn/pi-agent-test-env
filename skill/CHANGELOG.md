@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Each reviewed Pi release is one complete entry in the registry in
+  `runtime/release_contracts.py`: upstream commit, settlement shape, extra CLI
+  flags, reasoning and sampling support, transient-retry review, early session
+  file, fixture profile, TypeBox pin and the pinned upstream sources. The native
+  tool, application runtime and endpoint contracts, every release list and the
+  fixture profile choice derive from it, and an incomplete or out-of-order entry
+  is refused when the module loads. A new release no longer inherits 0.87.1
+  behavior by omission. Contract identities for 0.87.1 and 1.2.0 are unchanged.
 - Release and export archives record a canonical mode for every packaged file:
   0755 when its owner may execute it, otherwise 0644, the rule git uses. Local
   permission drift, such as a file left at 0600 in one checkout, no longer

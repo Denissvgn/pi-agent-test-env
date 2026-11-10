@@ -46,7 +46,8 @@ def sampling_settings(config,release=None):
 TRANSIENT_RETRY_MAX=3
 TRANSIENT_RETRY_BASE_DELAY_MS=2000
 # Pi's retry settings were source-inspected for this release only.
-TRANSIENT_RETRY_RELEASES=('1.2.0',)
+TRANSIENT_RETRY_RELEASES=tuple(release for release in release_contracts.RELEASES
+                               if release_contracts.entry(release)['transient_retries'])
 
 
 def transient_retry_settings(config,release=None):

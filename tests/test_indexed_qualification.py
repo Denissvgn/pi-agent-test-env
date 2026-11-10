@@ -4,13 +4,16 @@ from pathlib import Path
 from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1]
 sys.path[:0]=[str(ROOT/'tools/qualification'),str(ROOT/'skill/scripts'),str(ROOT/'skill/runtime')]
-import indexed,indexed_budget,experiments,secret_store
+import indexed,indexed_budget,experiments,release_contracts,secret_store
 from test_indexed_contract import config
+# The totals below describe this two-release plan. The default selection is every
+# reviewed release, which a third release would grow past the hard launch ceiling.
+CHARACTERIZED=('0.87.1','1.2.0')
 
 class IntentTests(unittest.TestCase):
     def coding_inspection_fixture(self):
         import uuid
-        manifest={'batches':[{'id':'serial','kind':'coding'},{'id':'parallel','kind':'coding'}]};runs=[]
+        manifest={'batches':[{'id':'serial','kind':'coding'},{'id':'parallel','kind':'coding'}],'releases':list(CHARACTERIZED)};runs=[]
         for number in range(36):
             parent=(self.root/'batches/serial/standalone-runs'/str(number)/'runs') if number<24 else self.root/'batches/parallel/experiment/runs'
             run=parent/str(uuid.uuid4());run.mkdir(parents=True);workspace=self.root/('workspace-'+str(number));workspace.mkdir();(workspace/'slug.py').write_text('synthetic=True\n')
@@ -40,19 +43,19 @@ class IntentTests(unittest.TestCase):
         secret_store.write_secret('SYNTHETIC_A','synthetic-qualification-a',self.store);secret_store.write_secret('SYNTHETIC_B','synthetic-qualification-b',self.store)
         a=config();a['credential']['name']='SYNTHETIC_A';b=config();b['credential']['name']='SYNTHETIC_B'
         profiles={'a':a,'b':b,'scope':'Synthetic same-backend authority fixtures; no live qualification','deployment_limits':'unknown'}
-        self.write('profiles.json',profiles);self.write('images.json',{kind+'-'+release:{'id':'sha256:'+'a'*64,'platform':'linux/arm64'} for release in ('0.87.1','1.2.0') for kind in ('core','browser')})
+        self.write('profiles.json',profiles);self.write('images.json',{kind+'-'+release:{'id':'sha256:'+'a'*64,'platform':'linux/arm64'} for release in CHARACTERIZED for kind in ('core','browser')})
     def write(self,name,value):
         path=self.root/name;path.write_text(json.dumps(value));return path
     def frozen(self):
         with patch.object(secret_store,'default_store',return_value=self.store),patch.object(indexed.lab,'command',side_effect=AssertionError('No Docker permitted')),patch.object(indexed.pi_release,'native',side_effect=AssertionError('No native execution permitted')):
-            result=indexed.freeze(self.root/'intent',self.root/'profiles.json',self.root/'images.json','fixture')
+            result=indexed.freeze(self.root/'intent',self.root/'profiles.json',self.root/'images.json','fixture',releases=CHARACTERIZED)
         manifest=experiments.read_json(self.root/'intent/manifest.json');self.addCleanup(shutil.rmtree,manifest['private_root'],ignore_errors=True)
         return result,manifest
     def test_matrix_and_launch_envelope_exactly_match_ordered_plan(self):
-        rows=indexed.matrix()
+        rows=indexed.matrix(CHARACTERIZED)
         self.assertEqual([(sum(r['cells'] for r in rows if r['collection']==p),sum(r['segments_ceiling'] for r in rows if r['collection']==p)) for p in ('A','B')],[(84,108),(136,204)])
         self.assertEqual([r['collection'] for r in rows],sorted(r['collection'] for r in rows))
-        derivation=indexed.launch_derivation();self.assertLessEqual(derivation['whole']['containers'],1600);self.assertLessEqual(derivation['whole']['networks'],256)
+        derivation=indexed.launch_derivation(rows);self.assertLessEqual(derivation['whole']['containers'],1600);self.assertLessEqual(derivation['whole']['networks'],256)
         self.assertEqual(derivation['whole']['containers'],sum(derivation[p]['containers'] for p in ('infrastructure','A','B')))
         paths={row['id']:row['containers'] for row in derivation['batches']}
         self.assertEqual(paths['b-0.87.1-coding'],44)
@@ -61,7 +64,7 @@ class IntentTests(unittest.TestCase):
         self.assertEqual(paths['b-0.87.1-discovery'],26)
         self.assertEqual(derivation['A']['containers'],527)
         self.assertEqual(derivation['whole']['containers'],1437)
-        for release in ('0.87.1','1.2.0'):
+        for release in CHARACTERIZED:
             self.assertEqual(paths['a-'+release+'-indexed-serial'],37)
             self.assertEqual(paths['a-'+release+'-legacy-serial'],31)
             self.assertEqual(paths['a-'+release+'-serial-roles'],49)
@@ -105,7 +108,7 @@ class IntentTests(unittest.TestCase):
     def test_real_serial_admission_dispatch_has_one_parent_probe_before_trials(self):
         import contextlib,socket,subprocess,types,indexed_experiments
         class BeforeTrial(RuntimeError):pass
-        for release in ('0.87.1','1.2.0'):
+        for release in release_contracts.RELEASES:
             for lane,schema in (('indexed-serial',3),('legacy-serial',1),('serial-roles',3)):
                 with self.subTest(release=release,lane=lane),tempfile.TemporaryDirectory() as temp,contextlib.ExitStack() as stack:
                     root=Path(temp).resolve();contract={'release':release};probes=[]
@@ -148,11 +151,11 @@ class IntentTests(unittest.TestCase):
         value['a']['credential']={'source':'env','name':'SYNTHETIC_B'}
         self.write('profiles.json',value)
         with patch.dict(os.environ,{'SYNTHETIC_B':'synthetic-different-env-authority'}),patch.object(secret_store,'default_store',return_value=self.store):
-            with self.assertRaises(ValueError):indexed.freeze(self.root/'intent',self.root/'profiles.json',self.root/'images.json','fixture')
+            with self.assertRaises(ValueError):indexed.freeze(self.root/'intent',self.root/'profiles.json',self.root/'images.json','fixture',releases=CHARACTERIZED)
         self.assertFalse((self.root/'intent').exists())
     def frozen_with_lease(self,lease):
         with patch.object(secret_store,'default_store',return_value=self.store),patch.object(indexed.lab,'command',side_effect=AssertionError('No Docker permitted')),patch.object(indexed.pi_release,'native',side_effect=AssertionError('No native execution permitted')):
-            indexed.freeze(self.root/'intent',self.root/'profiles.json',self.root/'images.json','fixture',str(lease))
+            indexed.freeze(self.root/'intent',self.root/'profiles.json',self.root/'images.json','fixture',str(lease),releases=CHARACTERIZED)
         manifest=experiments.read_json(self.root/'intent/manifest.json');self.addCleanup(shutil.rmtree,manifest['private_root'],ignore_errors=True)
         return manifest
     def test_dedicated_lease_is_frozen_and_exported_over_any_ambient_override(self):
@@ -180,7 +183,7 @@ class IntentTests(unittest.TestCase):
                 with self.assertRaises(ValueError):self.frozen_with_lease(lease)
                 self.assertFalse((self.root/'intent').exists())
     def test_release_selection_derives_matrix_totals_and_infrastructure_paths(self):
-        both=indexed.campaign_counts(indexed.matrix())
+        both=indexed.campaign_counts(indexed.matrix(CHARACTERIZED))
         self.assertEqual((both['planned_cells'],both['segments_ceiling'],both['expected_segments'],
                           both['expected_real_segments'],both['expected_scripted_segments'],both['coding_pipelines']),(220,312,292,240,52,36))
         rows=indexed.matrix(['1.2.0']);self.assertEqual({r['release'] for r in rows},{'1.2.0'})
@@ -189,7 +192,8 @@ class IntentTests(unittest.TestCase):
         self.assertEqual(one['expected_scripted_segments'],sum(indexed.predecessor.expected_fault_segments(k) for k in indexed.predecessor.FAULTS))
         paths=indexed.launch_derivation(rows)['infrastructure_paths']
         self.assertEqual((paths['image_admission'],paths['dom_image_probes'],paths['dom_workers']),(2,1,1))
-        self.assertEqual(indexed.matrix(['1.2.0','0.87.1']),indexed.matrix())
+        self.assertEqual(indexed.matrix(['1.2.0','0.87.1']),indexed.matrix(CHARACTERIZED))
+        self.assertEqual(indexed.matrix(),indexed.matrix(release_contracts.RELEASES))
     def test_release_selection_rejects_empty_duplicate_or_unreviewed_releases(self):
         for value in ([],['1.2.0','1.2.0'],['9.9.9']):
             with self.subTest(value=value):
@@ -270,7 +274,7 @@ class IntentTests(unittest.TestCase):
                     reference='SYNTHETIC_'+case.upper()+'_'+role;secret_store.write_secret(reference,'synthetic-actor-'+case+'-'+role,self.store);refs[role]=reference
                 return refs
         authority=Authority()
-        for batch in indexed.matrix():
+        for batch in indexed.matrix(CHARACTERIZED):
             with self.subTest(batch=batch['id']):
                 folder,prepared=indexed.builder(root,batch,manifest,authority)
                 if prepared.name=='standalone':

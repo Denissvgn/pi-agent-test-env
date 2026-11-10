@@ -30,6 +30,7 @@ import ownership_registry as reg
 import resources
 import application_credentials as credentials
 import pi_lab as lab
+import release_contracts
 import stage_control as controls
 import registry_diagnostics as diagnostics
 from test_results import fixture, mocked_suite
@@ -388,7 +389,7 @@ class ReconciliationDiagnosticsTests(unittest.TestCase):
 
     def test_cli_failure_before_output_directory_and_sealed_outcome_share_context(self):
         import outcomes
-        for release in ('0.87.1','1.2.0'):
+        for release in release_contracts.RELEASES:
             with self.subTest(release=release),tempfile.TemporaryDirectory() as temp:
                 root=Path(temp).resolve();docker=DockerFixture();lease=root/'lease'
                 with mocked_external(docker):

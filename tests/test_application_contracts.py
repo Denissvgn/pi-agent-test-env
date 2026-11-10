@@ -258,7 +258,7 @@ class StrictContractTests(unittest.TestCase):
                 with self.subTest(field=field, bad=bad):
                     value = self.source(); value['runtime'][field] = bad
                     self.reject(contracts.validate_source, value, '/runtime/' + field)
-        for release in ['0.87.1', '1.2.0']:
+        for release in release_contracts.RELEASES:
             value = self.source(); value['runtime']['pi_release'] = release
             self.assertEqual(contracts.validate_source(value), value)
 
@@ -552,7 +552,7 @@ class ApplicationRuntimeRegistryTests(unittest.TestCase):
                     with self.assertRaises(ValueError): function(release)
 
     def test_ac03_new_runtime_contract_copies_cannot_change_registry_or_old_identity(self):
-        for release in ['0.87.1', '1.2.0']:
+        for release in BASELINE['release_identities']:
             with self.subTest(release=release):
                 before = application_runtime_contracts.identity(release)
                 value = application_runtime_contracts.contract(release)
@@ -580,7 +580,7 @@ class LegacyCompatibilityTests(unittest.TestCase):
     def test_ac03_exact_predecessor_release_identity_golden_hashes(self):
         self.assertEqual({release: release_contracts.identity(release)
                           for release in ('0.87.1', '1.2.0')}, BASELINE['release_identities'])
-        self.assertEqual(release_contracts.RELEASES, ('0.87.1', '1.2.0'))
+        self.assertEqual(release_contracts.RELEASES[:2], ('0.87.1', '1.2.0'))
 
     def test_ac03_predecessor_contract_and_fixture_profile_raw_bytes(self):
         for name, expected in BASELINE['file_sha256'].items():

@@ -519,7 +519,7 @@ def cell_run(root, cell, services, real_endpoint, session, state, suffix=''):
         '--secrets-dir', str(services.store), '--resources', str(SKILL/'assets/resources/low-impact.json'),
         '--results-dir', str(folder/'runs')]
     if mode == 'fixture' and cell['variant'] == 'fixture':
-        profile = 'profile.json' if cell['release'] == '0.87.1' else 'profile.pi-1.2.0.json'
+        profile = release_contracts.entry(cell['release'])['fixture_profile']
         args += ['--agent-profile', str(SKILL/'assets/profiles/fixture-lookup'/profile)]
     if mode == 'browser':
         args += ['--profile', 'browser', '--browser-sandbox-policy', 'chromium-userns',
@@ -562,7 +562,7 @@ def cell_run(root, cell, services, real_endpoint, session, state, suffix=''):
         sessions = list((run/'children').glob('**/sessions/*.jsonl'))
         observed['session_files_before_release'] = len(sessions)
         if mode in ('abort','provider-fatal'):
-            expected = cell['release'] == '1.2.0'
+            expected = release_contracts.entry(cell['release'])['early_session_file']
             if bool(sessions) != expected: raise RuntimeError('Release-specific early persistence oracle failed')
         if mode == 'abort': process.send_signal(signal.SIGINT); return 'parent_cancelled_before_first_assistant'
         if mode == 'provider-fatal': services.mode('error'); return 'fatal_provider_released'

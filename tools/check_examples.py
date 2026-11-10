@@ -34,6 +34,7 @@ def collect(source):
     import experiments
     import outcomes
     import pi_lab
+    import release_contracts
 
     errors, commands, links, helpers = [], [], [], []
     parser = pi_lab.parser()
@@ -139,7 +140,7 @@ def collect(source):
             catalog.register(name,configuration);catalog.confirm(name,'fixture')
         spec=importlib.util.spec_from_file_location('indexed_example',source/'examples/indexed-inference/configure.py')
         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
-        for release in ('0.87.1','1.2.0'):
+        for release in release_contracts.RELEASES:
             for name,value in module.definitions('sha256:'+'a'*64,release).items():
                 definition=Path(temporary)/(release+'-'+name);definition.write_text(json.dumps(value))
                 normalized=experiments.validate(definition,pi_lab,catalog=catalog)
@@ -156,7 +157,7 @@ def collect(source):
         spec = importlib.util.spec_from_file_location('checked_authenticated_configure',
             source/'examples/authenticated-application/configure.py')
         module = importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
-        for release in ('0.87.1','1.2.0'):
+        for release in release_contracts.RELEASES:
             for transport in ('api','browser'):
                 image = {'id':'sha256:'+'a'*64,'platform':'linux/arm64','capabilities':{'pi':release}}
                 receipt = image

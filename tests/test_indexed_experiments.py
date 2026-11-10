@@ -8,6 +8,7 @@ import experiments
 import indexed_experiments
 import inference_catalog
 import pi_lab as lab
+import release_contracts
 from test_experiments import ExperimentFixture
 from test_indexed_contract import config
 from test_parallel_contract import selected
@@ -35,7 +36,7 @@ class IndexedFixture(IndexedSetup):
         class ProbeBoundary(Exception):pass
         @contextlib.contextmanager
         def lease(*args,**kwargs):yield types.SimpleNamespace(binding={},generation='synthetic-generation',load=lambda:[])
-        for release in ('0.87.1','1.2.0'):
+        for release in release_contracts.RELEASES:
             for mode in ('serial','parallel'):
                 for resume in (False,True):
                     with self.subTest(release=release,mode=mode,resume=resume):

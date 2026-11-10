@@ -160,7 +160,7 @@ class ApplicationCohort:
             raise ParallelError('Application helper pool admission differs')
         self.pool=pool;self.registry._native_budget_cohort=self
     def admit_release(self,release):
-        if release not in ('0.87.1','1.2.0') or any(plan['runtime']['pi_release']!=release for plan in self.plans.values()):
+        if release not in release_contracts.RELEASES or any(plan['runtime']['pi_release']!=release for plan in self.plans.values()):
             raise ParallelError('Application exact Pi release differs')
         self.release=release
     def bind(self,peer):

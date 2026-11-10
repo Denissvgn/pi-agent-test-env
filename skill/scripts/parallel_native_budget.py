@@ -198,7 +198,7 @@ class NativeCohort:
             self.registry._native_budget_cohort = self
 
     def admit_release(self, release):
-        if release not in ('0.87.1', '1.2.0'): raise ParallelError('Unsupported exact native release')
+        if release not in c.RELEASES: raise ParallelError('Unsupported exact native release')
         self.release = release
 
     def add_redaction_values(self, values, trial_id=None):
