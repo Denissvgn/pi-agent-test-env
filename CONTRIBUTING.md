@@ -53,7 +53,7 @@ contracts pin, and compares the result with the newest reviewed release
 (`--base` selects another):
 
 ```bash
-python3 tools/pi_release_intake.py --release 1.5.1 --output-dir /tmp/pi-intake-1.5.1
+python3 tools/pi_release_intake.py --release 1.6.0 --output-dir /tmp/pi-intake-1.6.0
 ```
 
 Choose a fresh output directory outside `skill/`, `tests/` and `tools/`. The tool
@@ -64,18 +64,38 @@ recorded commit and pins, checks the downloaded tarball against the registry
 integrity metadata and compares the provenance commit with the tag. A mismatch
 is a blocking finding and exits with 3. A contract finding marks something the
 base contract cannot carry over unchanged, such as a missing required CLI flag
-or a TypeBox pin that no longer describes the tool-argument validator. The
+or a new tool-argument validator, as when Pi moved from TypeBox to pi-schema. The
 packet lists each changed pinned file with diff links, CLI flag and built-in
 tool file changes, dependency drift, keyword-filtered release notes and the
 repository files that name the base release.
 
 The packet narrows the review; it does not replace it. Provenance signatures
 are not verified, the release-note filter is a heuristic, and unchanged pins do
-not prove unchanged behavior. `draft-contract.json` holds the target's pins and
-the base contract's behavior fields, marked unreviewed. Read every changed file,
-decide each field, record the result in a `PI-<release>.md` reference, then add
-the release data, fixture profile, tests and documentation. A stable claim still
-needs a native campaign on exact images.
+not prove unchanged behavior. `draft-contract.json` and the packet hold a draft
+registry entry: the target's commit, source and package pins and fixture
+profile, plus the base entry's behavior fields, marked unreviewed. The packet says whether the entry
+loads as written. Read every changed file, decide each carried-over field and
+record the result in a `PI-<release>.md` reference. Then:
+
+1. Append the reviewed entry to `_REVIEWED` in `skill/runtime/release_contracts.py`.
+   The module refuses an incomplete, malformed or out-of-order entry when it loads.
+2. Add the release's tool declarations to `_RELEASE_TOOLS` in
+   `skill/runtime/native_tool_contracts.py`, compared with a live `getAllTools()`
+   dump of an image built for the release; the module refuses a reviewed release
+   without them. [PI-1.5.2.md](skill/references/PI-1.5.2.md) records how.
+3. Add `skill/assets/profiles/fixture-lookup/profile.pi-<release>.json` and add
+   the release to the `pi_release` check in `skill/runtime/tool-budget.mjs`.
+4. Append the line that `python3 tests/test_release_registry.py --freeze <release>`
+   prints to `REVIEWED_IDENTITIES`. Never edit an earlier line: receipts bind
+   those identities.
+5. Add the new release identity to `PARALLEL_RELEASE_CONTRACTS` in
+   `tools/qualification/application_sdk_admission.py`.
+6. Update the documentation and regenerate `skill/MANIFEST.sha256`.
+
+The maintainer suite fails until steps 1–5 are complete. A stable claim still
+needs a native campaign on exact images. With three reviewed releases, select
+releases for the indexed campaign with `--release`: qualifying all of them at
+once exceeds its launch ceiling.
 
 ## Native qualification campaigns
 

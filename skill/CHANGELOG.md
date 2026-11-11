@@ -18,9 +18,11 @@
   archives could carry a checkout's private mode for a file.
 - The new maintainer tool `tools/pi_release_intake.py` prepares the review of
   an upstream Pi release. It checks the npm tarball and provenance commit,
-  hashes every upstream file that the reviewed contracts pin, and writes a
-  review packet, a JSON receipt and draft contract data. It is read-only and
-  ships only in the source archive; it neither admits nor qualifies a release.
+  hashes every upstream file that the reviewed contracts pin, checks the
+  TypeBox schema-builder and pi-schema validator pins, and writes a review
+  packet, a JSON receipt and a draft registry entry, with a check of whether
+  that entry loads as written. It is read-only and ships only in the
+  source archive; it neither admits nor qualifies a release.
 - On Linux, a parallel trial worker that exited before reading the controller's
   last message, such as a cancellation after a sibling trial failed, could stop
   the whole collection with `ConnectionResetError`. Linux reports such a close as
