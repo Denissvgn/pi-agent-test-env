@@ -1,5 +1,6 @@
 """Private grant and process-channel fixtures; no Docker/Pi/model execution."""
 import contextlib
+import errno
 import json
 import os
 from pathlib import Path
@@ -16,9 +17,29 @@ import ownership_registry
 import pi_lab as lab
 
 
+class ResetSocket:
+    """Reads report a reset peer, as Linux does where macOS reports a clean close."""
+    def __init__(self,sock):self.sock=sock
+    def fileno(self):return self.sock.fileno()
+    def recv(self,size):raise ConnectionResetError(errno.ECONNRESET,os.strerror(errno.ECONNRESET))
+
+
 class ChannelTests(unittest.TestCase):
     def pair(self):
         a,b=socket.socketpair();self.addCleanup(a.close);self.addCleanup(b.close);return Channel(a),Channel(b)
+    def unread_close(self):
+        # The peer closes with our frame unread: a reset on Linux, a clean close on macOS.
+        a,b=self.pair();b.send({'op':'unread'});a.sock.close();return b.sock
+    def test_reset_peer_reads_as_a_closed_channel(self):
+        for label,wrap in (('kernel',lambda sock:sock),('mocked',ResetSocket)):
+            with self.subTest(reset=label):
+                with self.assertRaises(EOFError):Channel(wrap(self.unread_close())).receive()
+    def test_reset_owner_is_owner_loss_not_user_cancel(self):
+        for label,wrap in (('kernel',lambda sock:sock),('mocked',ResetSocket)):
+            with self.subTest(reset=label):
+                remote=RemoteAdmission(Channel(wrap(self.unread_close())),{},mock.Mock())
+                with self.assertRaises(KeyboardInterrupt):remote.check_cancel()
+                self.assertTrue(remote.owner_lost);self.assertFalse(remote.cancelled)
     def test_private_channel_round_trip_bound_and_parent_loss(self):
         a,b=self.pair();a.send({'op':'fixture','trial':'a'});self.assertEqual(b.receive()['trial'],'a')
         with self.assertRaises(ParallelError):a.send({'payload':'x'*(512*1024)})

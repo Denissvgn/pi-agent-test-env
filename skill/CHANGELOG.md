@@ -21,6 +21,12 @@
   hashes every upstream file that the reviewed contracts pin, and writes a
   review packet, a JSON receipt and draft contract data. It is read-only and
   ships only in the source archive; it neither admits nor qualifies a release.
+- On Linux, a parallel trial worker that exited before reading the controller's
+  last message, such as a cancellation after a sibling trial failed, could stop
+  the whole collection with `ConnectionResetError`. Linux reports such a close as
+  a connection reset instead of end of file. The private trial channel now treats
+  a reset like a clean close: the controller finalizes the worker from its sealed
+  result, and a worker whose controller is gone records controller loss.
 
 ## 4.9.1
 

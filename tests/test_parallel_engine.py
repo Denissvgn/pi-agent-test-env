@@ -38,7 +38,7 @@ class NativeCleanupGateTests(unittest.TestCase):
         cleanup.assert_called_once_with('owned-network')
         self.assertFalse(hasattr(pool,'dependent_cleanup_confirmed'))
 
-SCRIPT='''import json,os,socket,sys,time
+SCRIPT='''import json,os,select,socket,sys,time
 from unittest import mock
 sys.path.insert(0,sys.argv[1])
 import experiments,pi_lab as lab
@@ -46,6 +46,7 @@ from parallel_dispatch import Channel,RemoteAdmission
 channel=Channel(socket.socket(fileno=int(sys.argv[2])));bootstrap=channel.receive()
 root=bootstrap['experiment'];metadata,matrix=experiments.verify(root,lab)
 cell=next(c for c in matrix['cells'] if c['trial_id']==bootstrap['intent']['trial_id'])
+unread=sys.argv[3]=='unread-cancel' and cell['variant']!='baseline'
 args=experiments.trial_args(root,metadata,cell,lab,None)
 args._parallel_session=RemoteAdmission(channel,bootstrap,lambda argv:None)
 def body(args,attempt,smoke):
@@ -53,14 +54,16 @@ def body(args,attempt,smoke):
  workspace=attempt.root/'workspace';lab.snapshot(__import__('pathlib').Path(args.project),workspace,[],10)
  (workspace/'private.txt').write_text(record['trial_id']);record['workspace']=str(workspace)
  attempt.persist();time.sleep(.2)
- args._parallel_session.check_cancel()
+ if not unread:args._parallel_session.check_cancel()
  record['infrastructure'].update(status='ready',phase='agents')
  record['invocation'].update(status='verified',attempted_stages=1)
  record['termination'].update(reason='completed',process_exit_code=0)
  record['protected_inputs']['status']='unchanged';record['scoring']['status']='completed'
  record['task_result'].update(status='pass',score=1)
- if sys.argv[3]=='failure' and cell['variant']=='baseline':record['invocation']['status']='invalid'
+ if sys.argv[3] in ('failure','unread-cancel') and cell['variant']=='baseline':record['invocation']['status']='invalid'
 with mock.patch.object(lab,'_execute_suite',side_effect=body):code=lab.run_suite(args,initial_record=bootstrap['intent']['initial_record'])
+# Past its last cancel check, exit with the owner's cancel still unread.
+if unread:select.select([channel.sock],[],[],30)
 channel.sock.close();os.close(int(sys.argv[4]));sys.exit(code)
 '''
 
@@ -109,6 +112,14 @@ class EngineTests(ExperimentFixture):
         rows=experiments.ledger_rows(root,lab)
         self.assertEqual(len(rows),4);self.assertGreaterEqual(sum(bool(r['attempts']) for r in rows),2)
         self.assertLess(sum(bool(r['attempts']) for r in rows),4)
+    def test_sibling_that_exits_with_the_cancel_unread_is_finalized(self):
+        # The candidate seals its result, then exits without reading the owner's cancel.
+        # Linux reports that to the owner as a reset; macOS reports a clean close.
+        root,metadata,matrix=self.setup_parallel('stop');result=self.collect(root,metadata,matrix,'unread-cancel')
+        self.assertEqual((result['status'],result['completed_this_call']),('halted',2))
+        self.assertEqual(experiments.controller_state(root)['active_attempts'],{})
+        sealed={c['variant']:experiments.sealed_result(root,experiments.attempt_intents(root,c)[0])['status'] for c in matrix['cells'][:2]}
+        self.assertEqual(sealed['candidate'],'PASS');self.assertNotEqual(sealed['baseline'],'PASS')
 
     def test_owner_channel_loss_is_sealed_as_controller_loss_not_user_cancel(self):
         root,metadata,matrix=self.setup_parallel();cell=matrix['cells'][0]
