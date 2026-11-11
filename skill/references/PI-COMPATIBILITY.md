@@ -225,12 +225,14 @@ or `env save --sampling '{"temperature":0.5,"seed":123}'`.
 
 By default the runner disables every Pi retry layer, so one failed provider
 request fails the stage. A direct endpoint may opt in with integer
-`transient_retries` (0..3, default 0). For Pi 1.2.0 only, whose retry settings
-were source-inspected, the runner then enables Pi's agent-level retry with that
-`maxRetries` and a 2-second base delay; SDK-level provider retries stay off. Pi
-retries only errors its own rule classifies as transient (overload, rate limits,
-5xx statuses and dropped or truncated streams such as "Stream ended without
-finish_reason") and omits the failed attempt from the model's context.
+`transient_retries` (0..3, default 0). For Pi 1.2.0 and 1.5.2, whose retry
+settings were source-inspected, the runner then enables Pi's agent-level retry
+with that `maxRetries` and a 2-second base delay; SDK-level provider retries
+stay off. Pi retries only errors its own rule classifies as transient
+(overload, rate limits, 5xx statuses and dropped or truncated streams such as
+"Stream ended without finish_reason") and omits the failed attempt from the
+model's context. [PI-1.5.2.md](PI-1.5.2.md#settings-and-profiles) records how
+1.5.2's classification differs.
 
 Every attempt stays in the trace. `auto_retry_start` must report the endpoint
 budget as `maxAttempts`; each traced retry accounts for one failed attempt;

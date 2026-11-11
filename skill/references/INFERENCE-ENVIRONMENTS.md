@@ -157,9 +157,11 @@ collection-local labels, finite scores and reported usage/missingness. It omits
 URLs, model/profile/stage names, key references, fingerprints, raw errors, traces
 and file paths. Private ledgers and comparison reports remain private.
 
-The indexed executor passed its frozen native ARM64 campaign on Pi 0.87.1 and
-1.2.0 on 15 October 2026; see [QUALIFICATION.md](../QUALIFICATION.md) for the
-220-oracle scope, budgets, cleanup and exact executable identity. Offline routing
+For 4.10.0 the indexed executor passed its frozen native ARM64 campaign on Pi
+1.5.2 on 11 November 2026, with 110 cell oracles. Earlier campaigns covered Pi
+1.2.0 for 4.9.0 and 4.9.1, and Pi 0.87.1 and 1.2.0 for 4.5.0 on 15 October 2026,
+with 220 oracles; see [QUALIFICATION.md](../QUALIFICATION.md) for each campaign's
+scope, budgets, cleanup and exact executable identity. Offline routing
 fixtures and historical homogeneous results remain separate evidence.
 A same-backend two-credential campaign does not establish distinct URL/model/API
 or independent provider/weights acceptance. Unsupported API adapters fail before

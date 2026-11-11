@@ -1,6 +1,6 @@
 # pi-agent-test-env
 
-[![Version](https://img.shields.io/badge/version-4.9.1-blue)](skill/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.10.0-blue)](skill/CHANGELOG.md)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](skill/README.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-compatible-7B61FF)](skill/SKILL.md)
@@ -15,13 +15,14 @@ inside the selected image. You provide the model server separately.
 
 ## Stability
 
-Version 4.9.1 is a stable patch release with the same stable scope as 4.9.0:
-the capabilities qualified for 4.5.0, namely serial, parallel and indexed runs,
-legacy saved and explicit endpoints, frozen experiments, the reviewed fixture
-lookup integration, scoped application credentials and sandboxed browser tasks.
-On 9 November 2026 a fresh native ARM64 campaign on the release code passed all
-110 planned cell oracles for Pi 1.2.0. Pi 0.87.1 keeps its reviewed contract but
-was not requalified for this release, and native AMD64 remains unqualified.
+Version 4.10.0 is a stable release with the same stable scope as 4.9.1, now on
+Pi 1.5.2: the capabilities qualified for 4.5.0, namely serial, parallel and
+indexed runs, legacy saved and explicit endpoints, frozen experiments, the
+reviewed fixture lookup integration, scoped application credentials and
+sandboxed browser tasks. On 11 November 2026 a fresh native ARM64 campaign on the
+release code passed all 110 planned cell oracles for Pi 1.5.2. Qualified support
+covers Pi 1.5.2 only: Pi 0.87.1 and 1.2.0 keep their reviewed contracts but were
+deferred from this release's qualification, and native AMD64 remains unqualified.
 
 These opt-in features are experimental and outside that qualification:
 
@@ -33,8 +34,9 @@ These opt-in features are experimental and outside that qualification:
 
 Qualification applies only to the recorded image, model and configuration; see
 [QUALIFICATION.md](skill/QUALIFICATION.md). Before upgrading, read the upgrade
-notes [from 4.9.0](skill/CHANGELOG.md#upgrading-from-490) and, for older
-installs, [from 4.5.0](skill/CHANGELOG.md#upgrading-from-450).
+notes [from 4.9.1](skill/CHANGELOG.md#upgrading-from-491) and, for older
+installs, [from 4.9.0](skill/CHANGELOG.md#upgrading-from-490) and
+[from 4.5.0](skill/CHANGELOG.md#upgrading-from-450).
 
 ## What can you try?
 
@@ -174,21 +176,21 @@ continuing. Keys stay out of plans and chat. See the
 ### 3. Prepare a native core image
 
 The reviewed Pi releases are **0.87.1, 1.2.0 and 1.5.2**. This walkthrough selects
-[Pi 1.2.0](skill/references/PI-1.2.0.md), the release qualified for 4.9.1;
-[Pi 1.5.2](skill/references/PI-1.5.2.md) is reviewed but not yet natively qualified,
-and [Pi 0.87.1](skill/references/PI-COMPATIBILITY.md) keeps its reviewed contract
-but was not requalified. Select the exact release explicitly and qualify it
-before execution.
+[Pi 1.5.2](skill/references/PI-1.5.2.md), the release qualified for 4.10.0;
+[Pi 1.2.0](skill/references/PI-1.2.0.md) and
+[Pi 0.87.1](skill/references/PI-COMPATIBILITY.md) keep their reviewed contracts
+but were deferred from this release's qualification. Select the exact release
+explicitly and qualify it before execution.
 The commands below select Apple Silicon's native `linux/arm64`. On an AMD64
 host/daemon, replace it with native `linux/amd64` in every command; native AMD64
 remains unqualified. Live qualification scope is recorded separately in
 [QUALIFICATION.md](skill/QUALIFICATION.md).
 
 ```bash
-IMAGE='pi-agent-tests:core-1.2.0'
+IMAGE='pi-agent-tests:core-1.5.2'
 python3 "$SKILL_DIR/scripts/pi_lab.py" ensure-image \
   --image "$IMAGE" --profile core --policy auto \
-  --pi-version 1.2.0 --platform linux/arm64 \
+  --pi-version 1.5.2 --platform linux/arm64 \
   --resources "$SKILL_DIR/assets/resources/low-impact.json" \
   --receipt /tmp/pi-core-image.json
 ```
@@ -196,7 +198,7 @@ python3 "$SKILL_DIR/scripts/pi_lab.py" ensure-image \
 `auto` probes the selected image for compatibility and builds if needed. Use
 `--policy reuse` for an existing trusted image when you want no build. Review its
 provenance first: probing executes image programs. `--pi-version` pins a build;
-it does not change a reused image. Confirm the receipt reports Pi 1.2.0 before
+it does not change a reused image. Confirm the receipt reports Pi 1.5.2 before
 continuing this walkthrough. Architecture is checked before execution;
 cross-architecture emulation requires explicit authorization.
 
@@ -279,8 +281,8 @@ statuses/counts while private evidence remains in the owned run.
 
 The fixed application and fixture walkthroughs run on native ARM64 and reuse your
 trusted `"$IMAGE"`. Their configure scripts take the Pi release from the image
-receipt; with the 1.2.0 core image above, the fixture walkthrough selects the
-reviewed 1.2.0 lookup profile.
+receipt; with the 1.5.2 core image above, the fixture walkthrough selects the
+reviewed 1.5.2 lookup profile.
 
 - **Node feature:** reuse the qualified core environment and substitute
   `examples/node-project` and `assets/node-cli.plan.json` in the run command.
@@ -395,12 +397,13 @@ keys stay in a bounded broker, with one global request slot, isolated worker
 snapshots and scoped stage/recovery tokens.
 
 Start with the [root workflow](skill/references/INFERENCE-ENVIRONMENTS.md) and
-[executable examples](skill/examples/indexed-inference/README.md). For 4.9.1,
-native indexed qualification passed on ARM64 for Pi 1.2.0 on 9 November 2026:
+[executable examples](skill/examples/indexed-inference/README.md). For 4.10.0,
+native indexed qualification passed on ARM64 for Pi 1.5.2 on 11 November 2026:
 110 cell oracles, including 78 real-model positive cells and 32 scripted fault
-oracles. The 8 November 2026 campaign for 4.9.0 covered the same matrix on
-earlier code, and the 15 October 2026 campaign for 4.5.0 covered both reviewed
-releases. The live profiles used two credential references on the same
-backend and model; distinct-backend/model/API-protocol acceptance remains
-unqualified. See [the recorded scope and limits](skill/QUALIFICATION.md). Legacy
-saved environments and experiment schemas 1/2 keep their existing behavior.
+oracles. The 9 and 8 November 2026 campaigns for 4.9.1 and 4.9.0 covered the
+same matrix for Pi 1.2.0 on earlier code, and the 15 October 2026 campaign for
+4.5.0 covered Pi 0.87.1 and 1.2.0. The live profiles used two credential
+references on the same backend and model; distinct-backend/model/API-protocol
+acceptance remains unqualified. See
+[the recorded scope and limits](skill/QUALIFICATION.md). Legacy saved
+environments and experiment schemas 1/2 keep their existing behavior.

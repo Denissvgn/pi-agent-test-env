@@ -11,6 +11,20 @@ clear historical uncertainty. See the current scope in
 [QUALIFICATION.md](QUALIFICATION.md); the dated live evidence below remains
 attached to its original executable and environment.
 
+## 4.10.0 release checks
+
+Each pull request merged for 4.10.0 passed a candidate build with
+`tools/verify_release.py` on macOS, including the full suite from extracted
+source and all five layouts, and `tools/docker_ci.py` on native Linux ARM64 with
+Python 3.10 and 3.12. The qualified head `626459c` has the same tree as the last
+of them, where the full suite ran 3405 tests: 13 skipped on macOS and 12 in each
+Linux image. During the cycle one `tools/docker_ci.py` run failed with
+`ConnectionResetError` in the parallel engine, a Linux-only defect that was
+fixed before the campaign. One maintainer test of queued admission failed
+whenever the suite started with SIGINT ignored, as a shell background job does;
+it now installs its own handler. These are offline checks; the dated live
+evidence below is separate.
+
 ## 4.9.1 release checks
 
 Each pull request merged for 4.9.1 passed the full maintainer suite on macOS. A
@@ -66,13 +80,22 @@ with bundled, hash-locked dependencies outside the skill.
 
 ## Live evidence
 
-On 9 November 2026, the 4.9.1 release campaign passed 110 frozen cell oracles on
-native ARM64 for Pi 1.2.0 at executable head `51f1134`: 78 real-model positives
-and 32 scripted fault oracles, with 146 actual Pi segments (120 real-model/26
-scripted). All 18 coding pipelines were independently inspected, and owned
-physical/private cleanup and selected-key scans passed. Three earlier attempts
-that day were blocked and not resumed, and Pi 0.87.1 was not part of the
-campaign. [QUALIFICATION.md](QUALIFICATION.md) records budgets, the earlier
+On 11 November 2026, the 4.10.0 release campaign passed 110 frozen cell oracles
+on native ARM64 for Pi 1.5.2 at executable head `626459c`: 78 real-model
+positives and 32 scripted fault oracles, with 146 actual Pi segments (120
+real-model/26 scripted). All 18 coding pipelines were independently inspected,
+and owned physical/private cleanup and selected-key scans passed. Pi 0.87.1 and
+1.2.0 were deferred and not part of the campaign, which was the release's only
+attempt. [QUALIFICATION.md](QUALIFICATION.md) records budgets, review waivers and
+limits.
+
+For 4.9.1, on 9 November 2026, the release campaign passed 110 frozen cell
+oracles on native ARM64 for Pi 1.2.0 at executable head `51f1134`: 78 real-model
+positives and 32 scripted fault oracles, with 146 actual Pi segments (120
+real-model/26 scripted). All 18 coding pipelines were independently inspected,
+and owned physical/private cleanup and selected-key scans passed. Three earlier
+attempts that day were blocked and not resumed, and Pi 0.87.1 was not part of
+the campaign. [QUALIFICATION.md](QUALIFICATION.md) records budgets, the earlier
 attempts, review waivers and limits.
 
 For 4.9.0, on 8 November 2026, the release campaign passed 110 frozen cell

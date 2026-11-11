@@ -1,7 +1,64 @@
 # Changelog
 
-## Unreleased
+## 4.10.0
 
+Stable release on Pi 1.5.2. It qualifies the stable scope on upstream Pi 1.5.2
+and defers Pi 0.87.1 and 1.2.0 from qualification. It also makes each reviewed
+Pi release one registry entry, publishes canonical file modes in release
+archives and fixes a Linux crash in the parallel engine.
+
+### Stability
+
+- **Stable:** unchanged from 4.9.1 in scope, now on native ARM64 with Pi 1.5.2:
+  serial, parallel and indexed runs, legacy saved and explicit endpoints, frozen
+  experiments, the reviewed fixture lookup integration, scoped application
+  credentials and sandboxed browser tasks.
+- **Deferred:** Pi 0.87.1 and 1.2.0 keep their reviewed contracts unchanged but
+  were not qualified for this release. Qualified support covers Pi 1.5.2 only.
+- **Experimental:** the features that were experimental in 4.9.1. Endpoint
+  `transient_retries` is reviewed for Pi 1.2.0 and 1.5.2; the release campaign
+  did not opt into retries.
+- The repeated-tool-call guard stopped no stage in the release campaign. Native
+  AMD64, including the AMD64 `fd` build, remains unqualified.
+
+### Qualification
+
+- On 11 November 2026 a fresh native ARM64 campaign on the release code
+  (`626459c`) passed all 110 planned cell oracles for Pi 1.5.2: 78 real-model
+  positive cells and 32 scripted fault oracles, in 146 actual Pi segments. All
+  18 coding pipelines were independently inspected, owned cleanup was confirmed
+  and evidence scans found no inference keys.
+- The campaign selected only Pi 1.5.2 and was the release's only attempt. Its
+  images were built with Pi 1.5.2 from the image recipe, unchanged since 4.9.1,
+  and all 16 of its offline `find` calls succeeded. See
+  [QUALIFICATION.md](QUALIFICATION.md) for budgets and limits.
+
+### Upgrading from 4.9.1
+
+- Build images for Pi 1.5.2 with an explicit `--pi-version 1.5.2`, and select
+  `profile.pi-1.5.2.json` for the fixture integration. Images and profiles for
+  0.87.1 and 1.2.0 keep working with their reviewed contracts, outside this
+  release's qualification. The image recipe is unchanged since 4.9.1, so images
+  built from it need no rebuild.
+- Experiments prepared with 4.9.1 cannot be run or resumed by this version,
+  because the runner content changed. Prepare new experiments; existing results
+  still report.
+- If you are upgrading from 4.9.0, also follow the
+  [4.9.1 upgrade notes](#upgrading-from-490); from 4.5.0, follow the
+  [4.9.0 upgrade notes](#upgrading-from-450) as well.
+
+### Changes since 4.9.1
+
+- Pi 1.5.2 has a reviewed contract alongside 0.87.1 and 1.2.0 and is the
+  release qualified for 4.10.0. [PI-1.5.2.md](references/PI-1.5.2.md) records
+  what changed for this runner, including upstream fixes such as bounded memory
+  in `read` and `grep` and the rejection of malformed tool-call arguments. Its
+  registry entry keeps the TypeBox 1.3.27 schema builder and pins the pi-schema
+  1.5.2 validator in a new `pi_schema` field, which is None for the earlier
+  releases; their contract identities are unchanged. Native tool declarations
+  are now frozen per release, and 1.5.2 differs from 1.2.0 only in `grep`'s
+  `glob` description. With three reviewed releases an indexed campaign must
+  select releases with `--release`.
 - Each reviewed Pi release is one complete entry in the registry in
   `runtime/release_contracts.py`: upstream commit, settlement shape, extra CLI
   flags, reasoning and sampling support, transient-retry review, early session
@@ -29,17 +86,15 @@
   a connection reset instead of end of file. The private trial channel now treats
   a reset like a clean close: the controller finalizes the worker from its sealed
   result, and a worker whose controller is gone records controller loss.
-- Pi 1.5.2 has a reviewed contract alongside 0.87.1 and 1.2.0; it is not yet
-  natively qualified. [PI-1.5.2.md](references/PI-1.5.2.md) records what changed
-  for this runner, including upstream fixes such as bounded memory in `read` and
-  `grep` and the rejection of malformed tool-call arguments. Its registry entry
-  keeps the TypeBox 1.3.27 schema builder and pins the pi-schema 1.5.2 validator
-  in a new `pi_schema` field, which is None for the earlier releases; their
-  contract identities are unchanged. Native tool declarations are now frozen per
-  release, and 1.5.2 differs from 1.2.0 only in `grep`'s `glob` description.
-  Select `profile.pi-1.5.2.json` for the fixture integration and build images with
-  an explicit `--pi-version 1.5.2`. With three reviewed releases an indexed
-  campaign must select releases with `--release`.
+- A maintainer test of queued admission failed whenever the test run started
+  with SIGINT ignored, as a shell background job does. It now installs its own
+  SIGINT handler for its duration and interrupts the waiter only once it is
+  queued for the lock.
+- Documentation corrections: the 4.9.1 campaign made 62 offline `find` calls,
+  all successful and all in coding reviewer stages, and the 4.9.0 campaign 41,
+  all failed. The figures given earlier, 88 and 56, counted calls reached a
+  second time through retained `latest` run links. The `transient_retries`
+  reference now names Pi 1.5.2 alongside 1.2.0.
 
 ## 4.9.1
 
@@ -69,8 +124,9 @@ stock image.
   positive cells and 32 scripted fault oracles, in 146 actual Pi segments. All
   18 coding pipelines were independently inspected, owned cleanup was confirmed
   and evidence scans found no inference keys.
-- The campaign images were built from the 4.9.1 recipe, and all 88 of its
-  offline `find` calls succeeded.
+- The campaign images were built from the 4.9.1 recipe, and all 62 of its
+  offline `find` calls succeeded (corrected in 4.10.0 from 88, which counted
+  some calls twice).
 - Three earlier attempts the same day were blocked and not resumed: by a
   reviewer that looped on one tool call, by a stalled model-server request and by
   the gateway race fixed in this release. See [QUALIFICATION.md](QUALIFICATION.md)
