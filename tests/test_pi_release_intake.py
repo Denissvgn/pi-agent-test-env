@@ -3,6 +3,7 @@
 A synthetic upstream repository and npm registry are served on loopback; no
 test contacts GitHub or npm.
 """
+import ast
 import base64
 from contextlib import redirect_stderr, redirect_stdout
 import hashlib
@@ -27,6 +28,9 @@ READ = 'packages/coding-agent/src/core/tools/read.ts'
 PACKAGE = 'packages/coding-agent/package.json'
 AI, AGENT = intake.VALIDATOR_PACKAGES
 TYPEBOX = {'version': '1.3.27', 'integrity': 'sha512-' + base64.b64encode(b'typebox').decode()}
+SCHEMA = intake.PI_SCHEMA
+SCHEMA_INTEGRITY = {BASE: 'sha512-' + base64.b64encode(b'pi-schema base').decode(),
+                    TARGET: 'sha512-' + base64.b64encode(b'pi-schema target').decode()}
 TARBALL = b'synthetic package tarball'
 
 
@@ -34,18 +38,26 @@ def manifest(dependencies, **extra):
     return json.dumps({'dependencies': dependencies, **extra}).encode()
 
 
+def parser_source(*extra):
+    """A CLI parser naming every common flag plus `extra`, the way args.ts compares them."""
+    return ''.join(f'if (arg === "{flag}") {{}}\n'
+                   for flag in (*intake.release_contracts.COMMON_FLAGS, *extra)).encode()
+
+
 BASE_FILES = {
-    ARGS: b'if (arg === "--mode") {} else if (arg === "--tools") {} else if (arg === "--no-mcp") {}\n',
+    ARGS: parser_source('--no-mcp'),
     READ: b'export const read = 1;\n',
-    PACKAGE: manifest({'@earendil-works/pi-ai': '7.1.0', 'undici': '8.10.2'}, engines={'node': '>=22.19.0'}),
+    PACKAGE: manifest({'@earendil-works/pi-ai': '7.1.0', 'typebox': '1.3.27', 'undici': '8.10.2'},
+                      engines={'node': '>=22.19.0'}),
     LOCK: json.dumps({'lockfileVersion': 3, 'packages': {'node_modules/typebox': TYPEBOX}}).encode(),
     AI: manifest({'typebox': '1.3.27'}),
     AGENT: manifest({'typebox': '1.3.27'}),
 }
 TARGET_FILES = {
-    ARGS: b'if (arg === "--mode") {} else if (arg === "--tools") {} else if (arg === "--fresh") {}\n',
+    ARGS: parser_source('--fresh'),
     READ: b'export const read = 2;\n',
-    PACKAGE: manifest({'@earendil-works/pi-ai': '7.2.0', 'undici': '8.12.3'}, engines={'node': '>=22.19.0'}),
+    PACKAGE: manifest({'@earendil-works/pi-ai': '7.2.0', 'typebox': '1.3.27', 'undici': '8.12.3'},
+                      engines={'node': '>=22.19.0'}),
     LOCK: BASE_FILES[LOCK],
     AI: manifest({'@earendil-works/pi-schema': '7.2.0'}),
     AGENT: manifest({'@earendil-works/pi-schema': '7.2.0'}),
@@ -65,13 +77,19 @@ NOTES = '''## Release
 '''
 
 
-def baseline():
+def baseline(pi_schema=None):
     pins = {path: hashlib.sha256(BASE_FILES[path]).hexdigest() for path in (ARGS, READ, PACKAGE, LOCK)}
-    return {'release': BASE, 'upstream_commit': BASE_COMMIT,
-            'pins': {'native_tools': pins, 'application_runtime': {READ: pins[READ]}},
-            'typebox': dict(TYPEBOX),
-            'carried_over': {'required_flags': ['--mode', '--tools', '--no-mcp'],
-                             'extra_cli_flags': ['--no-mcp'], 'settlement_aborted': 'required_boolean'}}
+    entry = {'upstream_commit': BASE_COMMIT, 'revision': 1, 'session_version': 3,
+             'settlement_aborted': 'required_boolean', 'extra_cli_flags': ('--no-mcp',),
+             'reasoning_levels': ('off', 'low'), 'numeric_reasoning_budgets': False, 'sampling': True,
+             'transient_retries': True, 'early_session_file': True, 'fixture_profile': f'profile.pi-{BASE}.json',
+             'typebox': dict(TYPEBOX), 'pi_schema': pi_schema,
+             'native_tool_sources': pins, 'application_runtime_sources': {READ: pins[READ]}}
+    return {'release': BASE, 'entry': entry}
+
+
+UNREVIEWED = ['session_version', 'settlement_aborted', 'extra_cli_flags', 'reasoning_levels',
+              'numeric_reasoning_budgets', 'sampling', 'transient_retries', 'early_session_file']
 
 
 class World:
@@ -111,12 +129,13 @@ class World:
         return intake.Upstream(github_api=self.root + '/api', github_raw=self.root + '/raw',
                                github_web=self.root + '/web', npm_registry=self.root + '/npm', proxies={})
 
-    def populate(self, *, tarball=TARBALL, base_tag_commit=BASE_COMMIT, provenance_commit=TARGET_COMMIT):
+    def populate(self, *, tarball=TARBALL, base_tag_commit=BASE_COMMIT, provenance_commit=TARGET_COMMIT,
+                 base_files=BASE_FILES, target_files=TARGET_FILES):
         api = '/api/repos/earendil-works/pi/'
         self.json(api + f'git/ref/tags/v{BASE}', {'object': {'type': 'commit', 'sha': base_tag_commit}})
         self.json(api + f'git/ref/tags/v{TARGET}', {'object': {'type': 'tag', 'sha': TAG_OBJECT}})
         self.json(api + f'git/tags/{TAG_OBJECT}', {'object': {'type': 'commit', 'sha': TARGET_COMMIT}})
-        for commit, files in ((BASE_COMMIT, BASE_FILES), (TARGET_COMMIT, TARGET_FILES)):
+        for commit, files in ((BASE_COMMIT, base_files), (TARGET_COMMIT, target_files)):
             for path, body in files.items():
                 self.raw(f'/raw/earendil-works/pi/{commit}/{path}', body)
         self.json(api + f'contents/{intake.TOOLS_DIR}?ref={BASE_COMMIT}', [{'name': 'read.ts', 'type': 'file'}])
@@ -136,6 +155,9 @@ class World:
                      'integrity': 'sha512-' + base64.b64encode(hashlib.sha512(TARBALL).digest()).decode(),
                      'attestations': {'url': self.root + attestations_path}}})
         self.raw(tarball_path, tarball)
+        for version, integrity in SCHEMA_INTEGRITY.items():
+            self.json(f'/npm/@earendil-works%2Fpi-schema/{version}',
+                      {'name': SCHEMA, 'version': version, 'dist': {'integrity': integrity}})
         statement = {'subject': [{'digest': {'sha512': hashlib.sha512(TARBALL).hexdigest()}}],
                      'predicate': {'buildDefinition': {
                          'externalParameters': {'workflow': {'repository': 'https://github.com/earendil-works/pi',
@@ -158,14 +180,17 @@ class PiReleaseIntakeTest(unittest.TestCase):
         files = {item['path']: item for item in report['pinned_files']}
         self.assertEqual({path: item['status'] for path, item in files.items()},
                          {ARGS: 'changed', READ: 'changed', PACKAGE: 'changed', LOCK: 'unchanged'})
-        self.assertEqual(files[READ]['pinned_by'], ['application_runtime', 'native_tools'])
+        self.assertEqual(files[READ]['pinned_by'], ['application_runtime_sources', 'native_tool_sources'])
         self.assertTrue(files[READ]['diff'].endswith('#diff-' + hashlib.sha256(READ.encode()).hexdigest()))
         self.assertIsNone(files[LOCK]['diff'])
         self.assertEqual((report['base']['pins_reproduced'], report['target']['commit']), (5, TARGET_COMMIT))
         self.assertEqual(report['cli_flags'], {'added': ['--fresh'], 'removed': ['--no-mcp'],
                                                'missing_required': ['--no-mcp']})
         self.assertEqual(report['tools_directory'], {'added': ['search.ts'], 'removed': []})
-        self.assertEqual((report['typebox']['status'], report['typebox']['base_reproduced']), ('undeclared', True))
+        self.assertEqual((report['typebox']['status'], report['typebox']['base_reproduced']), ('unchanged', True))
+        validator = {'version': TARGET, 'integrity': SCHEMA_INTEGRITY[TARGET]}
+        self.assertEqual((report['pi_schema']['status'], report['pi_schema']['base_reproduced'],
+                          report['pi_schema']['target_pin']), ('introduced', True, validator))
         self.assertEqual(report['dependencies'][AI]['added'], {'@earendil-works/pi-schema': '7.2.0'})
         self.assertEqual(report['dependencies'][PACKAGE]['changed'], {'undici': ['8.10.2', '8.12.3']})
         self.assertEqual(report['dependencies'][PACKAGE]['lockstep'], ['@earendil-works/pi-ai'])
@@ -180,16 +205,61 @@ class PiReleaseIntakeTest(unittest.TestCase):
         self.assertEqual([bullet['relevant'] for bullet in bullets], [True, True, False, False])
         self.assertEqual(bullets[0]['topics'][:2], ['breaking', 'tools'])
         self.assertTrue(bullets[2]['text'].endswith('Continued detail.'))
-        self.assertEqual(draft['status'], 'unreviewed-draft')
-        self.assertEqual(draft['native_tool_contracts']['source_pins'][READ], hashlib.sha256(TARGET_FILES[READ]).hexdigest())
-        self.assertEqual(draft['application_runtime_contracts']['source_pins'], {READ: hashlib.sha256(TARGET_FILES[READ]).hexdigest()})
-        self.assertIsNone(draft['native_tool_contracts']['typebox'])
-        self.assertEqual(draft['release_contracts']['carried_over_unreviewed'], baseline()['carried_over'])
+        self.assertEqual((draft['status'], draft['schema']), ('unreviewed-draft', 2))
+        entry, base_entry = draft['registry_entry'], baseline()['entry']
+        self.assertEqual(list(entry), list(intake.release_contracts.ENTRY_FIELDS))
+        target_read = hashlib.sha256(TARGET_FILES[READ]).hexdigest()
+        self.assertEqual((entry['upstream_commit'], entry['revision'], entry['fixture_profile']),
+                         (TARGET_COMMIT, 1, f'profile.pi-{TARGET}.json'))
+        self.assertEqual(entry['native_tool_sources'][READ], target_read)
+        self.assertEqual(entry['application_runtime_sources'], {READ: target_read})
+        self.assertEqual((entry['typebox'], entry['pi_schema']), (TYPEBOX, validator))
+        self.assertEqual(draft['unreviewed_fields'], UNREVIEWED)
+        self.assertEqual({field: entry[field] for field in UNREVIEWED}, {field: base_entry[field] for field in UNREVIEWED})
+        self.assertEqual(draft['registry_check'], {'loads': True, 'reason': None})
+        self.assertEqual(ast.literal_eval('{' + draft['registry_entry_source'] + '}'), {TARGET: entry})
+        table = {release: intake.release_contracts.entry(release) for release in intake.release_contracts.RELEASES}
+        table.update(ast.literal_eval('{' + draft['registry_entry_source'] + '}'))
+        self.assertEqual(intake.release_contracts.check_registry(table)[-1], TARGET)
         self.assertEqual(len(draft['open_items']), 2)
         packet = intake.render_packet(report)
-        for expected in ('## Findings', f'git diff {BASE_COMMIT} {TARGET_COMMIT} --', '(#2)', 'TypeBox pin: undeclared'):
+        for expected in ('## Findings', f'git diff {BASE_COMMIT} {TARGET_COMMIT} --', '(#2)',
+                         'TypeBox schema builder pin: unchanged', f'pi-schema validator pin: introduced (target {TARGET})',
+                         'validates tool arguments with pi-schema', '## Draft registry entry', 'As written it loads',
+                         f'tool declarations to `_RELEASE_TOOLS`',
+                         '```python\n' + draft['registry_entry_source'] + '\n```',
+                         f'profile.pi-{TARGET}.json', f'--freeze {TARGET}', f'--release {TARGET}'):
             self.assertIn(expected, packet)
         self.assertNotIn('example.invalid', packet)
+
+    def test_draft_does_not_load_when_the_schema_builder_is_gone(self):
+        dropped = dict(TARGET_FILES, **{PACKAGE: manifest({'@earendil-works/pi-ai': '7.2.0', 'undici': '8.12.3'},
+                                                          engines={'node': '>=22.19.0'})})
+        self.world.populate(target_files=dropped)
+        report, draft = intake.intake(self.world.upstream(), TARGET, baseline(), check_tarball=False)
+        self.assertEqual(report['typebox']['status'], 'undeclared')
+        self.assertTrue(any(item['severity'] == 'contract' and 'no longer declares typebox' in item['text']
+                            for item in report['findings']))
+        self.assertIsNone(draft['registry_entry']['typebox'])
+        self.assertEqual(draft['registry_check'],
+                         {'loads': False, 'reason': f'Reviewed Pi {TARGET} entry: typebox must be dict'})
+        self.assertIn(f'As written it does not load: Reviewed Pi {TARGET} entry: typebox must be dict',
+                      intake.render_packet(report))
+
+    def test_a_pinned_validator_is_reproduced_and_its_change_reviewed(self):
+        pinned = {AI: manifest({SCHEMA: BASE}), AGENT: manifest({SCHEMA: BASE})}
+        self.world.populate(base_files=dict(BASE_FILES, **pinned))
+        base_pin = {'version': BASE, 'integrity': SCHEMA_INTEGRITY[BASE]}
+        report, draft = intake.intake(self.world.upstream(), TARGET, baseline(base_pin), check_tarball=False)
+        self.assertEqual((report['pi_schema']['status'], report['pi_schema']['base_reproduced']), ('changed', True))
+        self.assertTrue(any(item['severity'] == 'review' and f'pi-schema changes from {BASE} to {TARGET}' in item['text']
+                            for item in report['findings']))
+        self.assertEqual(draft['registry_entry']['pi_schema'], {'version': TARGET, 'integrity': SCHEMA_INTEGRITY[TARGET]})
+        stale = baseline({'version': BASE, 'integrity': 'sha512-' + base64.b64encode(b'other').decode()})
+        report, _ = intake.intake(self.world.upstream(), TARGET, stale, check_tarball=False)
+        self.assertFalse(report['pi_schema']['base_reproduced'])
+        self.assertTrue(any(item['severity'] == 'blocking' and 'pi-schema pin does not match' in item['text']
+                            for item in report['findings']))
 
     def test_main_writes_three_files_into_a_fresh_directory_only(self):
         with tempfile.TemporaryDirectory() as temporary, \
@@ -213,7 +283,7 @@ class PiReleaseIntakeTest(unittest.TestCase):
     def test_identity_and_integrity_drift_is_blocking_and_exits_three(self):
         self.world.populate(tarball=b'tampered', base_tag_commit='d' * 40, provenance_commit='e' * 40)
         stale = baseline()
-        stale['pins']['native_tools'][ARGS] = '0' * 64
+        stale['entry']['native_tool_sources'][ARGS] = '0' * 64
         report, _ = intake.intake(self.world.upstream(), TARGET, stale)
         blocking = [item['text'] for item in report['findings'] if item['severity'] == 'blocking']
         for expected in ('not the reviewed commit', 'do not reproduce', 'does not match the registry integrity',
@@ -261,18 +331,20 @@ class PiReleaseIntakeTest(unittest.TestCase):
             with self.assertRaisesRegex(intake.IntakeError, 'fresh output directory'):
                 intake._fresh_output(temporary)
 
-    def test_reviewed_baselines_come_from_the_runtime_contracts(self):
+    def test_reviewed_baselines_are_the_registry_entries_the_contracts_derive_from(self):
+        import application_runtime_contracts
+        import native_tool_contracts
         releases = intake.release_contracts.RELEASES
         for release in releases:
             value = intake.reviewed_baseline(release)
-            native = intake.native_tool_contracts.contract(release)
-            application = intake.application_runtime_contracts.contract(release)
-            self.assertEqual(value['pins'], {'native_tools': native['source_pins'],
-                                             'application_runtime': application['source_pins']})
-            self.assertEqual(value['typebox'], native['typebox'])
-            self.assertRegex(value['upstream_commit'], '^[0-9a-f]{40}$')
-            self.assertLessEqual(set(value['carried_over']['extra_cli_flags']),
-                                 set(value['carried_over']['required_flags']))
+            self.assertEqual(value, {'release': release, 'entry': intake.release_contracts.entry(release)})
+            native = native_tool_contracts.contract(release)
+            self.assertEqual((value['entry']['native_tool_sources'], value['entry']['typebox']),
+                             (native['source_pins'], native['typebox']))
+            self.assertEqual(native.get('pi_schema'), value['entry']['pi_schema'])
+            self.assertEqual(value['entry']['application_runtime_sources'],
+                             application_runtime_contracts.contract(release)['source_pins'])
+            self.assertEqual(set(value['entry']) - intake.DERIVED_FIELDS, set(UNREVIEWED))
         newest = intake.newest_reviewed()
         self.assertIn(newest, releases)
         self.assertTrue(all(intake.parse_version(release) <= intake.parse_version(newest) for release in releases))
