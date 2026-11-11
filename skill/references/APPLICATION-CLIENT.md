@@ -11,7 +11,7 @@ The [authenticated participant example](../examples/authenticated-application/RE
 includes API/browser configuration, two disposable personas, explicit pagination
 and publication, and a separate key-free oracle over stopped fixture journals.
 
-The implemented contract supports exact Pi releases 0.87.1 and 1.2.0 on native
+The implemented contract supports exact Pi releases 0.87.1, 1.2.0 and 1.5.2 on native
 `linux/arm64`. Interface support and offline checks do not qualify a particular
 image, model, application or overlapping execution. Use the dated observations
 in [QUALIFICATION.md](../QUALIFICATION.md) and qualify the actual selected scope.

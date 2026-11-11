@@ -25,15 +25,21 @@ import release_contracts  # noqa: E402
 # Never edit a line once its release is admitted. The two predecessors were frozen on
 # 2026-11-10 from the modules before the registry existed; "entry" covers the
 # canonical JSON of the complete registry entry, including fields no identity holds.
+# The registry's pi_schema field (2026-11-11) changed only the two "entry" hashes:
+# both entries state pi_schema None, and no identity holds the field for them.
 REVIEWED_IDENTITIES = {
     '0.87.1': {'release': '4f15d43728d06659bd5156458c895aea8babfcbfebcfc0d4ba9819ef98df3acb',
                'native_tools': 'd130e44d0ea7fe9537dd16c8aa605836c121495a302c81ca3f802c36503f1abb',
                'application_runtime': 'a5f0c4797d6611e82f1c0529277f330256920e63b6f5ff2038a2a8149e454ae2',
-               'entry': '639f30c3d65f9b9c6dad2a6c45539ef8c12d60953326b8474b48f2139761e2fb'},
+               'entry': '4cb977df5e406197542aee502e078772f9709885931c0cdbc06591708e67fef3'},
     '1.2.0': {'release': '65a4620bd2d51eec37524bfe0c5cb3e6c648b4460dee2612637129f25eec36bc',
               'native_tools': '23717f1683eef9c647139842fab51e426c0912ae32442dfd2165d825d3684df8',
               'application_runtime': 'f4b79ced3398cf5b2e8bf4cb40eb6f670ce65b335acb1f150c1717ddd409dcb0',
-              'entry': '5ac2cf5f3584c4f07a707ec4e5ac6de43b714354dce66aab7f4125b60244d2a7'},
+              'entry': '8db8bcfca0e7375bd4f03b6dd4bc172d9359cd7d1eb0964caf039ae3775724d0'},
+    '1.5.2': {'release': '6eccc3493473a5d033e2622d6bae0f0f45280bfbf5ba60892d9a9d52f4ba8d80',
+              'native_tools': 'aee28949afc22354f11798ff8251d72a00fdc8dff120b056378be33246095098',
+              'application_runtime': '409d05722557fbc9b0aea0c0300d079fbd08493fd7d17278e8a4742808ff1838',
+              'entry': '232ec3eda94e506bd27de2f310065c85fce00ac1d48b1d1825f0f90f7b3c3fff'},
 }
 
 
@@ -69,7 +75,7 @@ class RegistryTests(unittest.TestCase):
             with self.subTest(release=release):
                 value = release_contracts.entry(release)
                 self.assertEqual(set(value), set(release_contracts.ENTRY_FIELDS))
-                self.assertTrue(all(type(value[field]) is kind
+                self.assertTrue(all(type(value[field]) in (kind if type(kind) is tuple else (kind,))
                                     for field, kind in release_contracts.ENTRY_FIELDS.items()))
 
     def test_incomplete_malformed_or_unordered_tables_are_refused(self):
@@ -84,6 +90,9 @@ class RegistryTests(unittest.TestCase):
             'bad digest': lambda table: table[newest]['native_tool_sources'].update({'packages/x.ts': 'f' * 63}),
             'escaping path': lambda table: table[newest]['application_runtime_sources'].update({'../x.ts': '0' * 64}),
             'bad profile': lambda table: table[newest].update(fixture_profile='../profile.json'),
+            'partial validator pin': lambda table: table[newest].update(pi_schema={'version': '1.5.2'}),
+            'validator pin type': lambda table: table[newest].update(pi_schema=['1.5.2']),
+            'missing constructor pin': lambda table: table[newest].update(typebox=None),
         }
         for name, change in cases.items():
             with self.subTest(case=name):
@@ -120,6 +129,11 @@ class RegistryTests(unittest.TestCase):
                 native = native_tool_contracts.contract(release)
                 self.assertEqual((native['upstream_commit'], native['source_pins'], native['typebox']),
                                  (selected['upstream_commit'], selected['native_tool_sources'], selected['typebox']))
+                # Only a release that validates with pi-schema states it, so earlier identities stay fixed.
+                if selected['pi_schema'] is None:
+                    self.assertNotIn('pi_schema', native)
+                else:
+                    self.assertEqual(native['pi_schema'], selected['pi_schema'])
                 self.assertEqual(application_runtime_contracts.contract(release)['source_pins'],
                                  selected['application_runtime_sources'])
 

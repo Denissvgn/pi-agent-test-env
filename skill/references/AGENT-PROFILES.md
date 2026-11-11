@@ -63,10 +63,10 @@ ambient extensions/skills/context files/templates/themes remain in effect.
 The trusted profile monitor reads immutable per-segment context, selects exactly
 the declared active tools and emits a pi_lab_profile entry with parent IDs,
 profile digest, observed registered/active tools and loaded asset hashes. Custom
-fixture code is loaded only by an explicit -e argument on reviewed Pi 0.87.1 or 1.2.0.
-The direct-tool selection is retained on both reviewed releases. Pi 1.2.0 keeps
-MCP tools unless separately excluded, so `--no-extensions` and its `--no-mcp`
-flag are mandatory in the newer contract. The CLI selection constrains built-in and registered custom
+fixture code is loaded only by an explicit -e argument on reviewed Pi 0.87.1, 1.2.0 or 1.5.2.
+The direct-tool selection is retained on every reviewed release. Pi 1.2.0 and 1.5.2 keep
+MCP tools unless separately excluded, so `--no-extensions` and their `--no-mcp`
+flag are mandatory in the newer contracts. The CLI selection constrains built-in and registered custom
 tools; it includes the full declared set before the explicit registry selection.
 Unknown tool names cannot silently become effective tools.
 
@@ -104,7 +104,7 @@ See [PI-1.2.0.md](PI-1.2.0.md) for the exact newer contract.
 
 The [application client](APPLICATION-CLIENT.md) uses exactly the bundled
 `application-client.mjs` and `instructions.md` bytes, a release-bound component
-for Pi 0.87.1 or 1.2.0, and the fixed private helper endpoint
+for Pi 0.87.1, 1.2.0 or 1.5.2, and the fixed private helper endpoint
 `http://pi-application:8081/tool`. Rehashing arbitrary JavaScript is unsupported.
 The source stage explicitly names `profile: "application-client"`; compilation
 freezes its identity and selects the stage's exact native tool schemas.

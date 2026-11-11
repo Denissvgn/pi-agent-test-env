@@ -6,7 +6,7 @@ sessions, controls, temporary files, caches and Docker bridge. The parent retain
 the same-user host lease for the entire collection. Schema 1 and the ordinary
 `run` command remain serial; `--jobs` is a tool-thread hint.
 
-Exact Pi 0.87.1 and 1.2.0 contracts, including their separate fixture profiles,
+Exact Pi 0.87.1, 1.2.0 and 1.5.2 contracts, including their separate fixture profiles,
 remain unchanged. Use only native images and the selected browser sandbox. No
 in-place execution, nested Pi teams, shared writable tree, automatic patch merge,
 new integration or model/server fallback is introduced.

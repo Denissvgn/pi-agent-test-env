@@ -2,7 +2,10 @@
 
 Schemas were emitted from primary pinned Pi sources with their lock-pinned
 TypeBox1.3.27 constructor in isolated research, then frozen here; each release's
-upstream source and TypeBox pins live in the release_contracts registry. Missing JSON
+upstream source, TypeBox and pi-schema pins live in the release_contracts registry.
+Pi 1.5.2 still builds the schemas with TypeBox 1.3.27 and validates tool arguments
+with pi-schema; its declarations were compared with a live getAllTools() dump of
+that release. Missing JSON
 keywords remain missing: builtin objects allow extra fields by JSON Schema
 semantics, and all-optional ls omits required. Native preparation/coercion does
 not grant permission to change raw arguments. Source review is not native
@@ -181,6 +184,24 @@ _TOOLS = {'read': {'name': 'read',
                                   'required': [],
                                   'additionalProperties': False}}}
 
+def _reworded(tools, tool, parameter, description):
+    changed = copy.deepcopy(tools)
+    changed[tool]['parameters']['properties'][parameter]['description'] = description
+    return changed
+
+
+# The declarations of each reviewed release. 0.87.1 and 1.2.0 share _TOOLS. For
+# 1.5.2 only grep's glob description differs: Pi 1.5.1 made globs relative to path.
+_RELEASE_TOOLS = {
+    '0.87.1': _TOOLS,
+    '1.2.0': _TOOLS,
+    '1.5.2': _reworded(_TOOLS, 'grep', 'glob',
+                       "Filter files by glob pattern, relative to path, e.g. '*.ts', 'src/**/*.ts' or "
+                       "'**/*.spec.ts'. A pattern without '/' matches file names at any depth"),
+}
+if set(_RELEASE_TOOLS) != set(release_contracts.RELEASES):
+    raise ValueError('Every reviewed Pi release needs its reviewed native tool declarations')
+
 _LOCAL_SCHEMA_SOURCES = {'fixture_lookup': {'asset': 'assets/profiles/fixture-lookup/fixture-lookup.mjs',
                     'sha256': '5cd2057772db58a5ac7f6b0ee38eef550226c858e36172d0a84f367350e34cdb'},
  'budget_status': {'asset': 'runtime/tool-budget.mjs',
@@ -224,8 +245,12 @@ def _release(release):
         selected = release_contracts.entry(release)
     except (TypeError, ValueError):
         raise NativeToolError() from None
-    return {'upstream_commit': selected['upstream_commit'], 'source_pins': selected['native_tool_sources'],
-            'typebox': selected['typebox']}
+    value = {'upstream_commit': selected['upstream_commit'], 'source_pins': selected['native_tool_sources'],
+             'typebox': selected['typebox']}
+    # Only releases that validate with pi-schema state it; earlier identities stay fixed.
+    if selected['pi_schema'] is not None:
+        value['pi_schema'] = selected['pi_schema']
+    return value
 
 
 def _names(names):
@@ -240,7 +265,7 @@ def contract(release):
     selected = _release(release)
     return {'schema': 1, 'document_type': 'reviewed_native_tool_contract',
             'id': 'native-tools-pi-' + release, 'revision': 1, 'pi_release': release,
-            **copy.deepcopy(selected), 'tools': copy.deepcopy(_TOOLS),
+            **copy.deepcopy(selected), 'tools': copy.deepcopy(_RELEASE_TOOLS[release]),
             'prepare_arguments': {name: 'reviewed_pure' if name == 'edit' else 'none' for name in _TOOLS},
             'local_schema_sources': copy.deepcopy(_LOCAL_SCHEMA_SOURCES),
             'inactive_builtin_allowlist': sorted(INACTIVE_BUILTINS),
@@ -257,7 +282,7 @@ def identity(release):
 
 def tools(release, names):
     _release(release)
-    return [copy.deepcopy(_TOOLS[name]) for name in _names(names)]
+    return [copy.deepcopy(_RELEASE_TOOLS[release][name]) for name in _names(names)]
 
 
 def parameters(release, name):
@@ -290,10 +315,11 @@ def validate_observed(release, names, observed, *, inactive_builtins=None):
         found[item['name']] = item
     if set(selected) - set(found):
         raise NativeToolError()
+    declared = _RELEASE_TOOLS[release]
     for name in selected:
-        if 'parameters' not in found[name] or canonical(found[name]['parameters']) != canonical(_TOOLS[name]['parameters']):
+        if 'parameters' not in found[name] or canonical(found[name]['parameters']) != canonical(declared[name]['parameters']):
             raise NativeToolError()
-    return {name: copy.deepcopy(_TOOLS[name]['parameters']) for name in selected}
+    return {name: copy.deepcopy(declared[name]['parameters']) for name in selected}
 
 
 # Parent bootstrap uses these explicit names; retrieval never discovers tools.

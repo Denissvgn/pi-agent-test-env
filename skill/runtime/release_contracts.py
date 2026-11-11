@@ -23,19 +23,25 @@ COMMON_FLAGS = (
 # COMMON_FLAGS; transient_retries marks the opt-in endpoint retries as reviewed;
 # early_session_file records that Pi can write the session file at the first
 # user message, before any assistant output; fixture_profile names the
-# fixture-lookup declaration for the release. The *_sources maps pin upstream
-# files by SHA-256 at upstream_commit for native_tool_contracts and
-# application_runtime_contracts.
+# fixture-lookup declaration for the release. typebox pins the TypeBox package
+# that builds the built-in tool schemas; pi_schema pins the pi-schema package
+# when Pi validates tool arguments with it, and is None when TypeBox validates
+# them. The *_sources maps pin upstream files by SHA-256 at upstream_commit for
+# native_tool_contracts and application_runtime_contracts.
 ENTRY_FIELDS = {
     'upstream_commit': str, 'revision': int, 'session_version': int, 'settlement_aborted': str,
     'extra_cli_flags': tuple, 'reasoning_levels': tuple, 'numeric_reasoning_budgets': bool,
     'sampling': bool, 'transient_retries': bool, 'early_session_file': bool, 'fixture_profile': str,
-    'typebox': dict, 'native_tool_sources': dict, 'application_runtime_sources': dict,
+    'typebox': dict, 'pi_schema': (dict, type(None)),
+    'native_tool_sources': dict, 'application_runtime_sources': dict,
 }
+PACKAGE_PIN_FIELDS = ('typebox', 'pi_schema')
 SETTLEMENT_SHAPES = ('not_declared', 'required_boolean')
 
-# The reviewed releases, oldest first. Append new releases; never edit a
-# predecessor entry, because receipts bind the identities derived from it.
+# The reviewed releases, oldest first. Append new releases; never change a
+# predecessor entry's values, because receipts bind the identities derived from
+# it. A new field is stated in every entry with a value that leaves the earlier
+# identities unchanged, as pi_schema None does.
 _REVIEWED = {
     '0.87.1': {
         'upstream_commit': 'f07218c4d4bbc12bef056a7058c3dd49dfe41abe',
@@ -51,6 +57,7 @@ _REVIEWED = {
         'fixture_profile': 'profile.json',
         'typebox': {'version': '1.3.27',
                     'integrity': 'sha512-zu+jc1pcy4UiNThxikUr36f0Rybk9PEeCg/NE6adeWr/SKsdNO4EzZHYRDlv2YCVAfj3Odq3dESSo/jNyoBXzA=='},
+        'pi_schema': None,
         'native_tool_sources': {
             'packages/coding-agent/src/core/tools/read.ts':
                 '297d26092979651091f44de8862a6fd55aaf59e7252f8fb8dd3d7cb3f9771518',
@@ -116,6 +123,7 @@ _REVIEWED = {
         'fixture_profile': 'profile.pi-1.2.0.json',
         'typebox': {'version': '1.3.27',
                     'integrity': 'sha512-zu+jc1pcy4UiNThxikUr36f0Rybk9PEeCg/NE6adeWr/SKsdNO4EzZHYRDlv2YCVAfj3Odq3dESSo/jNyoBXzA=='},
+        'pi_schema': None,
         'native_tool_sources': {
             'packages/coding-agent/src/core/tools/read.ts':
                 'c3c64f7105599455d3066568074796e2ddb143cb210da4981b0eb632aa3d2811',
@@ -167,6 +175,73 @@ _REVIEWED = {
                 'cb54c7a4fedb3473bb995694bbc1f2988c144fb0b802bfd1b656816bc25d0f25',
         },
     },
+    '1.5.2': {
+        'upstream_commit': 'b4afdddf44e059c67ccf5097e5317d913521b470',
+        'revision': 1,
+        'session_version': 3,
+        'settlement_aborted': 'required_boolean',
+        'extra_cli_flags': ('--no-mcp',),
+        'reasoning_levels': ('off', 'minimal', 'low', 'medium', 'high'),
+        'numeric_reasoning_budgets': False,
+        'sampling': True,
+        'transient_retries': True,
+        'early_session_file': True,
+        'fixture_profile': 'profile.pi-1.5.2.json',
+        'typebox': {'version': '1.3.27',
+                    'integrity': 'sha512-zu+jc1pcy4UiNThxikUr36f0Rybk9PEeCg/NE6adeWr/SKsdNO4EzZHYRDlv2YCVAfj3Odq3dESSo/jNyoBXzA=='},
+        'pi_schema': {'version': '1.5.2',
+                      'integrity': 'sha512-hJoyCXWUhsSrXY5wJo2Q4kHXUsR51pNhkJHAMkWRwVMLDRtMDPkKNaa+JlVRVqTw1hjdSxcVVaFLSDbKlaTXEQ=='},
+        'native_tool_sources': {
+            'packages/coding-agent/src/core/tools/read.ts':
+                '46b9312a3d69b3a82e716abe6211788dbd02f0dc55fb092a3c8390acde45fa5f',
+            'packages/coding-agent/src/core/tools/write.ts':
+                'b93b6a83eaee6959ae713934bbcdba834a39b023694a3ca986c73b331f771a3d',
+            'packages/coding-agent/src/core/tools/edit.ts':
+                '8c40365f7c50b60ba27084f028ae7734b5ddba18a91b8aa29d939ed6d2aad7f2',
+            'packages/coding-agent/src/core/tools/bash.ts':
+                'dc97c3fa2a23e13981920bea85e6b135fc627610682bfadcdae6888b4ef1778e',
+            'packages/coding-agent/src/core/tools/grep.ts':
+                '5664334cf2a5a370f97ef7be954f801065db279c99d183efa0a4929975ac6eed',
+            'packages/coding-agent/src/core/tools/find.ts':
+                'e24103c9f9c2397caf4aa1356b82c883683a9be710985784a1f1d8df812ed928',
+            'packages/coding-agent/src/core/tools/ls.ts':
+                'b8a7d1c020293a9087d43eb292052ecc4101c3be039ca1165063f8a03a763b34',
+            'packages/coding-agent/src/core/tools/tool-definition-wrapper.ts':
+                'dcc1e90f646f4feff9dea53b5b22fe05f898a379b5b494b23a338a74c5247519',
+            'packages/coding-agent/src/core/agent-session.ts':
+                'dea73f4df16b15c927a4cb6b35ad7a3f9738232acb2d48473f0497f360fda6fe',
+            'packages/coding-agent/package.json':
+                '18b422b7d80f2caa2551d253c0a8409e1caa54b954bfb7d18252e507bb8a0318',
+            'package-lock.json':
+                '49b43ca121e9e083e13bd827731c408f6ee1bae8c00ed1731bd7fe8717dca187',
+            'packages/coding-agent/src/core/tools/index.ts':
+                '3c66ea1e03530fb85436ee639f35add8bf72718ac6e76b738a1f41be58a2b472',
+            'packages/coding-agent/src/core/sdk.ts':
+                'f0f6f2b14a61c5c3ebb31d40c97b3f73296a2f0334d582072383302d693714c8',
+            'packages/coding-agent/src/cli/args.ts':
+                '7db79597928e0ae100fdcaf41d6fbd9c5b841744a9f87c4745e3ad0863435e29',
+            'packages/coding-agent/src/main.ts':
+                '958e3b679dbce82163717db976e2dd464ccd6642046d2bfe9e5a95467441580d',
+            'packages/coding-agent/src/core/tools/truncate.ts':
+                'a373ab54eb718a97f5757fe27f4750502e78e216aced34f56d1291bda9c08488',
+        },
+        'application_runtime_sources': {
+            'packages/agent/src/agent-loop.ts':
+                '9d7589b5071ea3b8b3e3c624f9cfc09a976ebf7436024a58213837de4645167d',
+            'packages/agent/src/agent.ts':
+                '6d0e56bf4443f0cfc5c6a82ce31a3b99f15ff816075bed36403dfa0c95a609c6',
+            'packages/agent/src/types.ts':
+                '6ad1a3e1ea6cfa0770421aca9a23726061d8d31fdeb5c17c8acd5d7cea0e74b1',
+            'packages/ai/src/utils/validation.ts':
+                '78675918c09c649aba19b6d268cc07aacb25629351ae2950d18d5b3d282867ad',
+            'packages/coding-agent/src/core/agent-session.ts':
+                'dea73f4df16b15c927a4cb6b35ad7a3f9738232acb2d48473f0497f360fda6fe',
+            'packages/coding-agent/src/core/extensions/runner.ts':
+                '6e305286a99c0364f58dfc89008b5d858363b3f38eb8c93686c3de5bd6b42475',
+            'packages/coding-agent/src/core/extensions/types.ts':
+                '174549078f95dddd70e656c4eb54f73e0f75782af6a971cf6dc2ee622fa0917c',
+        },
+    },
 }
 
 
@@ -191,8 +266,9 @@ def check_registry(table):
         if type(value) is not dict or set(value) != set(ENTRY_FIELDS):
             refuse('fields', 'must be exactly ' + ', '.join(ENTRY_FIELDS))
         for field, kind in ENTRY_FIELDS.items():
-            if type(value[field]) is not kind:
-                refuse(field, 'must be ' + kind.__name__)
+            kinds = kind if type(kind) is tuple else (kind,)
+            if type(value[field]) not in kinds:
+                refuse(field, 'must be ' + ' or '.join('None' if k is type(None) else k.__name__ for k in kinds))
         if not re.fullmatch('[0-9a-f]{40}', value['upstream_commit']):
             refuse('upstream_commit', 'must be a full commit SHA')
         if value['revision'] < 1 or value['session_version'] < 1:
@@ -207,9 +283,11 @@ def check_registry(table):
             refuse('reasoning_levels', 'must be distinct level names')
         if not re.fullmatch(r'profile(\.pi-[0-9]+\.[0-9]+\.[0-9]+)?\.json', value['fixture_profile']):
             refuse('fixture_profile', 'must name a fixture-lookup profile declaration')
-        if (set(value['typebox']) != {'version', 'integrity'}
-                or any(type(text) is not str or not text for text in value['typebox'].values())):
-            refuse('typebox', 'must state version and integrity')
+        for field in PACKAGE_PIN_FIELDS:
+            pin = value[field]
+            if pin is not None and (set(pin) != {'version', 'integrity'}
+                                    or any(type(text) is not str or not text for text in pin.values())):
+                refuse(field, 'must state version and integrity')
         for field in ('native_tool_sources', 'application_runtime_sources'):
             pins = value[field]
             if not pins or any(type(path) is not str or type(digest) is not str

@@ -237,10 +237,13 @@ class PlanningTests(unittest.TestCase):
 
     def test_matrix_is_fixed_serial_and_distinguishes_real_inference(self):
         cells = driver.cells()
-        self.assertEqual(len(cells), 60)
-        self.assertEqual(sum(c['segments_max'] for c in cells), 90)
-        self.assertEqual(len({c['id'] for c in cells}), 60)
-        self.assertEqual(sum(c['real_model'] for c in cells), 36)
+        # Every reviewed release adds the same 30 cells, 45 segment slots and 18 real-model cells.
+        for release in driver.release_contracts.RELEASES:
+            mine = [c for c in cells if c['release'] == release]
+            self.assertEqual((len(mine), sum(c['segments_max'] for c in mine), sum(c['real_model'] for c in mine)),
+                             (30, 45, 18))
+        self.assertEqual(len({c['id'] for c in cells}), len(cells))
+        self.assertEqual(len(cells), 30 * len(driver.release_contracts.RELEASES))
         self.assertTrue(all(not c['real_model'] for c in cells if c['gate'] == 'N09'))
         self.assertEqual([c['gate'] for c in cells], sorted([c['gate'] for c in cells]))
 
@@ -248,6 +251,7 @@ class PlanningTests(unittest.TestCase):
         value = driver.source_identity()
         self.assertIn('assets/profiles/fixture-lookup/profile.json', value['input_files'])
         self.assertIn('assets/profiles/fixture-lookup/profile.pi-1.2.0.json', value['input_files'])
+        self.assertIn('assets/profiles/fixture-lookup/profile.pi-1.5.2.json', value['input_files'])
         self.assertIn('assets/security/chromium-userns.json', value['input_files'])
         self.assertIn('examples/python-project/slug.py', value['input_files'])
 

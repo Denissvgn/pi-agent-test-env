@@ -93,6 +93,8 @@ PARALLEL_RELEASE_CONTRACTS = {
         'sha256':'4f15d43728d06659bd5156458c895aea8babfcbfebcfc0d4ba9819ef98df3acb'},
     '1.2.0': {'release':'1.2.0','id':'pi-json-direct-1.2.0','revision':1,
         'sha256':'65a4620bd2d51eec37524bfe0c5cb3e6c648b4460dee2612637129f25eec36bc'},
+    '1.5.2': {'release':'1.5.2','id':'pi-json-direct-1.5.2','revision':1,
+        'sha256':'6eccc3493473a5d033e2622d6bae0f0f45280bfbf5ba60892d9a9d52f4ba8d80'},
 }
 AUXILIARY_BINDING_KEYS = frozenset(('authorization_id','case_id','auxiliary_binding_sha256'))
 AUXILIARY_RECORD_REQUIRED = RECORD_REQUIRED | frozenset(('binding','created_at','owner_pid','diagnostic'))

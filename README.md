@@ -173,9 +173,10 @@ continuing. Keys stay out of plans and chat. See the
 
 ### 3. Prepare a native core image
 
-The reviewed Pi releases are **0.87.1 and 1.2.0**. This walkthrough selects
+The reviewed Pi releases are **0.87.1, 1.2.0 and 1.5.2**. This walkthrough selects
 [Pi 1.2.0](skill/references/PI-1.2.0.md), the release qualified for 4.9.1;
-[Pi 0.87.1](skill/references/PI-COMPATIBILITY.md) keeps its reviewed contract
+[Pi 1.5.2](skill/references/PI-1.5.2.md) is reviewed but not yet natively qualified,
+and [Pi 0.87.1](skill/references/PI-COMPATIBILITY.md) keeps its reviewed contract
 but was not requalified. Select the exact release explicitly and qualify it
 before execution.
 The commands below select Apple Silicon's native `linux/arm64`. On an AMD64
@@ -388,7 +389,7 @@ MIT licensed. This is an independent project, not an official Pi or Docker relea
 
 Root can explicitly bind different credential sources, base URLs, models and
 settings to uniform runs or individual implementation/review stages. The opt-in
-catalog supports the reviewed Chat Completions API on Pi 0.87.1 and 1.2.0;
+catalog supports the reviewed Chat Completions API on Pi 0.87.1, 1.2.0 and 1.5.2;
 additional API protocols need their own adapter qualification. Original inference
 keys stay in a bounded broker, with one global request slot, isolated worker
 snapshots and scoped stage/recovery tokens.

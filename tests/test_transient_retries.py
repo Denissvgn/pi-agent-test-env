@@ -1,5 +1,6 @@
 import copy
 import json
+import re
 from pathlib import Path
 import sys
 import tempfile
@@ -57,7 +58,7 @@ class PiConfigurationTests(unittest.TestCase):
         for value in (True, -1, 4, 1.0, '1', None):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 pi_contract.transient_retry_settings({'transient_retries': value})
-        with self.assertRaisesRegex(ValueError, 'Pi 1.2.0 only'):
+        with self.assertRaisesRegex(ValueError, re.escape('Pi ' + ', '.join(pi_contract.TRANSIENT_RETRY_RELEASES) + ' only')):
             pi_contract.model_configuration(endpoint(transient_retries=1), '0.87.1')
         with self.assertRaises(ValueError):
             pi_contract.model_configuration(endpoint(transient_retries=1), None)

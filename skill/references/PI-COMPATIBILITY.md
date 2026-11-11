@@ -1,7 +1,7 @@
 # Pi 0.87.1 release contract
 
 This preserved contract is supported alongside the separately reviewed
-[Pi 1.2.0 contract](PI-1.2.0.md). Historical observations retain their original
+[Pi 1.2.0](PI-1.2.0.md) and [Pi 1.5.2](PI-1.5.2.md) contracts. Historical observations retain their original
 identities; the newer adapter does not requalify older receipts.
 
 Source inspected on 7 October 2026. Native ARM64 executor observations used

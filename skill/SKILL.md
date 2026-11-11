@@ -16,9 +16,11 @@ description: >-
 
 Package version: 4.9.1. Instructions are in English.
 
-Exact reviewed Pi releases: 0.87.1 and 1.2.0. Use
-[PI-1.2.0.md](references/PI-1.2.0.md) for the newer contract and migration limits;
-the existing 0.87.1 route, profile and historical receipts remain available.
+Exact reviewed Pi releases: 0.87.1, 1.2.0 and 1.5.2. Use
+[PI-1.2.0.md](references/PI-1.2.0.md) and [PI-1.5.2.md](references/PI-1.5.2.md) for
+the newer contracts and migration limits; the existing 0.87.1 route, profile and
+historical receipts remain available. Pi 1.5.2 is not yet natively qualified; see
+[QUALIFICATION.md](QUALIFICATION.md).
 
 Resolve `SKILL_DIR` to this complete installed folder; scripts, runtime, assets,
 examples, docker and references must remain beside SKILL.md. See
@@ -224,7 +226,7 @@ These numbers are examples, not detected capacity. Save validates exact model
 listing and a tiny chat request. Keyless servers use `--no-auth`. Optional
 `--host-base-url` provides a distinct host route; the child route remains base-url.
 Reasoning level is off/minimal/low/medium/high only when supported. Numeric
-reasoning token budgets are unsupported on both reviewed Pi releases; omit them.
+reasoning token budgets are unsupported on every reviewed Pi release; omit them.
 Sampling is supplied as reviewed JSON via `--sampling`, not invented Pi flags.
 See [PI-COMPATIBILITY.md](references/PI-COMPATIBILITY.md) for exact allowed fields.
 Requested/ingested values do not prove server enforcement, deterministic seeds,
