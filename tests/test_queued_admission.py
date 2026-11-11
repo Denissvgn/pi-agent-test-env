@@ -1,7 +1,6 @@
 """Real local flock/signal boundaries; no Docker, endpoint, keys or participant."""
 import contextlib
 import fcntl
-import os
 from pathlib import Path
 import signal
 import subprocess
@@ -173,23 +172,48 @@ class QueuedAdmissionTests(unittest.TestCase):
             pass
 
     def test_sigint_interrupt_preserves_outer_and_does_not_acquire_later(self):
-        child = self.holder(.15)
+        # A runner started as a shell background job inherits SIGINT ignored, and
+        # Python leaves it ignored, so install the handler that raises KeyboardInterrupt.
+        self.addCleanup(signal.signal, signal.SIGINT,
+                        signal.signal(signal.SIGINT, signal.default_int_handler))
+        # SIGINT goes to the waiter once it is queued in flock, and the holder is
+        # released only after the interrupt, so thread scheduling cannot decide
+        # whether the waiter acquires first.
+        child = self.holder()
         def outer(_signum, _frame):
             self.fail('later outer should not fire')
         signal.signal(signal.SIGALRM, outer)
-        signal.setitimer(signal.ITIMER_REAL, .8)
-        interrupt = threading.Timer(.03, lambda: os.kill(os.getpid(), signal.SIGINT))
-        interrupt.start()
+        signal.setitimer(signal.ITIMER_REAL, 10)
+        original = resources.fcntl.flock
+        waiter, gate, queued = threading.get_ident(), threading.Lock(), threading.Event()
+        def queue(fd, operation):
+            if operation != fcntl.LOCK_EX:
+                return original(fd, operation)
+            queued.set()
+            try:
+                return original(fd, operation)
+            finally:
+                with gate:
+                    queued.clear()
+        def interrupt():
+            if queued.wait(5):
+                time.sleep(.05)  # let the waiter enter the blocking syscall
+                with gate:  # never signal a waiter that has already left flock
+                    if queued.is_set():
+                        signal.pthread_kill(waiter, signal.SIGINT)
+        interrupter = threading.Thread(target=interrupt)
+        interrupter.start()
         try:
-            with self.assertRaises(KeyboardInterrupt):
-                with resources.admission_lock(self.path, .5):
-                    self.fail('interrupted waiter entered')
+            with mock.patch.object(resources.fcntl, 'flock', side_effect=queue):
+                with self.assertRaises(KeyboardInterrupt):
+                    with resources.admission_lock(self.path, 5):
+                        self.fail('interrupted waiter entered')
         finally:
-            interrupt.cancel(); interrupt.join()
+            interrupter.join()
         self.assert_restored(outer)
-        self.assertGreater(signal.getitimer(signal.ITIMER_REAL)[0], .5)
+        self.assertGreater(signal.getitimer(signal.ITIMER_REAL)[0], 5)
         signal.setitimer(signal.ITIMER_REAL, 0)
-        child.wait(timeout=1)
+        child.terminate(); child.wait(timeout=1)
         with resources.admission_lock(self.path):
             pass
 
