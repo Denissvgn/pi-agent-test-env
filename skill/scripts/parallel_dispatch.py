@@ -30,7 +30,10 @@ class Channel:
             if len(self.pending)>MAX_FRAME:raise ParallelError('Private admission frame exceeds bound')
             remaining=deadline-time.monotonic()
             if remaining<=0 or not select.select([self.sock],[],[],remaining)[0]:raise ParallelError('Private admission channel deadline exceeded')
-            data=self.sock.recv(65536)
+            # Linux reports a peer that closed with our bytes unread as a reset, not EOF.
+            # Everything the peer sent first is still delivered before the reset.
+            try:data=self.sock.recv(65536)
+            except ConnectionResetError:data=b''
             if not data:raise EOFError('Owning admission controller is gone')
             self.pending+=data
         body,self.pending=self.pending.split(b'\n',1)
