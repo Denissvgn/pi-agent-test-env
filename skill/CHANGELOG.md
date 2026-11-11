@@ -27,6 +27,17 @@
   a connection reset instead of end of file. The private trial channel now treats
   a reset like a clean close: the controller finalizes the worker from its sealed
   result, and a worker whose controller is gone records controller loss.
+- Pi 1.5.2 has a reviewed contract alongside 0.87.1 and 1.2.0; it is not yet
+  natively qualified. [PI-1.5.2.md](references/PI-1.5.2.md) records what changed
+  for this runner, including upstream fixes such as bounded memory in `read` and
+  `grep` and the rejection of malformed tool-call arguments. Its registry entry
+  keeps the TypeBox 1.3.27 schema builder and pins the pi-schema 1.5.2 validator
+  in a new `pi_schema` field, which is None for the earlier releases; their
+  contract identities are unchanged. Native tool declarations are now frozen per
+  release, and 1.5.2 differs from 1.2.0 only in `grep`'s `glob` description.
+  Select `profile.pi-1.5.2.json` for the fixture integration and build images with
+  an explicit `--pi-version 1.5.2`. With three reviewed releases an indexed
+  campaign must select releases with `--release`.
 
 ## 4.9.1
 

@@ -29,6 +29,11 @@ SCHEMA_HASHES = {
     'fixture_lookup': '3d82e992e0515b8da1130eb9547031ced3e1f4d31998ddd082ce39c03a3b02dc',
     'budget_status': 'd746974fa9afd5e951f76f9af38954b0ad7f436f2120dc974da65e5ee39f856f',
 }
+# Pi 1.5.2 rewords grep's glob description; every other declaration matches 1.2.0's.
+SCHEMA_HASHES_BY_RELEASE = {
+    '0.87.1': SCHEMA_HASHES, '1.2.0': SCHEMA_HASHES,
+    '1.5.2': {**SCHEMA_HASHES, 'grep': '3d88e5a6120e825d3fde08ed0592c1fb973c08538c835dc65d098402c55f32c5'},
+}
 from test_release_registry import REVIEWED_IDENTITIES  # noqa: E402
 REGISTRY_HASHES = {release: value['native_tools'] for release, value in REVIEWED_IDENTITIES.items()}
 
@@ -43,7 +48,8 @@ class NativeToolContractTests(unittest.TestCase):
         for release in release_contracts.RELEASES:
             with self.subTest(release=release):
                 current = native.contract(release)
-                self.assertEqual({name: digest(tool['parameters']) for name, tool in current['tools'].items()}, SCHEMA_HASHES)
+                self.assertEqual({name: digest(tool['parameters']) for name, tool in current['tools'].items()},
+                                 SCHEMA_HASHES_BY_RELEASE[release])
                 self.assertEqual(native.identity(release)['sha256'], REGISTRY_HASHES[release])
                 self.assertEqual(set(native.identity(release)), {'id', 'revision', 'sha256'})
                 self.assertEqual(current['upstream_commit'], release_contracts.contract(release)['upstream_commit'])

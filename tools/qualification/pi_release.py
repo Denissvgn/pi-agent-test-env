@@ -139,7 +139,9 @@ def freeze(root, session, reuse_images_from=None):
     values = cells()
     source = source_identity()
     reusable_images = reuse_admitted_images(reuse_images_from, source)
-    assert len(values) == 60 and sum(c['segments_max'] for c in values) == 90
+    # Every reviewed release adds the same 30 cells and 45 segment slots.
+    releases = len(release_contracts.RELEASES)
+    assert len(values) == 30 * releases and sum(c['segments_max'] for c in values) == 45 * releases
     root.mkdir(parents=True, mode=0o700)
     atomic(root / 'manifest.json', {'schema': 1, 'kind': 'native_arm64_qualification',
         'qualification_id': str(uuid.uuid4()), 'created_at': lab.now(), 'source': source,

@@ -53,7 +53,7 @@ function fingerprint(value) {
 function contextValue(value) {
   exact(value, ['schema', 'pi_release', 'scope', 'allowed_tools', 'prepare_arguments',
                 'extension_order_sha256', 'tool_schema_sha256', 'base_url', 'capability']);
-  if (value.schema !== 1 || !['0.87.1', '1.2.0'].includes(value.pi_release)
+  if (value.schema !== 1 || !['0.87.1', '1.2.0', '1.5.2'].includes(value.pi_release)
       || value.base_url !== 'http://pi-application:8081/budget'
       || !validToken(value.capability) || !validToken(value.extension_order_sha256)
       || !validToken(value.tool_schema_sha256)

@@ -5,6 +5,7 @@ Pi 0.87.1 and 1.2.0 have separate exact contracts in
 checks it before dispatch, and binds the selected contract to the worker and
 every continuation. Unknown, ambiguous and prerelease versions are unsupported.
 Builds still require an explicit Pi pin; no latest release or fallback is selected.
+Pi 1.5.2 has its own contract; see [PI-1.5.2.md](PI-1.5.2.md).
 
 ## Inspected upstream identity
 

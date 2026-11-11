@@ -157,8 +157,8 @@ collection-local labels, finite scores and reported usage/missingness. It omits
 URLs, model/profile/stage names, key references, fingerprints, raw errors, traces
 and file paths. Private ledgers and comparison reports remain private.
 
-The indexed executor passed its frozen native ARM64 campaign on both reviewed
-releases on 15 October 2026; see [QUALIFICATION.md](../QUALIFICATION.md) for the
+The indexed executor passed its frozen native ARM64 campaign on Pi 0.87.1 and
+1.2.0 on 15 October 2026; see [QUALIFICATION.md](../QUALIFICATION.md) for the
 220-oracle scope, budgets, cleanup and exact executable identity. Offline routing
 fixtures and historical homogeneous results remain separate evidence.
 A same-backend two-credential campaign does not establish distinct URL/model/API

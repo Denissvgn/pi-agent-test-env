@@ -1,4 +1,4 @@
-"""Reviewed Pi 0.87.1/1.2.0 mappings; server enforcement needs live receipts."""
+"""Reviewed Pi release mappings; server enforcement needs live receipts."""
 import copy
 import math
 import release_contracts

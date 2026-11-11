@@ -90,7 +90,7 @@ repository and evidence; campaigns need the confirmed environment gate
 
 | Tool | Gates | Covers |
 |---|---|---|
-| `tools/qualification/pi_release.py` | `freeze --evidence NEW --session S`, then `images`, `collect`, `status` | Serial Pi 0.87.1/1.2.0 matrix: smoke, coding/review, fixture lookup, scoped credentials, sandboxed browser and fault lanes |
+| `tools/qualification/pi_release.py` | `freeze --evidence NEW --session S`, then `images`, `collect`, `status` | Serial matrix for each reviewed Pi release: smoke, coding/review, fixture lookup, scoped credentials, sandboxed browser and fault lanes |
 | `tools/qualification/parallel.py` | `freeze --root NEW --images I --endpoint E --session S`, then `infrastructure`, `collect` | Opt-in two-trial parallel execution |
 | `tools/qualification/indexed.py` | `freeze --root NEW --profiles P --images I --session S [--release R]... [--lock-file L]`, `inspect`, `run --approval A`, `finish --inspection J` | Indexed, serial, parallel and legacy-endpoint runs, experiments, fixture lookup, credentials, browser and all fault lanes on each selected Pi release |
 
