@@ -1,6 +1,6 @@
 # Owner cleanup compatibility and qualification
 
-The owner-proof additions from package 4.8.0 remain experimental in 4.9.1. They
+The owner-proof additions from package 4.8.0 remain experimental in 4.10.0. They
 are `legacy_derived_v1`, cohort `application_owner_legacy_1` and reader contract
 `application_owner_legacy_reader_1` version 1. Existing `runtime_finalization` and
 `retained_terminals` receipt meaning and historical record/intent bytes remain.

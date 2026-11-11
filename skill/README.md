@@ -1,4 +1,4 @@
-# Pi Agent Test Environment 4.9.1
+# Pi Agent Test Environment 4.10.0
 
 **English, project-adaptable, resource-bounded workflows for real local-LLM agents.**
 
@@ -18,8 +18,9 @@ The supplied executor targets Linux ARM64/AMD64 containers and an OpenAI-compati
 Chat Completions endpoint. Other project stacks need their own tested toolchains;
 this is not a promise that every language, OS, test runner, or model works unchanged.
 
-Version 4.9.1 is stable for the capabilities qualified in 4.5.0, and its release
-campaign covered native ARM64 with Pi 1.2.0. The compiled application client,
+Version 4.10.0 is stable for the capabilities qualified in 4.5.0, and its
+release campaign covered native ARM64 with Pi 1.5.2 only; Pi 0.87.1 and 1.2.0
+were deferred from its qualification. The compiled application client,
 application owner cleanup and legacy owner proof, registry inspection/recovery,
 the operation SDK and direct-endpoint transient retries are experimental. See the
 [stability scope](QUALIFICATION.md#stability).
