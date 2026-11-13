@@ -1,5 +1,61 @@
 # Changelog
 
+## Unreleased
+
+Additions for programs that drive the runner unattended. None of them is part
+of a qualification campaign yet, and the defaults are unchanged.
+
+- New network mode `--network endpoint-only` for `run`, `smoke` and
+  `preflight`. Agent and preflight containers are attached to an internal Docker
+  network; a relay container forwards TCP only to the host and port of the
+  endpoint's container route, so TLS stays end to end and nothing of the stream
+  is logged. Before any key enters a container, a proof must show that a probe
+  on that network cannot reach a canary on the default bridge, the bridge
+  gateway or a public name, and can reach the relay; any other result blocks
+  the run with `egress-not-contained`. The record gains `network` (mode, stage
+  networks, allowed host and port, proof, cleanup) and each stage's process
+  record gains `network_mode`. `doctor --egress-proof` runs the proof alone.
+  An `http` route with an IP literal is rewritten to the relay address and
+  recorded; an `https` route with an IP literal is refused with
+  `egress-route-unsupported`. The mode is refused with `feature-conflict`
+  together with experiment commands, indexed or parallel execution, compiled
+  application plans and native tool budgets. Verified on Docker Desktop for
+  macOS only; see `references/SECURITY.md`.
+- `--network host` and `container:<id>` are now refused with
+  `network-mode-refused` unless `--allow-host-network` is given, and a named
+  network must exist. Experiment definitions refuse `host`. Upgrade note: a
+  caller that passed `--network host` must add the new option.
+- `result.json` and `summary.json` gain `verdict`: one object with a closed
+  list of outcomes and an attribution of `none`, `model`, `endpoint`,
+  `configuration`, `infrastructure` or `operator`, plus the phase, stage,
+  reason and exit code. A caller can tell a failed check or an exhausted budget
+  from a model-server fault, a host fault or a cancelled run without mapping
+  the layered fields by hand. No existing field, status or exit code changes.
+  `status` prints the verdict. The lists, the precedence and the reason mapping
+  are in `references/EVALUATION-CONTRACT.md`.
+- `result.json` gains `usage_summary`, one row per stage with its kind and
+  wall time and, for agent stages, turns, tokens and the plan's and effective
+  limits; a value the model server did not report is null. `run` accepts
+  `--max-turns`, `--max-total-tokens` and `--agent-timeout-seconds`, which
+  replace the plan's values for every agent stage within the plan's bounds and
+  are recorded as `budget_overrides`.
+- When the host lock is busy, the failure names its holder under
+  `infrastructure.holder` (pid, command, start time, age, run id when known,
+  and whether the process exists), and one text line `Held by pid N (op) for S
+  seconds` follows the JSON line on stderr. Upgrade note: a caller that parsed
+  the whole of stderr as one JSON document must read its first line. `doctor`
+  gains the check `host-lock`. `references/RESOURCES.md` states that the
+  default lock is shared by every checkout and worktree of one host user.
+- Every container and network the runner creates carries the label
+  `org.pi-agent-test-env.run=<run id>`, or `none` outside a run. The new
+  command `leftovers [--run RUN]` lists what finished or abandoned runs left in
+  Docker, and `cleanup --run RUN [--yes]` removes, under the host lock, exactly
+  the resources that carry both the managed label and that run id, lets the
+  registry reconcile, and seals a run whose supervisor is gone so that it never
+  ends as a pass. Without `--yes` it changes nothing. `status` prints how many
+  labelled resources of the run still exist. See
+  `references/REGISTRY-RECOVERY.md`.
+
 ## 4.10.0
 
 Stable release on Pi 1.5.2. It qualifies the stable scope on upstream Pi 1.5.2

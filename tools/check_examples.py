@@ -106,6 +106,8 @@ def collect(source):
         value = example['projection']
         if outcomes.status(value) != (value['status'], value['exit_code']):
             errors.append('Outcome projection mismatch: ' + example['example'])
+        if outcomes.verdict(value) != value.get('verdict'):
+            errors.append('Outcome verdict mismatch: ' + example['example'])
         if value['scoring']['status'] != 'completed' and value['task_result']['score'] is not None:
             errors.append('Unscored projection invented score: ' + example['example'])
     pi = json.loads((source / 'references/pi-0.87.1.examples.json').read_text())

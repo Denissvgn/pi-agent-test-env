@@ -73,6 +73,31 @@ ceiling is approximately `parallel jobs * per-job CPU/RAM limit`; use a real par
 scheduler or cgroup budget before doing that. Explicit schema-2 collections use a weighted parent scheduler for two independent
 trials; see [PARALLEL-AGENTS.md](PARALLEL-AGENTS.md). Serial remains default.
 
+There is one lease per host user. It is not kept in a project's state directory:
+every checkout and every Git worktree, of this or of any other project, that runs
+as the same user with the same home directory shares the file above, so their
+operations exclude each other. Another file is selected in only two ways: an
+absolute `PI_LAB_LOCK_FILE` in the environment, or `--lock-file` on one command,
+which wins over the variable. Separate lease files do not exclude each other and
+must not be used to run two operations against one model server.
+
+While an operation holds the lease it keeps one JSON line in the lease file: its
+`pid`, `started_unix`, the command name as `op` and, for a run, its `run_id`. A
+caller refused with `host-admission-busy` reads that line without the lease, at
+most 4096 bytes and never through a symbolic link, and reports it as
+`infrastructure.holder` in the sealed run result or in the `admission_failure`
+line: `pid`, `op`, `started_unix`, `age_seconds`, `run_id` when recorded, and
+`alive`, which only says whether a process with that pid exists. It also prints
+`Held by pid N (op) for S seconds` as a further stderr line. An empty, malformed,
+oversized or replaced record gives `"holder": null` with the same exit code and
+reason. `doctor` reports the check `host-lock` as free or held with the same
+holder, names the path of the lease in effect and says whether
+`PI_LAB_LOCK_FILE`, `--lock-file` or the default selected it; it does not enter
+or create the lease. The line stays in the file after release, and the registry
+commands and `existing_admission_lock` hold the lease without writing it, so a
+record whose pid no longer exists is stale. It is not a stuck lock: the kernel
+releases the lease when the holding process dies. Never delete the file.
+
 Known admission failures use a closed nonsecret diagnostic catalog:
 `host-admission-busy`, `resource-policy-invalid`, `admission-lock-insecure` and
 `admission-lock-unavailable`. Run/smoke retain sealed BLOCKED/2 outcomes with zero

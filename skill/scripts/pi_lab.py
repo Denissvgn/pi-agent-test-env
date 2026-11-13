@@ -45,6 +45,7 @@ import segments
 import experiments
 import agent_profiles
 import provenance
+import egress
 from usage_contract import combine as combine_usage, summarize as summarize_usage
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'runtime'))
 import pi_contract
@@ -208,6 +209,7 @@ def docker_args(args, image: str, workspace: Path, control: Path, state: Path,
     result = ['docker', 'run', '--name', name, '--init', '--platform', args.platform,
               '--label=org.pi-agent-test-env.managed=1',
               '--label=org.pi-agentic-development.managed=1',
+              '--label=' + ownership_registry.run_label((getattr(args, '_attempt_identity', None) or {}).get('run_id')),
               '--read-only', '--user', f'{args.uid}:{args.gid}', '--cap-drop=ALL',
               '--security-opt=no-new-privileges=true', '--ipc=none', '--pids-limit', str(getattr(args, 'pids_limit', 256)),
               '--memory', args.memory, '--memory-swap', args.memory, '--cpus', str(args.cpus), '--network', network,
@@ -247,7 +249,7 @@ def docker_args(args, image: str, workspace: Path, control: Path, state: Path,
         # A reused image must not contain credentials (also checked by image_info).
         result += ['--env', 'PI_LAB_API_KEY=']
     result += browser_security.docker_options(args, workspace)
-    return result + [image, '/opt/pi-lab/worker.py']
+    return egress.contained_arguments(args, network, result + [image, '/opt/pi-lab/worker.py'])
 
 
 # Bounded Docker calls made by stream_run. Inspecting or removing an exited
@@ -821,6 +823,35 @@ def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=
     return result
 
 
+def budget_overrides(args, plan=None) -> dict:
+    """Run-wide agent budgets from the command line, inside the plan's own bounds.
+
+    Without a plan this only checks the request, so a bad value or a compiled plan is
+    refused before any container starts. With the validated plan it also replaces the
+    value of every agent stage. The result is what the run record lists.
+    """
+    options = {'max_turns': 'max_turns', 'max_total_tokens': 'max_total_tokens', 'agent_timeout_seconds': 'timeout_seconds'}
+    values = {key: getattr(args, option) for option, key in options.items() if getattr(args, option, None) is not None}
+    if values and getattr(args, 'compiled_plan', None):
+        raise LabError('--max-turns, --max-total-tokens and --agent-timeout-seconds cannot be combined with '
+                       '--compiled-plan: a compiled plan fixes its limits', 'budget-override-invalid')
+    for key, value in values.items():
+        if type(value) is not int or not 0 < value <= controls.LIMIT_MAX[key]:
+            raise LabError(f'Invalid {key} override: use an integer from 1 to {controls.LIMIT_MAX[key]}',
+                           'budget-override-invalid')
+    for task in (plan['agents'] if plan and values else []):
+        task.update(values)
+        native = {key: task[key] for key in controls.NATIVE_LIMIT_MAX if key in task}
+        if native:
+            import native_budget_controls
+            try:
+                native_budget_controls.native_limits(native, timeout_seconds=task['timeout_seconds'])
+            except ValueError as exc:
+                raise LabError('Budget override conflicts with the native tool budget: ' + str(exc),
+                               'budget-override-invalid') from None
+    return values
+
+
 def is_excluded(name: str, additional: list[str]) -> bool:
     return name in EXCLUDES or any(fnmatch.fnmatch(name, p) for p in SECRET_PATTERNS + additional)
 
@@ -977,6 +1008,7 @@ def run_stage(args, image: str, runroot: Path, workspace: Path, label: str,
     if workspace.resolve()==runroot.resolve() or workspace.resolve() in runroot.resolve().parents:
         raise LabError('Parent run/control sources must remain outside the workspace')
     helpers=trusted_runtime(runroot)
+    network=egress.stage_network(sys.modules[__name__],args,operation[0],network)
     # UUID sources are created exactly once, outside every writable child mount.
     stage_id = str(uuid.uuid4())
     control = runroot / 'controls' / stage_id
@@ -1024,6 +1056,7 @@ def run_stage(args, image: str, runroot: Path, workspace: Path, label: str,
         if not result and (runroot/label/'process.json').exists():
             try:result=controls.read(runroot/label/'process.json')
             except (OSError,ValueError,controls.ControlError):pass
+        egress.stamp(sys.modules[__name__],args,runroot/label,result,network)
         if (operation[0]=='agent' and (task or {}).get('application_execution')
                 and native_sink and native_sink.get('coordinator') is not None):
             from application_execution import settlement_diagnostic,settlement_failure_recorded
@@ -1144,10 +1177,12 @@ def run_suite(args, smoke=False, initial_record=None, *, existing_lease_identity
         return 2
     args._attempt_root=attempt.root
     args._attempt_identity={k:attempt.record[k] for k in ('run_id','attempt_id')}
+    import resources;resources.describe_holder(run_id=attempt.record['run_id'])
     attempt.record['probe_receipt_contract']=1
     attempt.persist()
     try:
         attempt.record['infrastructure']['phase']='admission'
+        budget_overrides(args)
         if getattr(args,'compiled_plan',None):
             import application_dispatch
             application_dispatch.prepare(args,attempt,sys.modules[__name__])
@@ -1196,6 +1231,8 @@ def run_suite(args, smoke=False, initial_record=None, *, existing_lease_identity
     except Exception as exc:
         _observe_last_process(attempt)
         attempt.fail(exc)
+        held_by=_busy_holder(attempt.record['infrastructure'],exc)
+        if held_by:print(held_by,file=sys.stderr)
     try:report=attempt.finalize()
     except (OSError,ValueError,controls.ControlError):
         report=outcomes.fallback(attempt.record,'finalization','evidence_finalization_failed')
@@ -1260,6 +1297,8 @@ def _execute_suite(args,attempt,smoke=False):
     if not smoke and project is not None and args.plan:
         planpath = checked_path(Path(args.plan))
         admitted_plan = validate_plan(json.loads(planpath.read_text()), planpath.parent, profile,external_bindings=bool(indexed and getattr(args,'_indexed_bindings',None)))
+        overrides = budget_overrides(args, admitted_plan)
+        if overrides: summary['budget_overrides'] = overrides
         secret_store_outside(project, args)
         if indexed:stage_credentials=indexed.credentials
         elif getattr(args,'_parallel_session',None):
@@ -1272,6 +1311,7 @@ def _execute_suite(args,attempt,smoke=False):
     if indexed:redaction_secrets+=indexed.redaction
     summary['infrastructure']['phase']='host'
     summary['host'] = require_host(args)
+    summary['network']=egress.admit(sys.modules[__name__],args,endpoint,admitted_plan)
     args.frozen_browser_security = browser_security.freeze(args, runroot / 'browser-security')
     summary['browser_security'] = args.frozen_browser_security
     summary['infrastructure']['phase']='image'
@@ -1369,6 +1409,7 @@ def _execute_suite(args,attempt,smoke=False):
                 if t['network'] == 'inherit' and not allowed:
                     raise LabError(f'{phase}/{t["name"]} requests networking: review it and explicitly allow that phase')
         summary['infrastructure']['phase']='preflight'
+        endpoint=egress.begin(sys.modules[__name__],args,image,runroot,endpoint,summary['network'])
         boundary_result = run_stage(args, image['id'], runroot, workspace, 'boundary', ['boundary'], network='none', redaction_secrets=redaction_secrets)
         attempt.process(boundary_result)
         if boundary_result['exit_code'] or boundary_result.get('cleanup_confirmed') is not True:
@@ -1461,7 +1502,8 @@ def _execute_suite(args,attempt,smoke=False):
     except Exception:
         raise
     finally:
-        attempt.persist()
+        try:egress.finish(sys.modules[__name__],args,summary.get('network'))
+        finally:attempt.persist()
 
 
 def score_artifacts(args,attempt,plan,image,workspace,receipts,post_cancel=False,redaction_secrets=()):
@@ -1532,6 +1574,7 @@ def preflight_only(args):
     c = indexed.endpoint() if indexed else load_endpoint(resolve_endpoint_path(args))
     key = endpoint_secret(c, args)
     host = require_host(args)
+    network = egress.admit(sys.modules[__name__], args, c)
     image = probe_image(args, args.image)
     args.release_contract = admit_image(image)
     args.observed_pi_version = args.release_contract['release']
@@ -1543,14 +1586,21 @@ def preflight_only(args):
     runroot.mkdir(mode=0o700)
     workspace = runroot / 'workspace'
     workspace.mkdir()
+    # The stage container's run label must equal the identity its stage records.
+    args._attempt_identity = {'run_id': str(uuid.uuid4()), 'attempt_id': str(uuid.uuid4())}
+    save(runroot / 'identity.json', {'schema': 2, **args._attempt_identity})
     operation=['preflight','--chat'];timeout=160
     if indexed:
         import indexed_contract
         limits=indexed_contract.preflight(indexed.binding['configuration']['request_limits'])
         operation+=['--request-timeout',str(limits['request_timeout_seconds'])];timeout=limits['container_timeout_seconds']
-    result = run_stage(args, image['id'], runroot, workspace, 'preflight', operation,
-                       endpoint=c, secret=key, timeout=timeout,redaction_secrets=indexed.redaction if indexed else ())
-    report = {'run_dir': str(runroot), 'host': host, 'image': image, 'endpoint': c,
+    try:
+        result = run_stage(args, image['id'], runroot, workspace, 'preflight', operation,
+                           endpoint=egress.begin(sys.modules[__name__], args, image, runroot, c, network),
+                           secret=key, timeout=timeout,redaction_secrets=indexed.redaction if indexed else ())
+    finally:
+        egress.finish(sys.modules[__name__], args, network)
+    report = {'run_dir': str(runroot), 'host': host, 'image': image, 'endpoint': c, 'network': network,
               'key_source': getattr(args, 'secret_source', ''), 'process': result}
     if result['exit_code']:
         tail = (runroot / 'preflight' / 'stderr.log').read_text(errors='replace')[-2000:] if (runroot / 'preflight' / 'stderr.log').exists() else ''
@@ -1648,6 +1698,7 @@ def cmd_status(args):
     out.append("=== PI RUN STATUS ===")
     out.append(f"Run Directory: {runroot}")
     out.append(f"Overall Status: {summary.get('status', 'UNKNOWN')} (Started: {summary.get('started_at', 'unknown')})")
+    out.extend(outcomes.verdict_lines(summary))
     if summary.get('reason'):
         out.append(f"Blocked Reason: {summary['reason']}")
         out.append(f"Remedy: {summary.get('remedy', '')}")
@@ -1655,6 +1706,7 @@ def cmd_status(args):
     out.append(f"Host Architecture: {host_info.get('native_platform', 'unknown')} (Selected: {host_info.get('selected_platform', 'unknown')})")
     out.append(f"Image: {summary.get('image', {}).get('reference', 'unknown')}")
     out.append(f"Active Stage: {stage_label} (Status: {active.get('status', 'running')}, Exit: {active.get('exit_code', '-')})")
+    out.append(__import__('run_cleanup').status_line(runroot))
     if desc and (controls.budget_path(runroot,desc)).exists():
         budget=controls.read(controls.budget_path(runroot,desc))
         out.append(f"Parent Budget: revision {budget['revision']} ({budget['phase']}), effective {budget['effective_limits']}")
@@ -1863,6 +1915,30 @@ def host_endpoint_check(endpoint: dict, key: str, timeout: float = 10.0) -> tupl
     return 'ok', f'{endpoint["model"]} is listed by the server', ''
 
 
+def _host_lock_check(args) -> dict:
+    """Report the lease in effect as free or held, without entering it or creating it."""
+    import resources
+    lease = Path(args.lock_file).expanduser().absolute()
+    selected = os.environ.get('PI_LAB_LOCK_FILE')
+    if selected is not None and Path(selected).expanduser().absolute() == lease:
+        selected_by, origin = 'PI_LAB_LOCK_FILE', 'selected by PI_LAB_LOCK_FILE'
+    elif lease == Path(host_lock_file()).absolute():
+        selected_by, origin = 'default', 'shared host lease; PI_LAB_LOCK_FILE did not select it'
+    else:
+        selected_by, origin = '--lock-file', 'selected by --lock-file; PI_LAB_LOCK_FILE did not select it'
+    observed = resources.lease_state(lease)
+    item = {'check': 'host-lock', 'status': 'ok', 'detail': f'free: {lease} ({origin})'}
+    if observed['state'] == 'held':
+        holder = observed['holder']
+        held_by = resources.holder_text(holder) if holder is not None else 'Held; the holder record is not readable'
+        item.update(status='warn', detail=f'{held_by}: {lease} ({origin})', reason='host-admission-busy',
+                    remedy=resources.ADMISSION_FAILURES['host-admission-busy'][1], holder=holder)
+    elif observed['state'] != 'free':
+        item.update(status='warn', detail=f'The lease cannot be inspected; it must be a regular file, not a link: {lease} ({origin})')
+    item.update(state=observed['state'], path=str(lease), selected_by=selected_by)
+    return item
+
+
 def cmd_doctor(args) -> int:
     """Check every prerequisite and report all blockers at once, each with a remedy."""
     checks = []
@@ -1948,6 +2024,8 @@ def cmd_doctor(args) -> int:
         else:
             add('project-secrets', 'ok', 'No key-like files in the project')
 
+    checks.append(_host_lock_check(args))
+
     if args.probe_image and docker_ok:
         requested_policy(args)
         with admission_lock(args.lock_file, args.lock_wait_seconds):
@@ -1960,6 +2038,10 @@ def cmd_doctor(args) -> int:
                 add('pi-release-contract', 'ok', selected['id'])
             except LabError as exc:
                 add('image-probe', 'fail', str(exc)[:1000], exc.reason or 'image-missing', image=args.image)
+
+    if getattr(args, 'egress_proof', False):
+        checks.append(egress.doctor(sys.modules[__name__], args) if docker_ok
+                      else {'check': 'egress-containment', 'status': 'skip', 'detail': 'Docker unavailable'})
 
     blockers = [c for c in checks if c['status'] == 'fail']
     report = {'status': 'BLOCKED' if blockers else 'READY', 'checks': checks,
@@ -2041,6 +2123,8 @@ def parser():
     registry_maintenance.add_arguments(sub, default_lock_file())
     import application_owner_cleanup
     application_owner_cleanup.add_arguments(sub, default_lock_file())
+    import run_cleanup
+    run_cleanup.add_arguments(sub, default_lock_file(), default_runs_dir())
     pr_review_gate.add_arguments(sub.add_parser('pr-review-gate', help='Read-only parent GitHub review readiness; no Docker/model execution'))
     experiments.add_parser(sub)
     profile=sub.add_parser('validate-agent-profile');profile.add_argument('--agent-profile',required=True)
@@ -2117,6 +2201,8 @@ def parser():
     doc.add_argument('--secrets-dir', help='Override secrets store directory')
     doc.add_argument('--skip-network', action='store_true', help='Skip host /models network probe')
     doc.add_argument('--probe-image', action='store_true', help='Run full container capability probe (requires Docker)')
+    doc.add_argument('--egress-proof', action='store_true',
+                     help='Run the endpoint-only containment proof alone, with no endpoint and no key (requires Docker)')
     doc.add_argument('--lock-file', default=default_lock_file())
     doc.add_argument('--lock-wait-seconds', type=int, default=0)
     doc.add_argument('--platform', choices=['linux/arm64', 'linux/amd64'])
@@ -2177,7 +2263,11 @@ def parser():
             q.add_argument('--catalog-dir',help='Owner-private indexed catalog override')
             q.add_argument('--endpoint', help='Explicit endpoint JSON; default is the saved, session-confirmed environment')
             q.add_argument('--session', help='Agent session id (or PI_LAB_SESSION) for the saved-environment gate')
-            q.add_argument('--network', default='bridge')
+            q.add_argument('--network', default='bridge',
+                           help='none, bridge (default), endpoint-only (agent and preflight containers reach only the '
+                                'model endpoint, through a relay) or an existing user-defined Docker network')
+            q.add_argument('--allow-host-network', action='store_true',
+                           help='Explicit opt-in for --network host or container:<id>; refused otherwise')
             q.add_argument('--results-dir', default=default_runs_dir())
             q.add_argument('--secrets-dir', help='Override secrets store directory')
             q.add_argument('--prompt-secret', action='store_true', help='Prompt interactively on terminal if the inference key is missing')
@@ -2188,6 +2278,10 @@ def parser():
             q.add_argument('--project')
             q.add_argument('--plan')
             if name=='run':q.add_argument('--compiled-plan',help='Exact frozen application plan.json; competing selectors are rejected')
+            if name=='run':
+                q.add_argument('--max-turns', type=int, help='Replace max_turns of every agent stage of the plan (1..100)')
+                q.add_argument('--max-total-tokens', type=int, help='Replace max_total_tokens of every agent stage of the plan (1..10000000)')
+                q.add_argument('--agent-timeout-seconds', type=int, help='Replace timeout_seconds of every agent stage of the plan (1..3600)')
             q.add_argument('--in-place', action='store_true')
             q.add_argument('--exclude', action='append', default=[])
             q.add_argument('--max-project-mb', type=int, default=2048)
@@ -2200,12 +2294,17 @@ def parser():
 def main(argv=None):
     args = parser().parse_args(argv)
     args._explicit_options={value.split('=',1)[0] for value in (sys.argv[1:] if argv is None else argv) if value.startswith('--')}
+    import resources;resources.describe_holder(op=args.op)
+    if args.op in ('run','smoke','preflight'):egress.validate_request(sys.modules[__name__],args)
     if args.op in ('registry-inspect', 'registry-recover'):
         import registry_maintenance
         return registry_maintenance.command(args)
     if args.op in ('application-owner-inspect', 'application-owner-recover'):
         import application_owner_cleanup
         return application_owner_cleanup.command(args)
+    if args.op in ('leftovers', 'cleanup'):
+        import run_cleanup
+        return run_cleanup.command(args)
     if args.op=='compile-application-plan':
         import application_preparation
         result=application_preparation.compile_artifact(args.spec,args.output_dir,args.runtime_receipt,
@@ -2335,12 +2434,26 @@ def _interrupt(signum, frame):
     raise KeyboardInterrupt
 
 
+def _busy_holder(infrastructure, exc):
+    """Name the lease holder in a host-admission-busy failure; returns its text line or ''."""
+    import resources
+    infrastructure.pop('holder', None)
+    if infrastructure.get('reason') != 'host-admission-busy':
+        return ''
+    holder = infrastructure['holder'] = resources.admission_holder(exc)
+    return resources.holder_text(holder) if holder is not None else ''
+
+
 def cli_failure(exc):
     diagnostic = admission_diagnostic(exc)
     if diagnostic is not None:
+        infrastructure = {**diagnostic,'error_digest':hashlib.sha256(str(exc).encode()).hexdigest()}
+        held_by = _busy_holder(infrastructure, exc)
         print(json.dumps({'schema':1,'document_type':'admission_failure','status':'BLOCKED','exit_code':2,
-                          'infrastructure':{**diagnostic,'error_digest':hashlib.sha256(str(exc).encode()).hexdigest()}}),
+                          'infrastructure':infrastructure}),
               file=sys.stderr)
+        if held_by:
+            print(held_by, file=sys.stderr)
         return 2
     reason = getattr(exc, 'reason', '')
     tag = f' [{reason}]' if reason else ''

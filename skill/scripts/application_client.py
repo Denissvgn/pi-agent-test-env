@@ -435,7 +435,7 @@ def _startup_diagnostic(helper, phase, error):
     return projection
 
 
-def _intent(registry, argv, name, image, private_root, binding, code_identity, mode='authority-only'):
+def _intent(registry, argv, name, image, private_root, binding, code_identity, mode='authority-only', run_id=None):
     """Service-specific equivalent of Registry.intent; persist before Popen."""
     record = {'schema': 3, 'launch_id': str(uuid.uuid4()), 'generation': registry.generation,
               'registry': registry.registry_id, 'status': 'intent', 'container': name,
@@ -453,7 +453,8 @@ def _intent(registry, argv, name, image, private_root, binding, code_identity, m
             record['mounts'].append({'source': fields['src'], 'target': fields['dst'], 'rw': 'readonly' not in parts})
     registry.write(record)
     labels = ['--label', ownership.LABEL + '=' + record['launch_id'],
-              '--label', ownership.REGISTRY_LABEL + '=' + registry.registry_id]
+              '--label', ownership.REGISTRY_LABEL + '=' + registry.registry_id,
+              '--label', ownership.run_label(record['binding'].get('run_id') or run_id)]
     return record, argv[:2] + labels + argv[2:]
 
 
@@ -555,7 +556,9 @@ class OwnedHelper:
                 network = helper.network_record['container']
                 helper._command(['docker', 'network', 'create', '--driver', 'bridge',
                              '--label', ownership.LABEL + '=' + helper.network_record['launch_id'],
-                             '--label', ownership.REGISTRY_LABEL + '=' + registry.registry_id, network], timeout=15)
+                             '--label', ownership.REGISTRY_LABEL + '=' + registry.registry_id,
+                             '--label', ownership.MANAGED_LABEL + '=1',
+                             '--label', ownership.run_label(authority._grants[0].scope.get('run_id')), network], timeout=15)
             else:
                 record = copy.deepcopy(borrowed_network)
                 if (record.get('kind') != 'network' or record.get('registry') != registry.registry_id
@@ -593,7 +596,8 @@ class OwnedHelper:
                 argv += ['--env', 'HOME=/pi-client/state/private/home', '--env', 'TMPDIR=/pi-client/state/private/tmp']
             argv += [image['id'], '/opt/pi-application/runtime/application_client_service.py', '--port', '8081']
             phase='launch_intent'
-            helper.record, argv = _intent(registry, argv, helper.name, image['id'], root, binding, code_identity, spec['mode'])
+            helper.record, argv = _intent(registry, argv, helper.name, image['id'], root, binding, code_identity, spec['mode'],
+                                          run_id=authority._grants[0].scope.get('run_id'))
             import application_owner_cleanup
             helper._owner_custody = application_owner_cleanup.begin_custody(helper, argv)
             item = helper.reservations[0]
