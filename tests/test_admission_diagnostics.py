@@ -246,7 +246,9 @@ class AdmissionDiagnosticsTests(unittest.TestCase):
                 with resources.admission_lock(lock) if fault=='busy' else contextlib.nullcontext():
                     result=subprocess.run(argv,env=env,capture_output=True,text=True,timeout=5)
                 self.assertEqual(result.returncode,2);self.assertEqual(result.stdout,'')
-                value=json.loads(result.stderr);self.assertEqual(value['document_type'],'admission_failure')
+                # A busy failure adds one text line that names the holder after the JSON line.
+                lines=result.stderr.splitlines();self.assertEqual(len(lines),2 if fault=='busy' else 1)
+                value=json.loads(lines[0]);self.assertEqual(value['document_type'],'admission_failure')
                 self.assertEqual(value['infrastructure']['reason'],reason)
                 self.assertNotIn(CANARY,result.stderr);self.assertNotIn(PRIVATE_URL,result.stderr)
                 self.assertEqual(target.read_text(),CANARY)

@@ -264,6 +264,7 @@ def admission(lab,args,attempt,registry,smoke=False):
         import agent_profiles
         profile=agent_profiles.load(args.agent_profile) if getattr(args,'agent_profile',None) else agent_profiles.builtin()
         planpath=Path(args.plan);plan=lab.validate_plan(controls.read(planpath),planpath.parent,profile,external_bindings=bool(frozen))
+        lab.budget_overrides(args,plan)  # admission below must see the budgets the stages will run with
         names=[t['name'] for t in plan['agents']]
     if frozen and set(frozen)!=set(names):raise IndexedError('selection-conflict')
     if plan and plan.get('schema')==2 and plan['inference_bindings']!='external':

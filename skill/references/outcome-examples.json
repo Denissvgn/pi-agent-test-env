@@ -30,7 +30,16 @@
           "status": "unchanged"
         },
         "status": "PASS",
-        "exit_code": 0
+        "exit_code": 0,
+        "verdict": {
+          "schema": 1,
+          "outcome": "pass",
+          "attribution": "none",
+          "phase": null,
+          "stage": null,
+          "reason": "completed",
+          "exit_code": 0
+        }
       }
     },
     {
@@ -64,7 +73,16 @@
           "status": "unchanged"
         },
         "status": "BLOCKED",
-        "exit_code": 2
+        "exit_code": 2,
+        "verdict": {
+          "schema": 1,
+          "outcome": "endpoint_unreachable",
+          "attribution": "endpoint",
+          "phase": "preflight",
+          "stage": null,
+          "reason": "endpoint_unreachable",
+          "exit_code": 2
+        }
       }
     },
     {
@@ -95,7 +113,16 @@
           "status": "unchanged"
         },
         "status": "FAIL",
-        "exit_code": 1
+        "exit_code": 1,
+        "verdict": {
+          "schema": 1,
+          "outcome": "agent_timeout",
+          "attribution": "model",
+          "phase": "agent",
+          "stage": null,
+          "reason": "timeout",
+          "exit_code": 1
+        }
       }
     },
     {
@@ -128,7 +155,16 @@
           "status": "unchanged"
         },
         "status": "FAIL",
-        "exit_code": 1
+        "exit_code": 1,
+        "verdict": {
+          "schema": 1,
+          "outcome": "infrastructure_fault",
+          "attribution": "infrastructure",
+          "phase": "check",
+          "stage": null,
+          "reason": "nonzero_exit",
+          "exit_code": 1
+        }
       }
     },
     {
@@ -176,7 +212,16 @@
           "status": "unchanged"
         },
         "status": "RECOVERED",
-        "exit_code": 1
+        "exit_code": 1,
+        "verdict": {
+          "schema": 1,
+          "outcome": "pass_recovered",
+          "attribution": "none",
+          "phase": null,
+          "stage": null,
+          "reason": "completed",
+          "exit_code": 1
+        }
       }
     },
     {
@@ -211,7 +256,16 @@
         "trial_id": "trial-1",
         "attempt_id": "attempt-1",
         "attempt_index": 1,
-        "retry_of_attempt_id": null
+        "retry_of_attempt_id": null,
+        "verdict": {
+          "schema": 1,
+          "outcome": "agent_incomplete",
+          "attribution": "model",
+          "phase": "agent",
+          "stage": null,
+          "reason": "process_error",
+          "exit_code": 1
+        }
       }
     },
     {
@@ -246,7 +300,16 @@
         "trial_id": "trial-1",
         "attempt_id": "attempt-2",
         "attempt_index": 2,
-        "retry_of_attempt_id": "attempt-1"
+        "retry_of_attempt_id": "attempt-1",
+        "verdict": {
+          "schema": 1,
+          "outcome": "pass",
+          "attribution": "none",
+          "phase": null,
+          "stage": null,
+          "reason": "completed",
+          "exit_code": 0
+        }
       }
     },
     {
@@ -278,7 +341,16 @@
           "status": "unchanged"
         },
         "status": "INTERRUPTED",
-        "exit_code": 2
+        "exit_code": 2,
+        "verdict": {
+          "schema": 1,
+          "outcome": "cancelled",
+          "attribution": "operator",
+          "phase": "agent",
+          "stage": null,
+          "reason": "cancelled",
+          "exit_code": 2
+        }
       }
     },
     {
@@ -310,7 +382,16 @@
           "status": "unchanged"
         },
         "status": "INTERRUPTED",
-        "exit_code": 2
+        "exit_code": 2,
+        "verdict": {
+          "schema": 1,
+          "outcome": "cancelled",
+          "attribution": "operator",
+          "phase": "check",
+          "stage": null,
+          "reason": "cancelled",
+          "exit_code": 2
+        }
       }
     },
     {
@@ -343,7 +424,16 @@
           "status": "unchanged"
         },
         "status": "ASSISTED",
-        "exit_code": 1
+        "exit_code": 1,
+        "verdict": {
+          "schema": 1,
+          "outcome": "pass_assisted",
+          "attribution": "none",
+          "phase": null,
+          "stage": null,
+          "reason": "completed",
+          "exit_code": 1
+        }
       }
     }
   ]

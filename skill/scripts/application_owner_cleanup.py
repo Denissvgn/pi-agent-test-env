@@ -231,8 +231,14 @@ def validate_launcher_arguments(argv, record):
             and argv[argv.index('--name') + 1] == record['container']
             and record['image'] in argv)
     labels = [argv[i + 1] for i, arg in enumerate(argv[:-1]) if arg == '--label']
-    require(sorted(labels) == sorted([ownership.LABEL + '=' + record['launch_id'],
-                                     ownership.REGISTRY_LABEL + '=' + record['registry']]))
+    # Launches since the run label carry it as a third label; it names a run
+    # and proves nothing. Earlier launches keep exactly the two ownership labels.
+    run = [value for value in labels if value.startswith(ownership.RUN_LABEL + '=')]
+    require(len(run) <= 1 and all(value == ownership.run_label(value.split('=', 1)[1]) for value in run))
+    bound = record.get('binding', {}).get('run_id') if type(record.get('binding')) is dict else None
+    require(not run or not bound or run[0] == ownership.run_label(bound))
+    require(sorted(value for value in labels if value not in run) == sorted([
+        ownership.LABEL + '=' + record['launch_id'], ownership.REGISTRY_LABEL + '=' + record['registry']]))
     image_at = argv.index(record['image']); require(argv.count(record['image']) == 1 and image_at + 1 < len(argv)
                                                    and argv[image_at + 1] in (
                                                        '/opt/pi-application/runtime/application_client_service.py',

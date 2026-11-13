@@ -108,6 +108,8 @@ def validate(path,lab,endpoint_path=None,catalog=None,*,secrets_dir=None):
     if execution.get('environment'):execution['environment']=lab.load_environment(input_path(base,execution['environment']))
     execution.setdefault('network','bridge')
     if not isinstance(execution['network'],str) or not re.fullmatch(r'[A-Za-z0-9_.-]{1,100}',execution['network']):raise ExperimentError('Invalid Docker network name')
+    import egress
+    egress.experiment_network(lab,execution['network'])
     policies=copy.deepcopy(value['policies'])
     object_fields(policies,('primary_attempt','assistance','on_failure','max_attempts'),('primary_attempt','assistance','on_failure','max_attempts'))
     if policies['primary_attempt']!='first' or policies['assistance']!='exclude' or policies['on_failure'] not in ('continue','stop') or type(policies['max_attempts']) is not int or not 1<=policies['max_attempts']<=3:

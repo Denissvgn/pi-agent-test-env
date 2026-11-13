@@ -59,7 +59,8 @@ def owner(lab,args,root,registry,pool,worker_resources,gateway_config,image_refe
         def network_factory(intent):
             name='pi-trial-'+uuid.uuid4().hex[:16];owned=registry.network_intent(name);networks[name]=owned
             lab.command(['docker','network','create','--driver','bridge','--label',ownership_registry.LABEL+'='+owned['launch_id'],
-                         '--label',ownership_registry.REGISTRY_LABEL+'='+registry.registry_id,name])
+                         '--label',ownership_registry.REGISTRY_LABEL+'='+registry.registry_id,
+                         '--label',ownership_registry.MANAGED_LABEL+'=1','--label',ownership_registry.run_label(intent.get('run_id')),name])
             lab.command(['docker','network','connect','--alias','pi-inference',name,record['container']])
             return name
         def cleanup_network(name):

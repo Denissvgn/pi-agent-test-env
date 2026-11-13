@@ -34,7 +34,8 @@ write any writable mount. Path checks alone are not race-proof host patching.
 Prompts are policy guidance, not isolation. Read-only stage workspace facts and
 network mode come from effective Docker arguments; PI_OFFLINE disables startup
 network activity, not inference or all external routing. No automatic destination
-allowlist exists. Child outbox telemetry/acks remain untrusted observations.
+allowlist exists outside the `endpoint-only` network mode described below. Child
+outbox telemetry/acks remain untrusted observations.
 
 A default run mounts a copied project, not the original. Review snapshot omissions.
 An explicitly selected in-place run checks the complete mounted tree before any
@@ -76,13 +77,93 @@ comprehensively scrubbed. Session files inside the workspace may contain
 sensitive content. Do not publish logs or
 whole workspaces without review. Do not store keys in Git or screenshot them.
 
-Agent containers need the selected model endpoint and retain ordinary network
-access; there is no automatic destination allowlist. Setup/check network is off
+Agent containers need the selected model endpoint. With the default
+`--network bridge` they retain ordinary network access: the model's shell tool can
+reach every address the host can route to, and there is no destination allowlist.
+`--network endpoint-only` (next section) removes that access. Setup/check network is off
 unless both the plan and parent authorize it. `NO_PROXY=*` avoids routing local
 requests through ambient proxies, but is not a firewall. A network-accessible model
 server could expose tool execution or filesystem functions outside this container.
 Constrain it with server permissions/proxy policy, or use a pure inference endpoint.
 Local LLM server CPU/GPU/memory usage is outside the Pi-container quota.
+
+### Network modes and `endpoint-only`
+
+`--network` of `run`, `smoke` and `preflight` accepts `none`, `bridge` (the default),
+`endpoint-only`, or the name of an existing user-defined Docker network. `host` and
+`container:<id>` share a network namespace with the host or another container; they
+are refused with reason `network-mode-refused` unless `--allow-host-network` is given.
+`result.json` and `summary.json` record the choice under `network`, and every stage's
+process record names its `network_mode`.
+
+With `endpoint-only` the runner creates, for each run, one Docker bridge network with
+`--internal`, IPv6 off and no address for the engine host on that bridge, and one relay
+container from the run's image. The relay is attached to that network and to the
+default bridge and runs `runtime/egress_relay.py`: it listens on one port of its
+address inside the internal network, accepts connections only from that network and
+forwards the bytes to the host and port of the endpoint's container route. It cannot
+be told another destination. It does not parse, log or store the stream, so TLS stays
+end to end and no key, prompt or reply is recorded; it prints only its listening
+address, its one destination and connection counts.
+It has the hardening options of every child container, 64 MiB of memory, IP
+forwarding off, no published port and no key in its environment.
+
+Agent and preflight containers are attached to the internal network only. When the
+route's host is a name, they get a host mapping from that name to the relay and the
+endpoint URL is unchanged. When it is an IP literal with http, the URL given to the
+container has the relay's address in place of the host (so the HTTP `Host` header
+changes), and the record says so. An https URL with an IP literal, and a loopback
+route, are refused with `egress-route-unsupported`: use a host name. With
+`--host-gateway` the relay, not the stage container, gets the host mapping. Setup
+and check stages keep their own rule: no network by default, the default bridge with
+`--allow-setup-network` or `--allow-check-network`.
+
+Before any key enters a container, a proof runs without the key. A canary listens on
+the default bridge. A control probe on the bridge must reach it. An inside probe,
+started on the internal network with the network options of a stage container, must
+fail to reach the canary, the bridge gateway and, when the engine assigned one, the
+internal network's own gateway (the engine host), must have no IPv6 interface, must
+fail to resolve a public host name, and must reach the relay. A refused connection
+counts as reached, and for the two gateway addresses of the engine host so does a
+silent timeout: only the absence of a route passes. Any other result, or a proof
+that cannot be completed, blocks the run with reason `egress-not-contained`; the
+results are recorded under `network.proof`. If the engine's resolver answers for an
+outside name on the internal network, or the control probe itself cannot resolve
+one, stage containers are started with a resolver setting that sends such queries
+to the relay, which has no resolver; the proof is repeated with that setting.
+`doctor --egress-proof` runs the proof alone, with no endpoint and no key, as the
+check `egress-containment`.
+
+The relay, the canary, the probes and the network are labelled, registered in the
+ownership registry and removed when the run ends, fails or is interrupted; absence
+is confirmed by a query for their label. What a killed supervisor leaves behind is
+reconciled at the next admission under the same host lock. A relay that exits
+during a stage is recorded in that stage's process record, and no further agent or
+preflight stage is started.
+
+Limits. The mode restricts where a container can connect; it does not inspect what
+is sent to the endpoint. A model with tools can still send the inference key, project
+content or anything else it can read to the endpoint, and the endpoint server's own
+features remain its own exposure. The relay connects to whatever the route's name
+resolves to from the relay, so name resolution on the engine host is trusted. A
+redirect to another host cannot be followed. The relay reaches the endpoint from the
+default bridge, so a model server that is reachable only on another user-defined
+Docker network cannot be used with this mode. The proof shows the observed behaviour
+of the running Docker engine at the start of the run; it is not a guarantee against
+defects of the engine or the kernel, and the engine host and daemon are trusted.
+The mode is refused with reason `feature-conflict` for experiment commands,
+`--inference-env` and indexed or parallel execution, compiled application plans and
+native tool budgets, which manage their own networks.
+
+Status. The mode is new in this release. It is covered by offline tests with a
+synthetic Docker engine, and its proof, cleanup and a preflight against a stub HTTP
+server were exercised with a real engine on Docker Desktop for macOS (engine 29).
+There the engine host answered on the gateway address of a plain `--internal`
+network, which is why the network is created without that address and why the
+proof checks it. The mode has not yet been exercised on a native Linux engine, on
+the minimum supported Docker version or in a run with a real model, and it is not
+part of the qualification campaign's cells. On every host the per-run proof
+decides; treat a host where `doctor --egress-proof` has not passed as unproven.
 
 ### Scoped application credentials
 

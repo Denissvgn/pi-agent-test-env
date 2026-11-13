@@ -135,6 +135,149 @@ of the orchestration exit. A command-only check can satisfy mechanical schema-1
 acceptance with exit 0 under a declared scorer adapter, but has null score/test
 counts and cannot supply numeric quality or test-discovery claims.
 
+## Verdict for callers
+
+A program that drives the runner reads one field. `result.json`, and
+`summary.json` once the run is sealed, carry `verdict`, derived once at
+finalization after `status`, from recorded fields and retained trace evidence
+only, never from text in a log. It adds to the record: no field above, no
+status value and no exit code changes. `status` prints it as one line
+(`Verdict: ...`) for a sealed run.
+
+| Field | Values |
+|---|---|
+| `schema` | 1 |
+| `outcome` | one of the closed list below |
+| `attribution` | `none`, `model`, `endpoint`, `configuration`, `infrastructure`, `operator` |
+| `phase` | `admission`, `image`, `preflight`, `setup`, `agent`, `check`, `cleanup`; null for a pass |
+| `stage` | the label of the stage the outcome was derived from, or null |
+| `reason` | the reason code or the termination reason the outcome was derived from |
+| `exit_code` | the record's `exit_code`, repeated |
+
+| Attribution | Outcomes |
+|---|---|
+| `none` | `pass`, `pass_recovered`, `pass_assisted` |
+| `model` | `check_failed`, `agent_incomplete`, `protected_input_changed`, `turn_limit`, `token_limit`, `repeated_tool_call`, `agent_timeout`, `log_limit` |
+| `endpoint` | `endpoint_unreachable`, `endpoint_auth_failed`, `endpoint_error` |
+| `configuration` | `setup_failed`, `out_of_memory`, and `blocked` for the reasons listed as configuration below |
+| `infrastructure` | `infrastructure_fault`, and `blocked` for every other reason |
+| `operator` | `cancelled` |
+
+What a caller does with it:
+
+| Attribution | Action |
+|---|---|
+| `model` | give the task to another model, or change the task |
+| `endpoint` or `infrastructure` | try again later with the same model |
+| `configuration` or `operator` | stop and report |
+
+Precedence, first match wins:
+
+| Row | Outcome and phase | Condition |
+|---|---|---|
+| 1 | `cancelled` | `termination.reason` is `cancelled`; the phase is where the run was |
+| 2 | `blocked`; `admission`, `image`, `preflight` or `setup` | no agent stage was launched, and the run was not stopped by one of the stage failures of rows 3 to 6 |
+| 3 | `infrastructure_fault`, `cleanup` | a removal was not confirmed in any stage: `termination.reason` or `trigger` is `cleanup_error`, or a stage receipt has `cleanup_confirmed` false |
+| 4 | `endpoint_unreachable`, `endpoint_auth_failed`, `endpoint_error`; `preflight` or `agent` | the endpoint preflight failed, or an agent stage ended without a verified completion on provider errors that the retry policy did not absorb |
+| 5 | `infrastructure_fault`; `agent` or `check`, or the phase the run was in when its controller was lost | the supervisor lost its controller; the runner failed after launch; a stage receipt carries a supervisor fault; a check command could not be started; a scorer could not be executed |
+| 6 | `setup_failed`, `setup` | a setup command ended with a failure |
+| 7 | `out_of_memory`; `agent` or `check` | the memory limit killed a stage (`oom`) |
+| 8 | `turn_limit`, `token_limit`, `repeated_tool_call`, `agent_timeout`, `log_limit`; `agent` | `termination.reason` is that limit (`timeout` for `agent_timeout`) |
+| 9 | `protected_input_changed`, `agent` | `protected_inputs.status` is `changed` |
+| 10 | `agent_incomplete`, `agent` | the agent process ended without a verified completion, or a declared completion report is incomplete or invalid |
+| 11 | `check_failed`, `check` | a check ran and returned a failing or partial score, or carries the reason `check-target-missing` |
+| 12 | `pass`, `pass_recovered`, `pass_assisted` | status `PASS`, `RECOVERED`, `ASSISTED` |
+
+A failed record that no row names is `infrastructure_fault` with the reason
+`unclassified`: an unknown failure is never attributed to the model.
+
+Rows 2 to 6 share the runs that stop before any agent stage. Such a run keeps
+status `BLOCKED` and exit 2 whatever its outcome: a failed endpoint preflight is
+an endpoint outcome and a failed setup command is `setup_failed`, each with exit
+code 2 in the verdict. `blocked` is the rest. Its phase is taken from
+`infrastructure.phase`: `image`, `preflight` and `setup` keep their name and
+every earlier phase is `admission`.
+
+A check that ran and returned a failing score is `check_failed`. A check that
+could not run is `infrastructure_fault` with phase `check`: scoring status
+`error`, a check that never got a supervisor receipt, or scoring skipped for
+`workspace_missing` or `workspace_snapshot_failed`. The one exception is a check
+the record gives the reason `check-target-missing`, which is `check_failed`
+because the agent removed what the check needs. An unconfirmed removal in a
+check stage is row 3 even after a passing score.
+
+Limits of the evidence, stated so that a caller does not read more into an
+outcome than was recorded:
+
+- `endpoint_unreachable` and `endpoint_auth_failed` are derived only from a
+  recorded reason code (`endpoint-unreachable`, `endpoint-auth-failed`, with
+  either separator). A failed preflight without such a code, and every agent
+  stage that ended on provider errors, is `endpoint_error`; `chat-failed` and
+  `endpoint-error` are read as `endpoint_error` too. Which stage failed is read
+  from the stage rows of `usage_summary`.
+- Provider errors of an agent stage are the `error` entries of
+  `unsuccessful_messages` in the trace evidence of its last Pi process, less the
+  attempts in `provider_retries` when the endpoint allows retries. A model
+  server that stops answering without returning an error leaves no such entry;
+  the stage ends as `agent_timeout`.
+- The supervisor faults of row 5 are the receipt fields
+  `native_tool_budget_error`, `recovery_error`, `observation_error`,
+  `budget_error` and `capture_errors`.
+
+### Attribution of a blocked run
+
+`blocked` takes its attribution from `infrastructure.reason` through one closed
+table. `configuration` is the caller's input: plan, project, endpoint, key,
+image choice and options. `infrastructure` is the host: Docker, the admission
+lock, the launch registry, the inference queue and the runner itself. A reason
+that is not in the table, including any exception class name other than the
+four listed, is `infrastructure`.
+
+| Attribution | Reasons |
+|---|---|
+| `configuration` | `application-credentials`, `browser-policy-invalid`, `browser-sandbox-blocked`, `budget-override-invalid`, `image-missing`, `in-place-inspection-error`, `in-place-linked-entry`, `invalid-project`, `missing-secret`, `model-not-found`, `resource-policy-invalid`, `secret-store-insecure`, `unsupported-agent-profile`, `unsupported-event-contract`, `unsupported-pi-release`, `unsupported-pi-settings` |
+| `configuration`, saved environment | `environment-broken`, `environment-invalid-input`, `environment-missing`, `environment-needs-confirmation`, `environment-needs-session`, `environment-no-environment`, `confirmation-conflict`, `confirmation-invalid`, `context-too-small`, `environment-corrupt`, `invalid-base-url`, `invalid-endpoint`, `invalid-session`, `missing-session` |
+| `configuration`, indexed environments | `catalog-insecure`, `catalog-invalid`, `credential-unavailable`, `environment-configuration-changed`, `environment-index-stale`, `environment-not-found`, `environment-revoked`, `environment-unconfirmed`, `inference-authority-changed`, `inference-configuration-secret`, `inference-input-unsafe`, `selection-conflict`, `transient-retries-unsupported`, `unsupported-api-adapter` |
+| `configuration`, class names | `LabError`, `ScorerError`, `ProfileError`, `JSONDecodeError` |
+| `configuration`, network mode | `egress-route-unsupported`, `feature-conflict`, `network-mode-refused` |
+| `infrastructure`, Docker | `docker-cli-missing`, `docker-context-invalid`, `docker-daemon-unavailable`, `docker-error`, `docker-permission-denied`, `docker-remote` |
+| `infrastructure`, host admission | `admission-error`, `admission-lock-insecure`, `admission-lock-unavailable`, `host-admission-busy`, `host-registry-capacity`, `host-registry-unsafe`, `inference-queue-expired`, `inference-quarantined` |
+| `infrastructure`, runner | `controller_lost`, `evidence_destination_unavailable`, `evidence_finalization_failed` |
+| `infrastructure`, network mode | `egress-not-contained`, `egress-relay-exited`, `egress-cleanup-unconfirmed`, `egress-proof-unavailable` |
+
+A class name is recorded when the error carried no reason code. `LabError` is
+then almost always a refused input: the endpoint file, the environment file,
+the plan, a project path or the project contract. The exceptions that share the
+bare name are a Docker command that failed without a classified cause, a host
+without a usable Linux engine or non-root user, a refused symlink in a runner
+directory and a failed isolation or browser probe; none of these clears by
+waiting, so stop-and-report is still the right action for them. The endpoint
+reasons are not in this table because row 4 names them before row 2 applies.
+
+## Usage summary and run-wide budgets
+
+`result.json` carries `usage_summary`: `"schema": 1` and `stages`, one row for
+each stage the runner launched, in launch order. Every row has `stage` (the
+label), `kind` (`setup`, `preflight`, `agent` or `check`; the isolation and
+browser probes are `preflight`) and `wall_seconds`. An agent row adds `turns`,
+`tokens` (`input`, `output`, `total`, and `reported` as true or false) and
+`limits` with two views of `timeout_seconds`, `max_turns` and
+`max_total_tokens`: `plan`, the values the stage was launched with, and
+`effective`, the values after any `extend-budget`. A token count is the sum over
+the completed assistant messages of the stage and is given only when the model
+server reported it for every one of them; otherwise it is null, never zero, and
+`reported` is false. An unrecorded time, turn count or limit is null as well.
+The total under `measurement` is unchanged.
+
+`run` accepts `--max-turns`, `--max-total-tokens` and `--agent-timeout-seconds`.
+Each replaces the plan's value for every agent stage, within the plan's own
+bounds (100 turns, 10,000,000 tokens, 3600 seconds), and the record lists the
+ones given under `budget_overrides` with the plan's field names. The plan file
+is not rewritten; the run's `plan.json` holds the values used. A value outside
+the bounds, a value that breaks a declared native tool budget, and any of the
+three options together with `--compiled-plan` are refused before any container
+starts, as `blocked` with the reason `budget-override-invalid`.
+
 ## Scoring and finalization
 
 The immutable scorer contract fixes ID/version, code and input hashes, argv,
@@ -232,6 +375,7 @@ The exact source-inspected candidate and its release-specific limits are in
 [outcome-examples.json](outcome-examples.json) contains normative projections of
 final results. They omit artifact/UUID details for readability; they are neither
 full stored records nor executable schema-1 plans. Each projection must obey the
-field semantics and exit precedence above. They cover clean success, prelaunch
+field semantics and exit precedence above, and carries the expected `verdict`,
+which the derivation reproduces from the other fields. They cover clean success, prelaunch
 failure, timeout with task pass, scorer error, authorized recovery, fresh retry
 (both original and retry), cancellation before/during scoring and assisted success.

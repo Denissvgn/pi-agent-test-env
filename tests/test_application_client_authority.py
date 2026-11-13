@@ -431,6 +431,11 @@ class OwnedLifecycleTests(BaseFixture):
         self.assertNotIn(KEY_A, json.dumps(boundary.argv) + json.dumps(boundary.env) + json.dumps(registry.load()))
         self.assertNotIn(INFERENCE_KEY, json.dumps(boundary.env))
         grants = helper.authority._grants
+        run_label = ownership.run_label(grants[0].scope['run_id']); self.assertNotEqual(run_label, ownership.run_label())
+        self.assertEqual(boundary.argv[boundary.argv.index(run_label) - 1], '--label')
+        self.assertEqual(sum(value == '--label' for value in boundary.argv), 3)
+        network = boundary.networks[helper.network_record['container']]
+        self.assertEqual((network[ownership.RUN_LABEL], network[ownership.MANAGED_LABEL]), (grants[0].scope['run_id'], '1'))
         context = helper.context(grants[0]); self.assertEqual(context['base_url'], 'http://pi-application:8081/ipc')
         self.assertNotIn(KEY_A, json.dumps(context))
         code = next(m for m in helper.record['mounts'] if m['target'] == '/opt/pi-application')

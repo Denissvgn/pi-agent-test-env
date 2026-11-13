@@ -114,6 +114,75 @@ All reports retain `admission_authorized: false`. A final receipt persistence
 failure can block the command even when `reconciliation` is `completed`; this
 does not imply that successful physical cleanup was rolled back.
 
+## What one run left behind
+
+A supervisor removes each container it started. When the supervisor itself is
+killed, or Docker restarts, a container can stay. The next operation that takes
+the lease reconciles it, and so does `registry-recover`. Two commands answer the
+question for one run without starting anything.
+
+Every container the runner starts with the worker image carries
+`org.pi-agent-test-env.managed=1` and `org.pi-agent-test-env.run=<run id>`. The
+value is `none` for a container outside a run: an image probe of `ensure-image`
+or `doctor`, or the shared inference gateway of an experiment. Networks the
+runner creates carry both labels as well. Application helper containers carry
+the run label only, because their cleanup needs the owner's proof. The BuildKit
+container of an image build carries no label, because the buildx
+`docker-container` driver has no option for one. The run label names a run; the
+launch and registry labels and the registry records remain the only ownership
+authority.
+
+```bash
+docker ps -a --filter label=org.pi-agent-test-env.run=RUN_ID
+python3 "$SKILL_DIR/scripts/pi_lab.py" leftovers [--run RUN] [--json]
+python3 "$SKILL_DIR/scripts/pi_lab.py" cleanup --run RUN [--yes] [--json]
+```
+
+`RUN` is a run id or a run directory. A run id is looked up in `--results-dir`.
+
+`leftovers` reads Docker and the run directories and changes nothing. It lists
+each labelled container and network with its name, state, age and run id when
+its run is sealed (`result.json` exists) or when no operation holds the lease of
+an unsealed run, which means its supervisor is gone. It tests the lease with a
+momentary shared probe and never creates or writes the lease file. Resources of
+an active run are counted, not listed. Resources labelled `none`, and resources
+whose run directory is not in `--results-dir`, appear under `unclassified`.
+
+`cleanup` without `--yes` prints what it would remove and changes nothing: no
+lease is taken and the registry is not reconciled. With `--yes` it:
+
+1. takes the host lease without waiting; a busy lease is `host-admission-busy`,
+   exit 2, because an operation is active;
+2. lets the registry reconcile, exactly as any admission does; a registry that
+   refuses is `host-registry-unsafe`, exit 2, and nothing is removed;
+3. removes the containers and then the networks that carry both the managed
+   label and this run id, by Docker ID and never by a name pattern;
+4. confirms their absence with `docker ps -aq` and `docker network ls -q`
+   filtered by both labels;
+5. seals an unsealed run as a lost controller, with the cleanup recorded in
+   `controller_interruption`; such a run never ends as `PASS`;
+6. writes `cleanup.json` into the run directory. `reconciled` lists what the
+   registry's reconciliation removed and `removed` what the label pass removed.
+
+| Outcome | Meaning |
+| --- | --- |
+| `DRY_RUN` / 0 | Without `--yes`: the selection is reported and nothing changed |
+| `CLEANED` / 0 | Nothing with both labels remains for this run |
+| `INCOMPLETE` / 2 | A removal failed, absence was not confirmed, or Docker could not be asked; the run is not sealed by this attempt |
+| `INTERRUPTED` / 130 | Explicit interruption; `cleanup.json` records what was removed so far |
+
+Cleanup deletes and edits no registry record. It refuses a run whose stages
+recorded another lease (`cleanup-lease-mismatch`) and names the `--lock-file` to
+use. A run killed before its first stage records no lease; cleanup then trusts
+the selected lease. It leaves alone anything that lacks either label, including
+application helper containers; those need
+[retained application ownership cleanup](APPLICATION-OWNER-CLEANUP.md). It does
+not seal an experiment attempt, which `experiment-resume` reconciles, or a
+`preflight` or `browser-check` directory, which has no attempt record.
+
+`status` prints one line with the number of containers and networks that still
+carry the run's label, or `unknown` when Docker cannot be asked.
+
 ## Choosing the next action
 
 - For filesystem errors, inspect the actual host access/storage condition for

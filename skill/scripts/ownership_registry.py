@@ -21,6 +21,9 @@ CURRENT=contextvars.ContextVar('pi_owned_admission',default=None)
 SCHEMA=1
 LABEL='org.pi-agent-test-env.launch'
 REGISTRY_LABEL='org.pi-agent-test-env.registry'
+MANAGED_LABEL='org.pi-agent-test-env.managed'
+RUN_LABEL='org.pi-agent-test-env.run'
+NO_RUN='none'
 MAX_RECORDS=8192
 MAX_TRANSIENT_RECORDS=32
 
@@ -71,6 +74,15 @@ def read_private(path,decode=True):
             return json.loads(body)
         finally:os.close(fd)
     raise RegistryError('Registry record changed during bounded observation', condition='unsafe_record')
+
+
+def run_label(run_id=None):
+    """The label that ties a container or network to its run; `none` outside a run.
+
+    Presentation only: ownership stays with the launch and registry labels.
+    """
+    if type(run_id) is not str or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}',run_id) is None:run_id=NO_RUN
+    return RUN_LABEL+'='+run_id
 
 
 def docker(argv):

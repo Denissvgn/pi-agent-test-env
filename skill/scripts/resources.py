@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import stat
 import threading
 import time
 from types import MappingProxyType
@@ -27,7 +28,7 @@ ADMISSION_FAILURES = MappingProxyType({
         'Keep dependent execution stopped. Inspect the owner-only launch registry and confirm owned writer absence and sensitive cleanup before requesting recovery; do not delete records or bypass the host lease.'),
     'host-admission-busy': (
         'Another pi-agent-test-env operation holds the host lock; wait or use --lock-wait-seconds',
-        'Wait for the owning operation to finish, or use --lock-wait-seconds with a bounded value up to 3600. Do not delete the lock or use another lock file to bypass admission.'),
+        'Wait for the owning operation to finish, or use --lock-wait-seconds with a bounded value up to 3600. A holder record whose pid no longer exists is not a stuck lock: the kernel releases the lease when its process dies. Do not delete the lock or use another lock file to bypass admission.'),
     'resource-policy-invalid': (
         'The resource policy or admission wait is invalid',
         'Review the resource policy and CLI overrides against RESOURCES.md. Use finite supported limits and a lock wait in 0..3600 seconds; correct the input before dispatch.'),
@@ -80,6 +81,204 @@ def admission_diagnostic(exc):
     if code in ('host-registry-unsafe', 'host-registry-capacity') and context is not None:
         result['registry_diagnostic'] = context
     return result
+
+HOLDER_RECORD_LIMIT = 4096
+_HOLDER_OP = re.compile(r'[a-z][a-z0-9-]{0,63}')
+_HOLDER_RUN = re.compile(r'[0-9A-Za-z][0-9A-Za-z._-]{0,63}')
+_holder_guard = threading.Lock()
+_holder_op = None
+_holder_next_run = None
+_holder_leases = []
+
+
+def _holder_fields(value):
+    """Closed projection of a holder record: (pid, op, started_unix, run_id) or None."""
+    if type(value) is not dict:
+        return None
+    pid, op, started, run_id = (value.get(name) for name in ('pid', 'op', 'started_unix', 'run_id'))
+    if type(pid) is not int or not 1 <= pid < 2 ** 31:
+        return None
+    if type(started) not in (int, float) or not 0 <= started < 2 ** 40:
+        return None
+    if op is not None and (type(op) is not str or not _HOLDER_OP.fullmatch(op)):
+        return None
+    if run_id is not None and (type(run_id) is not str or not _HOLDER_RUN.fullmatch(run_id)):
+        return None
+    return pid, op, started, run_id
+
+
+def _holder_line(started, run_id=None):
+    """The one-line record of this process; op and run_id appear once they are known."""
+    record = {'pid': os.getpid(), 'started_unix': started}
+    if _holder_op is not None:
+        record['op'] = _holder_op
+    if run_id is not None:
+        record['run_id'] = run_id
+    return json.dumps(record) + '\n'
+
+
+def describe_holder(*, op=None, run_id=None, held=False):
+    """Name this process's command and run in the holder record of its lease.
+
+    The command name applies to every lease this process takes from now on. A
+    run id is kept for the next admission_lock call only; with held=True it is
+    instead written in place into the leases this process holds now. The record
+    is informational: a value outside the record contract is ignored and a
+    failed rewrite never raises.
+    """
+    global _holder_op, _holder_next_run
+    with _holder_guard:
+        if type(op) is str and _HOLDER_OP.fullmatch(op):
+            _holder_op = op
+        if type(run_id) is not str or not _HOLDER_RUN.fullmatch(run_id):
+            return
+        if not held:
+            _holder_next_run = run_id
+            return
+        for lease in _holder_leases:
+            lease['run_id'] = run_id
+            try:
+                handle = lease['handle']
+                handle.seek(0)
+                handle.truncate()
+                handle.write(_holder_line(lease['started'], run_id))
+                handle.flush()
+            except (OSError, ValueError):
+                pass
+
+
+def _take_holder_run():
+    global _holder_next_run
+    with _holder_guard:
+        run_id, _holder_next_run = _holder_next_run, None
+    return run_id
+
+
+def _pid_exists(pid):
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except (OSError, OverflowError, ValueError):
+        return False
+    return True
+
+
+def _holder_of_descriptor(fd, identity=None):
+    """Read at most HOLDER_RECORD_LIMIT bytes of one regular file; never waits."""
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_size > HOLDER_RECORD_LIMIT:
+        return None
+    if identity is not None and (info.st_dev, info.st_ino) != identity:
+        return None
+    data = os.pread(fd, HOLDER_RECORD_LIMIT + 1, 0)
+    if len(data) > HOLDER_RECORD_LIMIT:
+        return None
+    text = data.decode('utf-8')
+    if text.endswith('\n'):
+        text = text[:-1]
+    if not text or '\n' in text:
+        return None
+    fields = _holder_fields(json.loads(text))
+    if fields is None:
+        return None
+    pid, op, started, run_id = fields
+    result = {'pid': pid, 'op': op, 'started_unix': started,
+              'age_seconds': round(max(0.0, time.time() - started), 3)}
+    if run_id is not None:
+        result['run_id'] = run_id
+    result['alive'] = _pid_exists(pid)
+    return result
+
+
+def read_holder(path, *, identity=None):
+    """The holder named by a lease's record, or None when it cannot be told.
+
+    The record is read without the lease: one non-blocking open that refuses a
+    symbolic link, one bounded read, a closed projection. Nothing here raises, so
+    a missing, replaced, oversized or malformed record never changes admission.
+    alive only says whether a process with that pid exists now.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            return _holder_of_descriptor(fd, identity)
+        finally:
+            os.close(fd)
+    except Exception:
+        return None
+
+
+def _name_holder(exc, path, fd):
+    """Attach the holder of the lease behind fd to its busy failure; returns exc."""
+    try:
+        if type(exc) is AdmissionError and exc._admission_reason == 'host-admission-busy':
+            info = os.fstat(fd)
+            exc._lease_holder = read_holder(path, identity=(info.st_dev, info.st_ino))
+    except Exception:
+        pass
+    return exc
+
+
+def admission_holder(exc):
+    """The holder observed when admission failed busy, or None; never arbitrary data."""
+    if type(exc) is not AdmissionError or exc._admission_reason != 'host-admission-busy':
+        return None
+    value = getattr(exc, '_lease_holder', None)
+    fields = _holder_fields(value)
+    if fields is None or set(value) - {'pid', 'op', 'started_unix', 'age_seconds', 'run_id', 'alive'}:
+        return None
+    age, alive = value.get('age_seconds'), value.get('alive')
+    if type(age) not in (int, float) or not 0 <= age < 2 ** 40 or type(alive) is not bool:
+        return None
+    pid, op, started, run_id = fields
+    result = {'pid': pid, 'op': op, 'started_unix': started, 'age_seconds': age}
+    if run_id is not None:
+        result['run_id'] = run_id
+    result['alive'] = alive
+    return result
+
+
+def holder_text(holder):
+    """One text line for a holder from admission_holder or lease_state."""
+    text = 'Held by pid %d (%s) for %d seconds' % (holder['pid'], holder['op'] or 'unknown', holder['age_seconds'])
+    if not holder['alive']:
+        text += ' (no process with that pid exists; the record is stale)'
+    return text
+
+
+def lease_state(path):
+    """Observe a lease without entering it: state free, held or unavailable.
+
+    A missing lease is free. Otherwise a non-blocking shared flock on a read-only
+    descriptor is tried and released at once; when it is refused the holder is
+    read as in read_holder. The lease is never created, written, chmodded or
+    followed through a symbolic link, and nothing here raises.
+    """
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return {'state': 'free', 'holder': None}
+    except Exception:
+        return {'state': 'unavailable', 'holder': None}
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return {'state': 'unavailable', 'holder': None}
+        try:
+            fcntl.flock(fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            try:
+                holder = _holder_of_descriptor(fd)
+            except Exception:
+                holder = None
+            return {'state': 'held', 'holder': holder}
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        return {'state': 'free', 'holder': None}
+    except Exception:
+        return {'state': 'unavailable', 'holder': None}
+    finally:
+        os.close(fd)
+
 
 DEFAULTS = {
     'schema': 1,
@@ -364,6 +563,7 @@ def admission_lock(path, wait_seconds=0, *, before_registry=None):
     if type(wait_seconds) not in (int, float) or not 0 <= wait_seconds <= 3600:
         raise AdmissionError('resource-policy-invalid', 'lock wait must be between 0 and 3600 seconds')
     path = Path(path).expanduser()
+    run_id = _take_holder_run()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.is_symlink():
@@ -377,26 +577,36 @@ def admission_lock(path, wait_seconds=0, *, before_registry=None):
         except OSError as exc:
             raise AdmissionError('admission-lock-unavailable', str(exc)) from None
         if wait_seconds:
-            _queued_flock(handle.fileno(), wait_seconds)
+            try:
+                _queued_flock(handle.fileno(), wait_seconds)
+            except AdmissionError as exc:
+                _name_holder(exc, path, handle.fileno())
+                raise
         else:
             try:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
-                raise AdmissionError('host-admission-busy') from None
+                raise _name_holder(AdmissionError('host-admission-busy'), path, handle.fileno()) from None
             except OSError as exc:
                 raise AdmissionError('admission-lock-unavailable', str(exc)) from None
         try:
             if before_registry is not None:
                 before_registry(lease_fd=handle.fileno(), lock_path=path.absolute(),
                                 registry_root=Path(str(path.absolute())+'.registry'))
+            lease = {'handle': handle, 'started': time.time(), 'run_id': run_id}
             try:
                 handle.seek(0)
                 handle.truncate()
-                handle.write(json.dumps({'pid': os.getpid(), 'started_unix': time.time()}) + '\n')
+                handle.write(_holder_line(lease['started'], run_id))
                 handle.flush()
             except OSError as exc:
                 raise AdmissionError('admission-lock-unavailable', str(exc)) from None
+            # Only a lease whose record this process wrote is rewritten in place later.
+            with _holder_guard:
+                _holder_leases.append(lease)
             with _registry_admission(path.absolute(),handle.fileno()) as registry:
                 yield registry
         finally:
+            with _holder_guard:
+                _holder_leases[:] = [entry for entry in _holder_leases if entry['handle'] is not handle]
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
