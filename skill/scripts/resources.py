@@ -82,6 +82,12 @@ def admission_diagnostic(exc):
         result['registry_diagnostic'] = context
     return result
 
+# Every child container keeps a read-only root file system; /tmp is a small writable scratch space
+# for tools that ignore TMPDIR (an X server's socket directory, for example). It cannot hold
+# executables or device files, counts against the container's memory limit and disappears with
+# the container.
+TMP_MOUNT = '/tmp:rw,nosuid,nodev,noexec,size=256m,mode=1777'
+
 HOLDER_RECORD_LIMIT = 4096
 _HOLDER_OP = re.compile(r'[a-z][a-z0-9-]{0,63}')
 _HOLDER_RUN = re.compile(r'[0-9A-Za-z][0-9A-Za-z._-]{0,63}')

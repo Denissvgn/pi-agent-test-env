@@ -23,9 +23,20 @@ has independent CPU/RAM/parallelism limits and is removed after use.
 
 The configured OS/mount boundary uses a read-only root, read-only frozen helper/
 control/scorer sources and the selected project access. Writable exceptions are
-/pi-state runtime, /opt/pi-control/outbox and /workspace when access is rw. The
-boundary probe samples write denial at selected root/system paths; it does not
-prove every possible operation is confined. Native bind behavior depends on the selected image/daemon; see [QUALIFICATION.md](../QUALIFICATION.md).
+/pi-state runtime, /opt/pi-control/outbox, /workspace when access is rw, and
+/tmp. The boundary probe samples write denial at selected root/system paths; it
+does not prove every possible operation is confined.
+
+Every child container gets `/tmp` as a tmpfs with the options
+`rw,nosuid,nodev,noexec,size=256m,mode=1777`. It is for tools that ignore
+`TMPDIR`, such as an X server that needs `/tmp/.X11-unix`. It holds no
+executables, device files or set-uid files, counts against the container's
+memory limit and disappears with the container. `TMPDIR`, `HOME` and the XDG
+directories stay under `/pi-state`, which remains the place for files that must
+be executed. The boundary stage requires `/tmp` to take a file and to be mounted
+`noexec`, and `doctor --probe-image` reports the check `tmp-writable` for the
+caller's uid and for uid 65534. An image must not declare a `VOLUME` or rely on
+files baked into `/tmp`: the mount hides them. Native bind behavior depends on the selected image/daemon; see [QUALIFICATION.md](../QUALIFICATION.md).
 
 workspace-boundary.mjs adds write/edit lexical/realpath checks and a Bash regex
 for common attempts to modify protected paths. That regex is not a shell parser

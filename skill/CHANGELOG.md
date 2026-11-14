@@ -2,8 +2,17 @@
 
 ## Unreleased
 
-Additions for programs that drive the runner unattended. None of them is part
-of a qualification campaign yet, and the defaults are unchanged.
+Additions for programs that drive the runner unattended. The defaults are
+unchanged, apart from the writable `/tmp` below.
+
+- Every child container now gets a writable `/tmp`: a 256 MiB tmpfs mounted
+  `nosuid,nodev,noexec` with mode 1777, inside the container's memory limit. The
+  root file system stays read-only. Tools that ignore `TMPDIR`, such as Xvfb,
+  which needs `/tmp/.X11-unix`, now work in agent and check stages. The boundary
+  stage requires `/tmp` to be writable and `noexec`, the image probe records
+  `tmp` (writable, noexec, filesystem), and `doctor --probe-image` reports the
+  check `tmp-writable` for the caller's uid and for uid 65534. Upgrade note: files
+  an image places in `/tmp` are hidden by the mount.
 
 - New network mode `--network endpoint-only` for `run`, `smoke` and
   `preflight`. Agent and preflight containers are attached to an internal Docker

@@ -29,7 +29,7 @@ from urllib.parse import urlsplit
 import uuid
 
 from evidence import analyze
-from resources import configure, requested_policy, thread_environment, admission_lock, admission_diagnostic, AdmissionError
+from resources import configure, requested_policy, thread_environment, admission_lock, admission_diagnostic, AdmissionError, TMP_MOUNT
 from builder import limited_build
 import secret_store
 import application_credentials
@@ -213,7 +213,7 @@ def docker_args(args, image: str, workspace: Path, control: Path, state: Path,
               '--read-only', '--user', f'{args.uid}:{args.gid}', '--cap-drop=ALL',
               '--security-opt=no-new-privileges=true', '--ipc=none', '--pids-limit', str(getattr(args, 'pids_limit', 256)),
               '--memory', args.memory, '--memory-swap', args.memory, '--cpus', str(args.cpus), '--network', network,
-              '--workdir=/workspace', '--entrypoint=python3',
+              '--workdir=/workspace', '--entrypoint=python3', '--tmpfs', TMP_MOUNT,
               '--mount', f'type=bind,src={workspace},dst=/workspace,bind-recursive=disabled' + (',readonly' if access == 'ro' else ''),
               '--mount', f'type=bind,src={helpers},dst=/opt/pi-lab,readonly,bind-recursive=disabled',
               '--mount', f'type=bind,src={control},dst=/opt/pi-control,readonly,bind-recursive=disabled']
@@ -1939,6 +1939,39 @@ def _host_lock_check(args) -> dict:
     return item
 
 
+TMP_CHECK_OTHER_UID = 65534
+
+
+def _tmp_check(args, image) -> dict:
+    """/tmp must take a file and refuse programs, for the caller's uid and for an unrelated uid."""
+    observed = {'caller': (image.get('capabilities') or {}).get('tmp')}
+    other = copy.copy(args)
+    other.uid = other.gid = TMP_CHECK_OTHER_UID
+    with tempfile.TemporaryDirectory(prefix='tmp-check-', ignore_cleanup_errors=True) as td:
+        top = Path(td)
+        workspace, control = top / 'workspace', top / 'control'
+        workspace.mkdir(); control.mkdir()
+        control_channels(control, other.uid)
+        state = state_dir(top, 'tmp-check', other.uid)
+        name = 'pi-lab-tmp-check-' + uuid.uuid4().hex[:10]
+        argv = docker_args(other, image['id'], workspace, control, state, name, 'none', access='ro')
+        result = stream_run(argv + ['boundary'], top / 'logs', 60, name)
+        rows = [json.loads(line) for line in (top / 'logs/stdout.jsonl').read_text(errors='replace').splitlines()
+                if line.startswith('{')] if (top / 'logs/stdout.jsonl').exists() else []
+        observed['uid_' + str(TMP_CHECK_OTHER_UID)] = next((row.get('tmp') for row in rows if 'tmp' in row), None)
+        if result.get('exit_code'):
+            observed['error'] = (top / 'logs/stderr.log').read_text(errors='replace')[-300:] if (top / 'logs/stderr.log').exists() else ''
+    good = all(type(value) is dict and value.get('writable') is True and value.get('noexec') is True
+               for key, value in observed.items() if key != 'error') and 'error' not in observed
+    item = {'check': 'tmp-writable', 'status': 'ok' if good else 'fail', 'observed': observed,
+            'detail': (f'/tmp takes a file and refuses programs for uid {args.uid} and uid {TMP_CHECK_OTHER_UID}' if good
+                       else '/tmp is not a writable noexec scratch mount for every uid')}
+    if not good:
+        item.update(reason='tmp-not-writable', remedy='Use an image without a VOLUME or mount on /tmp, and a Docker Engine that honours --tmpfs; '
+                    'see the /tmp paragraph in references/SECURITY.md.')
+    return item
+
+
 def cmd_doctor(args) -> int:
     """Check every prerequisite and report all blockers at once, each with a remedy."""
     checks = []
@@ -2036,6 +2069,7 @@ def cmd_doctor(args) -> int:
                 caps = probed_image['capabilities']
                 add('image-probe', 'ok', f'pi {caps.get("pi")}, node {caps.get("node")}, {caps.get("architecture")}')
                 add('pi-release-contract', 'ok', selected['id'])
+                checks.append(_tmp_check(args, probed_image))
             except LabError as exc:
                 add('image-probe', 'fail', str(exc)[:1000], exc.reason or 'image-missing', image=args.image)
 

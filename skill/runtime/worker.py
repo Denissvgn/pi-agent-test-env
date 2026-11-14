@@ -250,7 +250,29 @@ def probe(profile):
     contract_path = Path('/opt/pi-control/environment.json')
     if contract_path.exists():
         result['project_environment'] = environment_probe(json.loads(contract_path.read_text()))
+    result['tmp'] = tmp_observation()
     emit(result)
+
+
+def tmp_observation():
+    """Whether /tmp takes a file from this uid, and how it is mounted. Never raises."""
+    result = {'writable': False, 'noexec': None, 'filesystem': None, 'error': None}
+    try:
+        for line in Path('/proc/mounts').read_text().splitlines():
+            fields = line.split()
+            if len(fields) >= 4 and fields[1] == '/tmp':
+                result['filesystem'] = fields[2]
+                result['noexec'] = 'noexec' in fields[3].split(',')
+    except OSError:
+        pass
+    target = Path('/tmp') / ('pi-tmp-check-' + uuid.uuid4().hex)
+    try:
+        target.write_text('ok')
+        result['writable'] = target.read_text() == 'ok'
+        target.unlink()
+    except OSError as exc:
+        result['error'] = errno.errorcode.get(exc.errno, type(exc).__name__)
+    return result
 
 
 def boundary():
@@ -265,7 +287,12 @@ def boundary():
         inside = Path(os.environ['TMPDIR']) / marker
     inside.write_text('ok')
     inside.unlink()
-    outside_targets = [Path('/tmp'), Path('/'), Path('/etc'), Path('/usr'), Path('/var'), Path('/home'), Path('/opt/pi-lab')]
+    # /tmp is the one writable path outside the workspace and the runtime directory: a mounted
+    # scratch space that must not run programs.
+    tmp = tmp_observation()
+    if not tmp['writable'] or tmp['noexec'] is not True:
+        raise RuntimeError(f'/tmp must be a writable noexec scratch mount for this uid: {tmp}')
+    outside_targets = [Path('/'), Path('/etc'), Path('/usr'), Path('/var'), Path('/home'), Path('/opt/pi-lab')]
     for target in outside_targets:
         if not target.exists():
             continue
@@ -285,7 +312,7 @@ def boundary():
             raise RuntimeError('workspace-boundary.mjs missing isWithinWorkspace check')
     emit({'workspace_access':os.environ.get('PI_LAB_STAGE_ACCESS','unknown'),
           'writable_probe_location':str(inside.parent),'sampled_outside_write_denied':True,
-          'boundary_extension_present':ext_path.is_file(),'uid':os.getuid()})
+          'boundary_extension_present':ext_path.is_file(),'uid':os.getuid(),'tmp':tmp})
 
 
 def preflight(config, chat=False, request_timeout=120):
