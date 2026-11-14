@@ -217,10 +217,12 @@ class Peer:
             raise ParallelError('Launch exceeds or relaxes the frozen grant')
         allowed={'--name','--init','--platform','--read-only','--user','--cap-drop=ALL','--security-opt=no-new-privileges=true',
                  '--ipc=none','--security-opt','--pids-limit','--memory','--memory-swap','--cpus','--network','--workdir=/workspace','--entrypoint=python3',
-                 '--mount','--env','--add-host','--label=org.pi-agent-test-env.managed=1','--label=org.pi-agentic-development.managed=1'}
+                 '--mount','--env','--add-host','--tmpfs','--label=org.pi-agent-test-env.managed=1','--label=org.pi-agentic-development.managed=1'}
         # Only this trial's own run label is part of the grant.
         allowed.add('--label='+ownership_registry.run_label(self.bootstrap.get('intent',{}).get('run_id')))
         helper=argv.index('/opt/pi-lab/worker.py')
+        if argv.count('--tmpfs')>1 or ('--tmpfs' in argv and option('--tmpfs')!=resources.TMP_MOUNT):
+            raise ParallelError('Launch changes the reviewed /tmp mount')
         if '--security-opt' in argv:
             import browser_security
             if self.metadata['execution'].get('browser_sandbox_policy')!='chromium-userns' or argv.count('--security-opt')!=1:
