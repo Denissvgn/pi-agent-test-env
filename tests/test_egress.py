@@ -902,17 +902,30 @@ class RelayTests(unittest.TestCase):
         server = socket.socket()
         server.bind(('127.0.0.1', 0))
         server.listen(4)
+        # Closing a listening socket does not wake a blocked accept() on Linux, so the
+        # server polls a stop flag and the cleanup joins it: no thread outlives the test.
+        server.settimeout(0.1)
+        stop = threading.Event()
         def serve():
-            while True:
+            while not stop.is_set():
                 try:
                     client, unused = server.accept()
+                except socket.timeout:
+                    continue
                 except OSError:
                     return
                 with client:
+                    client.settimeout(5)
                     data = client.recv(65536)
                     client.sendall(b'reply:' + data)
-        threading.Thread(target=serve, daemon=True).start()
-        self.addCleanup(server.close)
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        def finish():
+            stop.set()
+            thread.join(5)
+            server.close()
+            self.assertFalse(thread.is_alive())
+        self.addCleanup(finish)
         return server.getsockname()[1]
 
     def start(self, *arguments):

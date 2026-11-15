@@ -252,7 +252,9 @@ class PiLabDoctorAndSecretsCommandTests(unittest.TestCase):
 
             with mock.patch.object(lab, 'docker_info', return_value=mock_docker_info), \
                  mock.patch.object(lab, 'command', side_effect=mock_cmd), \
-                 mock.patch.dict(os.environ, {}, clear=True):
+                 mock.patch.dict(os.environ, {'HOME': td}, clear=True):
+                # HOME stays set: doctor's host-lock check names the default lease, and a
+                # CI uid without a passwd entry has no other home directory.
                 buf = io.StringIO()
                 with mock.patch('sys.stdout', buf):
                     code = lab.cmd_doctor(args)
