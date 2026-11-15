@@ -54,7 +54,7 @@ Set `SKILL_DIR` to the complete installed skill directory before commands below.
 No Docker builds or model calls occur during export. Archives must be staged in
 an empty directory and verified before any authorized installation/update.
 
-Prerequisites on the parent host: Python 3.10+, local Docker Engine or Docker
+Prerequisites on the parent host: Python 3.12+, local Docker Engine or Docker
 Desktop running Linux containers, and Buildx when building. Linux/macOS/WSL are
 supported; native PowerShell/Windows Python is not supported by the POSIX lock.
 No host Python packages are needed by the runner. Children need a compatible Pi

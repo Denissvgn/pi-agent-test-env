@@ -26,7 +26,7 @@ version; 0.87.1 and 1.2.0 were deferred from its qualification. See
 Resolve `SKILL_DIR` to this complete installed folder; scripts, runtime, assets,
 examples, docker and references must remain beside SKILL.md. See
 [HARNESSES.md](references/HARNESSES.md) for parent discovery paths and evidence limits.
-The parent needs Python 3.10+, a local Linux Docker daemon and shell access on
+The parent needs Python 3.12+, a local Linux Docker daemon and shell access on
 macOS/Linux/WSL. Builds need Buildx. Native Windows Python is unsupported by the
 POSIX host lock. Use the host/daemon's native Linux architecture; on Apple Silicon
 select `linux/arm64` explicitly and verify image architecture before launch.

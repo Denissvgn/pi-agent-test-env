@@ -6,7 +6,7 @@ copyable plans and profiles belong in `assets/`; runnable examples belong in
 `examples/`. Keep maintainer tests, stored test output, publishing tools and
 planning history outside the skill.
 
-Runtime changes must retain Python 3.10+ and the standard-library-only host
+Runtime changes must retain Python 3.12+ and the standard-library-only host
 policy. Standards validation is development tooling and requires Python 3.11+;
 its pinned source and wheels are bundled in `tools/validation/` for offline use.
 No validation dependency is installed globally or into the skill.
@@ -36,8 +36,8 @@ mounts it read-only, disables the network and records a JSON report:
 
 ```bash
 docker build -f tools/ci/Dockerfile \
-  --build-arg PYTHON_IMAGE=python:3.10-slim-bookworm -t pi-agent-ci:py3.10 tools/ci
-python3 tools/docker_ci.py --image pi-agent-ci:py3.10 --report /tmp/pi-ci-py3.10.json
+  --build-arg PYTHON_IMAGE=python:3.12-slim-bookworm -t pi-agent-ci:py3.12 tools/ci
+python3 tools/docker_ci.py --image pi-agent-ci:py3.12 --report /tmp/pi-ci-py3.12.json
 ```
 
 Repeat with the newest supported Python as well. The runner does not supply the

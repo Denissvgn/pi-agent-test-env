@@ -21,6 +21,7 @@ does not exercise them.
 | Pi 1.2.0 | Reviewed contract unchanged; deferred, last qualified for 4.9.1 on earlier code |
 | Pi 0.87.1 | Reviewed contract unchanged; deferred, last qualified for 4.5.0 on earlier code |
 | Native AMD64 | Unqualified, including the AMD64 `fd` build |
+| Host Python 3.10 and 3.11 | Deferred: the supported floor is 3.12 and release checks no longer run on them; `doctor` still accepts 3.10 until 4.12.0 |
 | Repeated-tool-call guard (4.9.1) | Always on; stopped no stage in the release campaign, and its stop path is covered by offline tests |
 | Direct-endpoint `transient_retries` (4.9.1) | Experimental, for Pi 1.2.0 and 1.5.2; offline tests only, not exercised by the release campaign |
 | Compiled application client and native call budgets (4.6.0) | Experimental; partial native qualification, authenticated browser workflows unqualified |
