@@ -1,6 +1,6 @@
 # pi-agent-test-env
 
-[![Version](https://img.shields.io/badge/version-4.10.0-blue)](skill/CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.11.0-blue)](skill/CHANGELOG.md)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](skill/README.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-compatible-7B61FF)](skill/SKILL.md)
@@ -15,11 +15,12 @@ inside the selected image. You provide the model server separately.
 
 ## Stability
 
-Version 4.10.0 is a stable release with the same stable scope as 4.9.1, now on
-Pi 1.5.2: the capabilities qualified for 4.5.0, namely serial, parallel and
+Version 4.11.0 is a stable release with the same stable scope as 4.10.0, on Pi
+1.5.2: the capabilities qualified for 4.5.0, namely serial, parallel and
 indexed runs, legacy saved and explicit endpoints, frozen experiments, the
 reviewed fixture lookup integration, scoped application credentials and
-sandboxed browser tasks. On 11 November 2026 a fresh native ARM64 campaign on the
+sandboxed browser tasks. Every child container now has a writable,
+non-executable `/tmp`. On 15 November 2026 a fresh native ARM64 campaign on the
 release code passed all 110 planned cell oracles for Pi 1.5.2. Qualified support
 covers Pi 1.5.2 only: Pi 0.87.1 and 1.2.0 keep their reviewed contracts but were
 deferred from this release's qualification, and native AMD64 remains unqualified.
@@ -31,11 +32,13 @@ These opt-in features are experimental and outside that qualification:
 - the offline `registry-inspect` and `registry-recover` commands
 - the [operation SDK](skill/references/OPERATION-SDK.md)
 - [transient provider retries](skill/references/PI-COMPATIBILITY.md#transient-provider-retries) for direct endpoints, new in 4.9.1
+- the additions for unattended callers, new in 4.11.0: the `--network endpoint-only` mode (verified on Docker Desktop for macOS only, see [SECURITY.md](skill/references/SECURITY.md)), `verdict` and `usage_summary` in results, the `--max-turns`, `--max-total-tokens` and `--agent-timeout-seconds` options, the lock holder in busy answers, run labels, `leftovers` and `cleanup --run`
 
 Qualification applies only to the recorded image, model and configuration; see
 [QUALIFICATION.md](skill/QUALIFICATION.md). Before upgrading, read the upgrade
-notes [from 4.9.1](skill/CHANGELOG.md#upgrading-from-491) and, for older
-installs, [from 4.9.0](skill/CHANGELOG.md#upgrading-from-490) and
+notes [from 4.10.0](skill/CHANGELOG.md#upgrading-from-4100) and, for older
+installs, [from 4.9.1](skill/CHANGELOG.md#upgrading-from-491),
+[from 4.9.0](skill/CHANGELOG.md#upgrading-from-490) and
 [from 4.5.0](skill/CHANGELOG.md#upgrading-from-450).
 
 ## What can you try?
@@ -176,7 +179,7 @@ continuing. Keys stay out of plans and chat. See the
 ### 3. Prepare a native core image
 
 The reviewed Pi releases are **0.87.1, 1.2.0 and 1.5.2**. This walkthrough selects
-[Pi 1.5.2](skill/references/PI-1.5.2.md), the release qualified for 4.10.0;
+[Pi 1.5.2](skill/references/PI-1.5.2.md), the release qualified for 4.11.0;
 [Pi 1.2.0](skill/references/PI-1.2.0.md) and
 [Pi 0.87.1](skill/references/PI-COMPATIBILITY.md) keep their reviewed contracts
 but were deferred from this release's qualification. Select the exact release
@@ -397,10 +400,11 @@ keys stay in a bounded broker, with one global request slot, isolated worker
 snapshots and scoped stage/recovery tokens.
 
 Start with the [root workflow](skill/references/INFERENCE-ENVIRONMENTS.md) and
-[executable examples](skill/examples/indexed-inference/README.md). For 4.10.0,
-native indexed qualification passed on ARM64 for Pi 1.5.2 on 11 November 2026:
+[executable examples](skill/examples/indexed-inference/README.md). For 4.11.0,
+native indexed qualification passed on ARM64 for Pi 1.5.2 on 15 November 2026:
 110 cell oracles, including 78 real-model positive cells and 32 scripted fault
-oracles. The 9 and 8 November 2026 campaigns for 4.9.1 and 4.9.0 covered the
+oracles. The 11 November 2026 campaign for 4.10.0 covered the same matrix for
+Pi 1.5.2 on earlier code, the 9 and 8 November 2026 campaigns for 4.9.1 and 4.9.0 covered the
 same matrix for Pi 1.2.0 on earlier code, and the 15 October 2026 campaign for
 4.5.0 covered Pi 0.87.1 and 1.2.0. The live profiles used two credential
 references on the same backend and model; distinct-backend/model/API-protocol

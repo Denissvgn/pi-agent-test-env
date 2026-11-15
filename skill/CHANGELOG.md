@@ -1,10 +1,63 @@
 # Changelog
 
-## Unreleased
+## 4.11.0
 
-Additions for programs that drive the runner unattended. The defaults are
-unchanged, apart from the writable `/tmp` below.
+Stable release for programs that drive the runner unattended. Every child
+container gets a writable, non-executable `/tmp`; an `endpoint-only` network
+mode, a `verdict` with an attribution, per-stage usage, run budget options, the
+lock holder in busy answers and per-run cleanup are added as experimental
+features. The stable scope and the qualified Pi release (1.5.2) are unchanged.
 
+### Stability
+
+- **Stable:** unchanged from 4.10.0 in scope, on native ARM64 with Pi 1.5.2:
+  serial, parallel and indexed runs, legacy saved and explicit endpoints, frozen
+  experiments, the reviewed fixture lookup integration, scoped application
+  credentials and sandboxed browser tasks. The writable `/tmp` is part of it.
+- **Experimental:** `--network endpoint-only`, `verdict` and `usage_summary`,
+  `--max-turns`, `--max-total-tokens` and `--agent-timeout-seconds`, the lock
+  holder report, run labels, `leftovers` and `cleanup --run`. The release
+  campaign does not exercise them, apart from recording `verdict` and
+  `usage_summary` for every run; `endpoint-only` is verified on Docker Desktop
+  for macOS only. The features that were experimental in 4.10.0 stay so.
+- **Deferred:** Pi 0.87.1 and 1.2.0, as in 4.10.0. Native AMD64 remains
+  unqualified.
+- **Known limitation:** with an explicit `--lock-file`, `doctor`'s `host-lock`
+  check still resolves the default lease path, so `doctor` fails where no home
+  directory can be determined (no `HOME` and no passwd entry).
+
+### Qualification
+
+- On 15 November 2026 a fresh native ARM64 campaign on the release code
+  (`a241a0a`) passed all 110 planned cell oracles for Pi 1.5.2: 78 real-model
+  positive cells and 32 scripted fault oracles, in 146 actual Pi segments. All
+  18 coding pipelines were independently inspected, owned cleanup was confirmed
+  and evidence scans found no inference keys.
+- It was the third frozen campaign for this release. The first, before the
+  `/tmp` change, was blocked when an implementer stage exceeded its token limit
+  and was not resumed; the second was never run. See
+  [QUALIFICATION.md](QUALIFICATION.md) for budgets, limits and what the
+  campaign does not cover.
+
+### Upgrading from 4.10.0
+
+- Files an image places in `/tmp` are hidden by the new mount. Images built from
+  the supplied recipe put nothing there and need no rebuild; the recipe is
+  unchanged since 4.9.1.
+- `--network host` and `container:<id>` need the new `--allow-host-network`,
+  and a named network must exist.
+- A caller that parses the stderr of a busy host lock as one JSON document must
+  read only its first line.
+- Experiments prepared with 4.10.0 cannot be run or resumed by this version,
+  because the runner content changed. Prepare new experiments; existing results
+  still report.
+- If you are upgrading from 4.9.1, also follow the
+  [4.10.0 upgrade notes](#upgrading-from-491).
+
+### Changes since 4.10.0
+
+- Two maintainer tests failed on Linux and now pass: the relay tests left
+  threads blocked in `accept()`, and a doctor test cleared `HOME`. Tests only.
 - Every child container now gets a writable `/tmp`: a 256 MiB tmpfs mounted
   `nosuid,nodev,noexec` with mode 1777, inside the container's memory limit. The
   root file system stays read-only. Tools that ignore `TMPDIR`, such as Xvfb,

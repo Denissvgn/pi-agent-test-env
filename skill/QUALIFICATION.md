@@ -2,17 +2,22 @@
 
 ## Stability
 
-Version 4.10.0 is a stable release. Its stable scope is unchanged from 4.9.1:
+Version 4.11.0 is a stable release. Its stable scope is unchanged from 4.10.0:
 the capabilities qualified for 4.5.0, namely serial, parallel and indexed runs,
 legacy saved and explicit endpoints, frozen experiments, the reviewed fixture
 lookup integration, scoped application credentials and sandboxed browser tasks.
-The release campaign below qualified that scope on native ARM64 with Pi 1.5.2 at
-executable head `626459ceba93c53ae3d66b1fb172e01facfe9e95`. Qualified support
-covers Pi 1.5.2 only; the earlier reviewed releases were deferred.
+Every child container now has a writable, non-executable `/tmp`. The release
+campaign below qualified that scope on native ARM64 with Pi 1.5.2 at executable
+head `a241a0aaa150d897c896595215e5a50b51a8a334`. Qualified support covers Pi
+1.5.2 only; the earlier reviewed releases stay deferred. The additions for
+programs that drive the runner unattended are experimental: the release campaign
+does not exercise them.
 
-| Scope | Status for 4.10.0 |
+| Scope | Status for 4.11.0 |
 |---|---|
-| Stable scope, native ARM64, Pi 1.5.2 | Qualified on 11 November 2026 for the recorded image, model and configuration |
+| Stable scope, native ARM64, Pi 1.5.2 | Qualified on 15 November 2026 for the recorded image, model and configuration |
+| Writable `/tmp` in child containers (4.11.0) | Part of the stable scope: present in every container of the release campaign |
+| Unattended-wrapper additions (4.11.0): `--network endpoint-only`, `verdict` and `usage_summary`, run budget options, lock holder report, run labels, `leftovers` and `cleanup --run` | Experimental; offline tests, and for `endpoint-only` a real-model smoke on Docker Desktop for macOS. Not exercised by the release campaign, apart from `verdict` and `usage_summary` being recorded for every run |
 | Pi 1.2.0 | Reviewed contract unchanged; deferred, last qualified for 4.9.1 on earlier code |
 | Pi 0.87.1 | Reviewed contract unchanged; deferred, last qualified for 4.5.0 on earlier code |
 | Native AMD64 | Unqualified, including the AMD64 `fd` build |
@@ -23,13 +28,97 @@ covers Pi 1.5.2 only; the earlier reviewed releases were deferred.
 | Application owner cleanup (4.7.0) and legacy owner proof (4.8.0) | Experimental; synthetic conformance only, no real owner cleanup or replay |
 | Operation SDK | Experimental; fixture-only integration checks |
 
-As for 4.9.0 and 4.9.1, a dedicated `PI_LAB_LOCK_FILE` lease was used by every
+As for 4.9.0 to 4.10.0, a dedicated `PI_LAB_LOCK_FILE` lease was used by every
 phase of the release campaign. Experimental features are opt-in; report their
 results as unqualified until evidence covers the exact scope. Distinct backends,
 models or API protocols, downstream applications and the items under
 [Unqualified capabilities](#unqualified-capabilities) remain separate claims.
 
-## Stable 4.10.0 release campaign
+## Stable 4.11.0 release campaign
+
+On 15 November 2026, a fresh frozen native ARM64 campaign at executable head
+`a241a0aaa150d897c896595215e5a50b51a8a334` passed all 110 planned cell oracles
+for Pi 1.5.2. Its 78 real-model positive cells passed; 32 scripted fault oracles
+established the expected stop, recovery and pending-cell behavior. Actual Pi
+execution comprised 146 process segments: 120 real-model and 26 explicitly
+scripted segments. No automatic campaign retry occurred. The campaign selected
+only Pi 1.5.2, with `--release 1.5.2`; Pi 0.87.1 and 1.2.0 stay deferred.
+
+It was the release's third frozen campaign, and the first to be run to the end.
+The first, at `6010f984b911ddcdbdbfe09ff861fdfdebdd9f72`, was blocked in the
+standalone-roles batch: an implementer stage printed about 28,000 tokens of its
+own test output and ended at 162,111 tokens against its 128,000-token limit, with
+its acceptance tests passing. It was not resumed. The second was frozen at the
+same head and never run, because the writable `/tmp` change (#33) then changed
+the executable identity. None of the three changed the matrix.
+
+It ran the matrix of the [4.10.0 campaign](#historical-4100-release-campaign).
+The collections, live profiles, reasoning request and resource, time, launch and
+registry ceilings were the same; only the executable identity, the image ids and
+the per-campaign identifiers differed. Collections A and B passed, as did the two
+exact ARM64 image admissions (core and browser), the sandboxed DOM gate,
+token-bound routing/redaction, revocation, one-slot quarantine, physical overlap
+with FIFO admission, cancellation, owner-loss recovery and the predecessor-format
+oracle. The campaign took about 100 minutes of its 7 hour 28 minute ceiling. The
+scope limits recorded for 4.9.0 apply unchanged: these observations do not
+establish distinct-backend/model/API-protocol compatibility, provider/account
+independence, server-wide concurrency, performance improvements or live
+downstream application acceptance.
+
+Both images were rebuilt with Pi 1.5.2 from the image recipe, which is unchanged
+since 4.9.1 and installs the pinned upstream `fd` 10.5.0; the images of the
+4.10.0 campaign were no longer on the host. Pi's `find` tool ran offline in
+them, and all 22 calls in the campaign succeeded, all in coding reviewer stages.
+The repeated-tool-call guard stopped no stage: in every segment with an analyzed
+trace, the longest run of identical consecutive tool calls was one. Apart from
+the deliberate failures of the scripted provider-fatal lane, no stage reported a
+provider error, and none recorded a provider retry. No stage log showed a
+rejected token. Apart from the scripted routing check, which forces an
+incomplete response on purpose, all 38 gateway receipts reported no uncertain
+request, and all 836 forwarded requests completed. No profile opted into
+`transient_retries`.
+
+Every child container of the campaign ran with the writable, non-executable
+`/tmp`, and the boundary lane, whose stage now requires `/tmp` to be writable and
+`noexec`, passed. Each of the 102 run records carried `verdict` and
+`usage_summary`. Every verdict other than a pass came from a scripted fault lane,
+with the expected attribution: `infrastructure` for the crash and contamination
+lanes, `operator` for abort, `endpoint` for provider-fatal and `model` for
+timeout; the recovery lane ended `pass_recovered`. The provider-fatal verdicts
+give `completed` as their reason, the stage's termination, not the provider
+error. The matrix does not exercise `--network endpoint-only`, the host-network
+refusal, the run budget options, the lock holder report, `leftovers` or
+`cleanup --run`; this campaign is not evidence for them.
+
+The campaign ran under a fresh dedicated host lease and registry selected with
+`--lock-file`; it neither read nor resolved the shared per-user registry. The
+empty dedicated registry was checked against the 822-record campaign ceiling and
+the 8192-record limit before dispatch. The campaign charged 676 container
+launches and 90 network creations, below the frozen 724/98 ceilings. All 763
+registered resources (673 containers and 90 networks), the disposable
+authorities and private stores were independently confirmed absent. Retained
+evidence had zero selected-key matches and original credential-store metadata
+was unchanged.
+
+All 18 coding implementations and reviewer reports were independently read with
+exact hashes and protected inputs unchanged, and every reviewer had read the
+exact final implementation; one reviewer also re-read part of it with an offset.
+The inspection also ran each of the 18 distinct implementations, in an isolated
+host Python process, against an independent reference written from the task
+specification: 20,051 inputs each, with no mismatch. Reviewer prose included
+advisory inaccuracies and is not approval or a measurement of model-review
+quality; generated fixture code was not promoted.
+
+The pull requests merged for this release (#32 and #33, and #34, which changes
+two tests only) have no completed automated exact-head review. The configured reviewer returned only
+insufficient-quota notices, and the maintainer explicitly waived that
+requirement for each merge.
+
+These measurements retain their executable, harness and frozen inputs. The
+4.11.0 version metadata, documentation and manifest update changes package
+identity while preserving the tested executable and fixture bytes.
+
+## Historical 4.10.0 release campaign
 
 On 11 November 2026, a fresh frozen native ARM64 campaign at executable head
 `626459ceba93c53ae3d66b1fb172e01facfe9e95` passed all 110 planned cell oracles
@@ -284,7 +373,7 @@ files and unsupported authority still deny. Current filesystem observations
 cannot replace absent original facts.
 
 No real legacy owner cleanup, new SDK proof-read policy or downstream integration
-has been qualified for this candidate, 4.9.0, 4.9.1 or 4.10.0; none of their
+has been qualified for this candidate or 4.9.0 to 4.11.0; none of their
 release campaigns exercised them. Exact final native/ARM64 Docker artifact
 checks and any real owner pilot/replay remain separate release gates. Earlier live measurements
 below retain their original executable/configuration identities; they are not
@@ -514,8 +603,8 @@ package metadata.
 
 Application browser flows, comprehensive WebGL tests, native AMD64 execution,
 forced live OOM, image input, broader child integrations and unavailable parent
-discovery remain unqualified. Pi 0.87.1 was not requalified for 4.9.0, 4.9.1 or
-4.10.0, and Pi 1.2.0 was deferred for 4.10.0.
+discovery remain unqualified. Pi 0.87.1 was not requalified for 4.9.0 to 4.11.0,
+and Pi 1.2.0 was deferred for 4.10.0 and 4.11.0.
 Requested or observed reasoning/sampling settings do not establish server
 enforcement, weights identity, deterministic replay or inference timing.
 Container resource limits do not cap the model server or unrelated host
@@ -527,7 +616,7 @@ Images built from the 4.9.0 recipe or earlier have no `fd`, so `find` reports
 reviewers fell back to `ls` and `grep` and completed. From 4.9.1 the supplied
 recipe installs a pinned upstream `fd` 10.5.0 instead: Debian bookworm's
 `fd-find` (8.6.0) predates `--no-require-git`, which `find` passes outside git
-repositories. The 4.9.1 and 4.10.0 release campaigns used it natively on ARM64;
+repositories. The 4.9.1 to 4.11.0 release campaigns used it natively on ARM64;
 the AMD64 build is unqualified. A reused image keeps its own tools, so grant
 `ls` and `grep` with `find` unless the image provides `fd` 8.7.0 or later.
 

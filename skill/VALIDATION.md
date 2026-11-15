@@ -11,6 +11,23 @@ clear historical uncertainty. See the current scope in
 [QUALIFICATION.md](QUALIFICATION.md); the dated live evidence below remains
 attached to its original executable and environment.
 
+## 4.11.0 release checks
+
+The repository runs no hosted CI. The full maintainer suite passed on macOS for
+each pull request merged for 4.11.0 (#32 and #33: 3506 and 3514 tests, 13
+skipped). On the qualified head `a241a0a`, `tools/docker_ci.py` then failed on
+native Linux ARM64 with Python 3.10 and 3.12, with 30 errors from two test
+defects. The relay tests left threads blocked in `accept()`, which closing a
+socket does not wake on Linux, so the secret-registration tests, which require a
+single thread, refused to run; and a doctor test cleared `HOME`, which a CI user
+without a passwd entry needs. #34 fixed both tests without changing the runner
+or the campaign source identity. On its head `tools/docker_ci.py` passed with
+Python 3.10 and 3.12 (3514 tests, 12 skipped each) and the macOS suite passed
+(3514 tests, 13 skipped). A candidate build of the documentation head passed
+`tools/verify_release.py` on macOS, including the full suite from extracted
+source and all five layouts (3514 tests, 13 skipped). These are offline checks; the dated
+live evidence below is separate.
+
 ## 4.10.0 release checks
 
 Each pull request merged for 4.10.0 passed a candidate build with
@@ -79,6 +96,16 @@ Offline standards validation requires Python 3.11+ and uses disposable tooling
 with bundled, hash-locked dependencies outside the skill.
 
 ## Live evidence
+
+On 15 November 2026, the 4.11.0 release campaign passed 110 frozen cell oracles
+on native ARM64 for Pi 1.5.2 at executable head `a241a0a`: 78 real-model
+positives and 32 scripted fault oracles, with 146 actual Pi segments (120
+real-model/26 scripted). All 18 coding pipelines were independently inspected,
+and owned physical/private cleanup and selected-key scans passed. It was the
+release's third frozen campaign: the first was blocked by a model token overrun
+and not resumed, and the second was never run. The campaign does not exercise
+the experimental 4.11.0 additions for unattended callers.
+[QUALIFICATION.md](QUALIFICATION.md) records budgets, review waivers and limits.
 
 On 11 November 2026, the 4.10.0 release campaign passed 110 frozen cell oracles
 on native ARM64 for Pi 1.5.2 at executable head `626459c`: 78 real-model
