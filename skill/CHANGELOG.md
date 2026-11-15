@@ -22,6 +22,9 @@ features. The stable scope and the qualified Pi release (1.5.2) are unchanged.
   for macOS only. The features that were experimental in 4.10.0 stay so.
 - **Deferred:** Pi 0.87.1 and 1.2.0, as in 4.10.0. Native AMD64 remains
   unqualified.
+- **Host Python:** the supported floor moves to 3.12. Python 3.10 and 3.11 are
+  deferred: the release checks no longer run on them. `doctor`'s `python`
+  check still accepts 3.10 until 4.12.0, which raises it in code.
 - **Known limitation:** with an explicit `--lock-file`, `doctor`'s `host-lock`
   check still resolves the default lease path, so `doctor` fails where no home
   directory can be determined (no `HOME` and no passwd entry).
@@ -41,6 +44,8 @@ features. The stable scope and the qualified Pi release (1.5.2) are unchanged.
 
 ### Upgrading from 4.10.0
 
+- Run the host runner with Python 3.12 or later. It still starts on 3.10 and
+  3.11, but those versions are no longer checked.
 - Files an image places in `/tmp` are hidden by the new mount. Images built from
   the supplied recipe put nothing there and need no rebuild; the recipe is
   unchanged since 4.9.1.
@@ -56,6 +61,9 @@ features. The stable scope and the qualified Pi release (1.5.2) are unchanged.
 
 ### Changes since 4.10.0
 
+- The documented host Python floor is 3.12, and `tools/docker_ci.py` refuses
+  images with an older Python. The 4.11.0 release checks ran on Python 3.12
+  only.
 - Two maintainer tests failed on Linux and now pass: the relay tests left
   threads blocked in `accept()`, and a doctor test cleared `HOME`. Tests only.
 - Every child container now gets a writable `/tmp`: a 256 MiB tmpfs mounted

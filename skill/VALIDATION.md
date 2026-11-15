@@ -25,8 +25,9 @@ or the campaign source identity. On its head `tools/docker_ci.py` passed with
 Python 3.10 and 3.12 (3514 tests, 12 skipped each) and the macOS suite passed
 (3514 tests, 13 skipped). A candidate build of the documentation head passed
 `tools/verify_release.py` on macOS, including the full suite from extracted
-source and all five layouts (3514 tests, 13 skipped). These are offline checks; the dated
-live evidence below is separate.
+source and all five layouts (3514 tests, 13 skipped). Python 3.10 and 3.11 were
+then deferred, so later checks run on Python 3.12 only. These are offline checks;
+the dated live evidence below is separate.
 
 ## 4.10.0 release checks
 
@@ -91,7 +92,9 @@ source, and verifies versions and checksums. All five extracted roots are named
 The full maintainer suite runs against the extracted universal package. Complete
 before/after inventories detect newly created files and changed bytes or modes.
 
-The host runtime requires Python 3.10+ with no third-party Python dependencies.
+The host runtime requires Python 3.12+ with no third-party Python dependencies.
+From 4.11.0, Python 3.10 and 3.11 are deferred: release checks no longer run on
+them, although `doctor`'s `python` check still accepts 3.10 until 4.12.0.
 Offline standards validation requires Python 3.11+ and uses disposable tooling
 with bundled, hash-locked dependencies outside the skill.
 

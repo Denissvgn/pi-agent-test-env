@@ -5,7 +5,7 @@ experimental source functionality. The first qualification profile is Linux
 ARM64 with CPython **3.12.13**, in an immutable read-only container, with caller,
 SDK, worker and private objects in the same Linux namespace. Other Python
 versions and native macOS/Windows operation execution are unsupported. Existing
-Python 3.10+ CLI behavior is unchanged.
+Python 3.12+ CLI behavior is unchanged.
 
 Validation success grants no agent execution, project admission, historical
 ownership, installation or release approval. No command runner, `run`, `doctor`,

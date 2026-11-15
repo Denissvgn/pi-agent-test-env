@@ -1,7 +1,7 @@
 # pi-agent-test-env
 
 [![Version](https://img.shields.io/badge/version-4.11.0-blue)](skill/CHANGELOG.md)
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](skill/README.md)
+[![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)](skill/README.md)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![Agent Skills](https://img.shields.io/badge/Agent%20Skills-compatible-7B61FF)](skill/SKILL.md)
 
@@ -108,7 +108,7 @@ python3 "$SKILL_DIR/scripts/pi_lab.py" validate-plan \
   --plan "$SKILL_DIR/assets/python-feature.plan.json"
 ```
 
-These Python commands work offline with Python 3.10+; they do not start Docker or
+These Python commands work offline with Python 3.12+; they do not start Docker or
 contact a model. Read [SPEC.md](skill/examples/python-project/SPEC.md) and the
 [plan](skill/assets/python-feature.plan.json). The task is to implement `slugify`
 without changing the specification or tests.

@@ -5,7 +5,7 @@ The published source allowlist is staged into a fresh directory and mounted
 read-only, so tests see exactly the files a source archive would contain and
 cannot change them. The container has no network, no capabilities, a read-only
 root filesystem, a private /tmp and fixed CPU/memory/process ceilings. The image
-must provide python3 (3.10+) and node; tools/ci/Dockerfile builds one.
+must provide python3 (3.12+) and node; tools/ci/Dockerfile builds one.
 
 This qualifies the offline suite on one Python/platform. It does not provide the
 synthetic read-only providers that the isolated owner-consumer tests need
@@ -91,8 +91,8 @@ def run(image, report, *, platform=None, limits=None, timeout=1800):
         versions = container(image, platform, source, limits, ['sh', '-c', 'python3 --version; node --version'], 60)
         result['versions'] = versions['stdout'].split()
         minor = re.search(r'Python 3\.(\d+)', versions['stdout'])
-        if versions['exit_code'] != 0 or minor is None or int(minor[1]) < 10:
-            raise ValueError('Image must provide python3 3.10+ and node')
+        if versions['exit_code'] != 0 or minor is None or int(minor[1]) < 12:
+            raise ValueError('Image must provide python3 3.12+ and node')
         jobs = [['python3', '-m', 'unittest', 'discover', '-s', 'tests'],
                 ['python3', 'tools/check_package.py', '--source', 'skill'],
                 ['python3', 'tools/check_examples.py', '--source', 'skill']]
@@ -113,7 +113,7 @@ def run(image, report, *, platform=None, limits=None, timeout=1800):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--image', required=True, help='Local native image with python3 3.10+ and node')
+    parser.add_argument('--image', required=True, help='Local native image with python3 3.12+ and node')
     parser.add_argument('--report', required=True, type=Path, help='New JSON report path outside the repository')
     parser.add_argument('--platform', choices=sorted(set(PLATFORMS.values())), help='Defaults to the native daemon platform')
     parser.add_argument('--cpus', type=float, default=2.0)
