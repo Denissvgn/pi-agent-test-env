@@ -157,9 +157,9 @@ collection-local labels, finite scores and reported usage/missingness. It omits
 URLs, model/profile/stage names, key references, fingerprints, raw errors, traces
 and file paths. Private ledgers and comparison reports remain private.
 
-For 4.10.0 the indexed executor passed its frozen native ARM64 campaign on Pi
-1.5.2 on 11 November 2026, with 110 cell oracles. Earlier campaigns covered Pi
-1.2.0 for 4.9.0 and 4.9.1, and Pi 0.87.1 and 1.2.0 for 4.5.0 on 15 October 2026,
+For 4.11.0 the indexed executor passed its frozen native ARM64 campaign on Pi
+1.5.2 on 15 November 2026, with 110 cell oracles. Earlier campaigns covered Pi
+1.5.2 for 4.10.0, Pi 1.2.0 for 4.9.0 and 4.9.1, and Pi 0.87.1 and 1.2.0 for 4.5.0 on 15 October 2026,
 with 220 oracles; see [QUALIFICATION.md](../QUALIFICATION.md) for each campaign's
 scope, budgets, cleanup and exact executable identity. Offline routing
 fixtures and historical homogeneous results remain separate evidence.
