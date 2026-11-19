@@ -435,6 +435,76 @@
           "exit_code": 1
         }
       }
+    },
+    {
+      "example": "provider_fatal",
+      "projection": {
+        "infrastructure": {
+          "status": "ready"
+        },
+        "invocation": {
+          "status": "invalid"
+        },
+        "termination": {
+          "reason": "completed",
+          "process_exit_code": 1
+        },
+        "scoring": {
+          "status": "completed"
+        },
+        "task_result": {
+          "status": "fail",
+          "score": 0.0
+        },
+        "assistance": {
+          "status": "autonomous",
+          "intervention_ids": []
+        },
+        "protected_inputs": {
+          "status": "unchanged"
+        },
+        "status": "FAIL",
+        "exit_code": 1,
+        "agents": [
+          {
+            "name": "dev",
+            "logs": "agent-1-dev",
+            "process": {
+              "termination_reason": "completed",
+              "exit_code": 1,
+              "evidence": {
+                "completion_verified": false,
+                "agent_invocation_verified": false
+              },
+              "segments": [
+                {
+                  "evidence": {
+                    "unsuccessful_messages": [
+                      "error"
+                    ],
+                    "provider_retries": {
+                      "allowed": 0,
+                      "attempts": 0,
+                      "retried_errors": []
+                    }
+                  }
+                }
+              ],
+              "started": true,
+              "cleanup_confirmed": true
+            }
+          }
+        ],
+        "verdict": {
+          "schema": 1,
+          "outcome": "endpoint_error",
+          "attribution": "endpoint",
+          "phase": "agent",
+          "stage": "agent-1-dev",
+          "reason": "error",
+          "exit_code": 1
+        }
+      }
     }
   ]
 }
