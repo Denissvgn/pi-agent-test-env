@@ -220,7 +220,16 @@ def main() -> int:
     parser.add_argument('--output-dir', default=str(PROJECT_ROOT), help='Directory to write zip packages')
     parser.add_argument('--install', choices=[*HARNESS_PATHS, 'all'], help='Link skill into local project for specified harness')
     parser.add_argument('--target-dir', default=str(PROJECT_ROOT), help='Project directory to install into')
+    parser.add_argument('--manifest-only', action='store_true',
+                        help='Write skill/MANIFEST.sha256 only: no archives and no installation')
     args = parser.parse_args()
+
+    if args.manifest_only:
+        if args.install:
+            parser.error('--manifest-only cannot be combined with --install')
+        manifest = update_manifest(ROOT)
+        print(f"Updated checksum manifest: {manifest}")
+        return 0
 
     try:
         out_dir = Path(args.output_dir).resolve()

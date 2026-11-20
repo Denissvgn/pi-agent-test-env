@@ -90,7 +90,8 @@ record the result in a `PI-<release>.md` reference. Then:
    those identities.
 5. Add the new release identity to `PARALLEL_RELEASE_CONTRACTS` in
    `tools/qualification/application_sdk_admission.py`.
-6. Update the documentation and regenerate `skill/MANIFEST.sha256`.
+6. Update the documentation and add a changelog fragment. The manifest is
+   regenerated when the release is prepared, as described below.
 
 The maintainer suite fails until steps 1–5 are complete. A stable claim still
 needs a native campaign on exact images. With three reviewed releases, select
@@ -141,6 +142,35 @@ Keep dedicated leases out of `~/.local/state/pi-agent-test-env/` (for example in
 switches the default lease and session store to new, empty locations.
 Record the dated outcome, its cell counts, limits and lease choice in
 `skill/QUALIFICATION.md`.
+
+## Changelog fragments and version bumps
+
+A change that belongs in the changelog adds one fragment, `changes/<short-name>.md`
+(see [changes/README.md](changes/README.md)). Its first line is `kind:` followed by
+`added`, `changed`, `fixed`, `removed`, `security` or `upgrade-note`; the rest of the
+file is the text as it should read. Pull requests do not edit `skill/CHANGELOG.md`
+and do not touch `skill/MANIFEST.sha256`, so parallel changes never conflict there.
+Check fragments with `python3 tools/assemble_changelog.py --check`; it writes nothing.
+
+Release preparation runs these commands in order from the repository root, after
+the release's code is final:
+
+```bash
+python3 tools/bump_version.py X.Y.Z
+python3 tools/assemble_changelog.py --version X.Y.Z
+python3 skill/scripts/export_skill.py --manifest-only
+python3 tools/bump_version.py --check
+python3 tools/check_package.py --source skill
+```
+
+`bump_version.py` takes the version from `skill/skill.json` as the reference. It
+refuses when the listed places disagree, and it rewrites only the live places it
+lists. Dated campaign results and records of earlier releases keep the version they
+were recorded under. `assemble_changelog.py` inserts the new top entry above the
+existing entries, groups the fragments by kind, puts `upgrade-note` text under
+"Upgrading from <previous version>" and deletes the fragments. `--manifest-only`
+writes `skill/MANIFEST.sha256` and nothing else. Run it after the changelog is
+assembled, because the manifest covers `skill/CHANGELOG.md`.
 
 ## Prepare distributables
 
