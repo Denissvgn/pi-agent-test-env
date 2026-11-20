@@ -350,12 +350,13 @@ are limited evidence, not proof of all inputs, correctness or absence of flaws.
 Review the isolated-copy diff before applying changes to the original.
 
 Before promoting changes through a GitHub PR, or releasing this package, follow
-[PULL-REQUESTS.md](references/PULL-REQUESTS.md). Wait for the configured reviewers
-(including Copilot where enabled) on the exact final head; triage every finding,
-resolve supported dispositions, and run the read-only review gate immediately
-before an authorized exact-head merge. Mergeability or green tests alone cannot
-substitute for completed review; pending, stale or unresolved review blocks merging.
-Copilot quota/error notices marked COMMENTED do not establish that code was reviewed.
+[PULL-REQUESTS.md](references/PULL-REQUESTS.md). Obtain the review of record (an
+independent reviewer, never the author, accepts the change) on the exact final
+head; triage every finding, resolve supported dispositions, and run the read-only
+review gate immediately before an authorized exact-head merge. Mergeability or
+green tests alone cannot substitute for completed review; pending, stale or
+unresolved review blocks merging. An automatic Copilot review is read when one
+arrives; its absence or a quota/error notice does not block and is not a review.
 
 ## Controls and recovery
 

@@ -5,11 +5,17 @@ maintaining/releasing this package. It does not authorize a push, merge or relea
 follow the user's authorized scope. The helper runs on the parent host and needs
 an authenticated `gh` CLI; it is not a Pi child tool or model integration.
 
-Mergeability and green checks do not establish that asynchronous code review has
-finished. An empty pending-reviewer list can precede an automatic Copilot review.
-For this repository require Copilot to finish reviewing the exact final head;
-in another repository explicitly name the reviewers required by its policy.
-Do not substitute elapsed time or a previous-head review for that evidence.
+Mergeability and green checks do not establish that review has finished. In this
+repository one task has one branch and one pull request against `main`, and the
+pull request changes only what its task names. In another repository apply the
+review policy that repository sets.
+
+The review of record is an independent reviewer's acceptance of the change
+against its acceptance criteria. The reviewer is never the author. Do not
+substitute elapsed time or a previous-head acceptance for that evidence. An
+automatic Copilot review is read when one arrives and its findings are handled
+like any other reviewer's; its absence, or a quota or error notice in its place,
+does not block a merge and is not a review of record.
 
 Before merging:
 
@@ -20,31 +26,26 @@ Before merging:
    failure cases. For an invalid finding, document the concrete rationale and
    evidence; obtain reviewer agreement where required. Never blindly dismiss a
    review or bulk-resolve threads to produce a green count.
-3. After final pushes, wait for expected reviewers on the new head. Address new
+3. After final pushes, obtain the review of record on the new head. Address new
    findings and resolve only threads whose disposition is supported by code and
    validation. Publish changes and replies only within the user's authorization.
-4. Immediately before merging run the read-only gate against the exact verified
+4. Confirm every required check is green on the exact head. A pull request opened
+   before a required check existed is rebased onto `main` first.
+5. Immediately before merging run the read-only gate against the exact verified
    head. Review its JSON evidence; unknown/incomplete evidence blocks the merge.
 
 ```bash
 python3 "$SKILL_DIR/scripts/pr_review_gate.py" \
   --repo OWNER/REPOSITORY --pr PR_NUMBER --head VERIFIED_HEAD_SHA \
-  --expect-reviewer Copilot > /tmp/pr-review-gate.json
+  --require-check ci-ok > /tmp/pr-review-gate.json
 ```
 
-`--expect-reviewer` is repeatable for additional required reviewers. Its default
-is Copilot because this repository configures automatic Copilot review. The gate
-requires an open non-draft PR, clean server merge state, no pending reviews,
-completed expected exact-head reviews, no undismissed requests for changes, zero
-unresolved threads and successful/completed commit checks/statuses. Copilot's
-COMMENTED review counts as completed after findings are triaged and threads
-resolved; a COMMENTED review does not clear an earlier request for changes.
-Copilot can also submit COMMENTED quota/error notices without reviewing code.
-These do not satisfy the review requirement. The gate requires the recognized
-Copilot completion overview (currently ccr-overview-v2 with a recommended outcome
-and finding count); empty or unknown overviews fail closed. Read the submission
-body even when the metadata gate passes. A quota refusal requires an actual later
-exact-head review when service access is available, never a reviewer-policy bypass.
+In this repository the merge needs the gate to pass with `--require-check ci-ok`
+and the review of record. The gate requires an open non-draft PR, clean server
+merge state, no pending reviews, no undismissed requests for changes, zero
+unresolved threads and successful/completed commit checks/statuses. A COMMENTED
+review does not clear an earlier request for changes. Read every submission body
+even when the metadata gate passes: a quota or error notice is not a code review.
 Outdated does not mean resolved. Review/check pages are fully read and the PR's
 head and update state are rechecked after collection. Review, thread, check-run
 and combined-status sources are independently re-read and compared; CI changes
@@ -54,23 +55,42 @@ and aggregate state are retained; no configured commit statuses is distinct from
 a pending configured status. See [GitHub status semantics](https://docs.github.com/en/rest/commits/statuses#get-the-combined-status-for-a-specific-reference).
 
 Exit 0 is a narrow readiness observation, not correctness proof or permission to
-merge. Exit 2 blocks promotion. API/authentication errors, missing expected
-reviews, stale heads, in-progress checks and incomplete pagination fail closed.
-Wait in bounded intervals while communicating progress. A timeout remains a
-blocker. If Copilot does not re-review a push automatically, request review again
-using the supported GitHub flow and wait. Do not merge while it is running.
+merge. Exit 2 blocks promotion. API/authentication errors, stale heads,
+in-progress checks and incomplete pagination fail closed. Wait in bounded
+intervals while communicating progress. A timeout remains a blocker.
 
-After the gate passes, within authorization, merge with an exact-head guard such
-as `gh pr merge --match-head-commit VERIFIED_HEAD_SHA` and the repository's allowed
-method. Do not use an admin bypass. If the head changes, repeat validation and
-review; do not reuse the old receipt. The gate is a point-in-time observation,
-not an atomic GitHub merge lock. Required server-side branch protections remain
-authoritative at merge time; do not weaken or bypass them.
+After the gate passes, within authorization, merge with a merge commit pinned to
+the verified head and keep the branch:
+
+```bash
+gh pr merge PR_NUMBER --merge --match-head-commit VERIFIED_HEAD_SHA
+```
+
+Do not use an admin bypass. If the head changes, repeat the checks, the review of
+record and the gate; do not reuse the old receipt. The gate is a point-in-time
+observation, not an atomic GitHub merge lock. Required server-side branch
+protections remain authoritative at merge time; do not weaken or bypass them.
+Changing repository settings, such as required checks or branch protection,
+needs a person.
+
+A pull request adds one changelog fragment under `changes/` and never edits
+`CHANGELOG.md`; the package manifest is regenerated only when a release is
+prepared. Its worktree package check is therefore structural
+(`tools/check_package.py --source skill --no-manifest`, which requires the
+matching tooling); the published and release-preparation integrity checks
+remain strict. New commands are added as modules, not by editing the parser. A native
+qualification campaign binds `skill/scripts`, `skill/runtime`, `skill/assets`,
+`skill/docker`, `skill/examples` and `tools/qualification` into its source
+identity; after the code freeze, until the campaign is finished, only
+documentation outside those paths merges. A campaign that has begun or failed is
+never resumed or repaired. Public text names no workstation, private project,
+internal identifier or personal path.
 
 For releases, build/verify distributables from the final reviewed tree, confirm
 the merged tree matches it, tag the immutable merge commit and verify uploaded
-hashes before publication. Review acceptance and runtime qualification remain
-separate: resolving comments cannot create a live-model/application measurement.
+hashes before publication. Publishing a release, including its tag, needs a
+person. Review acceptance and runtime qualification remain separate: resolving
+comments cannot create a live-model/application measurement.
 Published tags/assets are not rewritten to hide a defect. Correct an already
 merged/published defect in a follow-up PR and new patch version, linking the
 tested fix when resolving original threads after it lands.
