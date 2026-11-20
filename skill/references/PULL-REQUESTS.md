@@ -32,8 +32,13 @@ python3 "$SKILL_DIR/scripts/pr_review_gate.py" \
   --expect-reviewer Copilot > /tmp/pr-review-gate.json
 ```
 
-`--expect-reviewer` is repeatable for additional required reviewers. Its default
-is Copilot because this repository configures automatic Copilot review. The gate
+`--expect-reviewer` is repeatable for additional required reviewers and has no
+default. This repository's own promotions pass `--expect-reviewer Copilot` because
+it configures automatic Copilot review. Use `--require-check NAME` (repeatable) to
+require a check run on the exact head to be present and successful; an absent or
+pending check blocks. Without `--expect-reviewer`, `--independent-review TEXT` is
+mandatory and names who accepted the change and where; the JSON output records it
+as `review_of_record`, and the command exits 2 with a usage message otherwise. The gate
 requires an open non-draft PR, clean server merge state, no pending reviews,
 completed expected exact-head reviews, no undismissed requests for changes, zero
 unresolved threads and successful/completed commit checks/statuses. Copilot's

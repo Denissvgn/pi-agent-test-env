@@ -239,9 +239,68 @@ class ReviewGateTests(unittest.TestCase):
     def test_cli_api_failure_is_sanitized_and_blocks(self):
         output = io.StringIO()
         with mock.patch.object(gate, 'collect', side_effect=ValueError('private diagnostic')), contextlib.redirect_stdout(output):
-            code = gate.main(['--repo', 'owner/repository', '--pr', '3', '--head', HEAD])
+            code = gate.main(['--repo', 'owner/repository', '--pr', '3', '--head', HEAD, '--expect-reviewer', 'Copilot'])
         self.assertEqual(code, 2); self.assertNotIn('private diagnostic', output.getvalue())
         self.assertEqual(json.loads(output.getvalue())['status'], 'BLOCKED')
+
+    def required_check_state(self, check):
+        state = snapshot(); state['reviews'] = []
+        state['checks'] = [dict({'name': 'ci-ok', 'head_sha': HEAD, 'status': 'completed', 'conclusion': 'success'}, **check)] if check is not None else []
+        return state
+
+    def test_required_check_success_passes_without_copilot_and_names_review_of_record(self):
+        state = self.required_check_state({})
+        result = gate.evaluate(state, 'owner/repository', 3, HEAD, [], ['ci-ok'], 'accepted by reviewer in PR thread')
+        self.assertEqual(result['status'], 'PASS')
+        self.assertEqual(result['required_checks'], ['ci-ok'])
+        self.assertEqual(result['review_of_record'], 'accepted by reviewer in PR thread')
+        self.assertEqual(result['expected_reviewers'], [])
+
+    def test_absent_required_check_blocks(self):
+        result = gate.evaluate(self.required_check_state(None), 'owner/repository', 3, HEAD, [], ['ci-ok'], 'review')
+        self.assertEqual(result['status'], 'BLOCKED')
+        self.assertIn('Required check absent on exact head: ci-ok', result['blockers'])
+
+    def test_pending_or_unsuccessful_required_check_blocks(self):
+        for check in ({'status': 'in_progress', 'conclusion': None}, {'conclusion': 'failure'},
+                      {'head_sha': OLD}):
+            with self.subTest(check=check):
+                state = self.required_check_state(check)
+                result = gate.evaluate(state, 'owner/repository', 3, HEAD, [], ['ci-ok'], 'review')
+                if check.get('head_sha') == OLD:
+                    self.assertIn('Required check absent on exact head: ci-ok', result['blockers'])
+                else:
+                    self.assertIn('Required check not successful on exact head: ci-ok', result['blockers'])
+                self.assertEqual(result['status'], 'BLOCKED')
+
+    def test_command_without_expect_reviewer_requires_independent_review(self):
+        output = io.StringIO()
+        with mock.patch.object(gate, 'collect') as collect, contextlib.redirect_stderr(io.StringIO()), \
+             contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as raised:
+            gate.main(['--repo', 'owner/repository', '--pr', '3', '--head', HEAD, '--require-check', 'ci-ok'])
+        self.assertEqual(raised.exception.code, 2)
+        collect.assert_not_called()
+
+    def test_command_reports_review_of_record_and_required_checks(self):
+        output = io.StringIO()
+        with mock.patch.object(gate, 'collect', return_value=self.required_check_state({})), \
+             contextlib.redirect_stdout(output):
+            code = gate.main(['--repo', 'owner/repository', '--pr', '3', '--head', HEAD,
+                              '--require-check', 'ci-ok', '--independent-review', 'accepted by reviewer in PR thread'])
+        result = json.loads(output.getvalue())
+        self.assertEqual(code, 0)
+        self.assertEqual(result['status'], 'PASS')
+        self.assertEqual(result['review_of_record'], 'accepted by reviewer in PR thread')
+        self.assertEqual(result['required_checks'], ['ci-ok'])
+
+    def test_expect_reviewer_keeps_copilot_requirement_without_default_review_of_record(self):
+        output = io.StringIO()
+        with mock.patch.object(gate, 'collect', return_value=snapshot()), contextlib.redirect_stdout(output):
+            code = gate.main(['--repo', 'owner/repository', '--pr', '3', '--head', HEAD, '--expect-reviewer', 'Copilot'])
+        result = json.loads(output.getvalue())
+        self.assertEqual(code, 0)
+        self.assertEqual(result['expected_reviewers'], ['Copilot'])
+        self.assertIsNone(result['review_of_record'])
 
 
 if __name__ == '__main__': unittest.main()
