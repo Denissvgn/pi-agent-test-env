@@ -5,7 +5,11 @@ returned here names what failed and the next action the user or agent can take.
 """
 from __future__ import annotations
 from pathlib import Path
+import re
 import sys
+
+from application_credentials import CredentialError, Redactor
+from secret_store import diagnostic_values
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'runtime'))
 import release_contracts  # noqa: E402
@@ -40,6 +44,30 @@ REMEDIES = {
     'environment-broken': 'The saved environment fails its live check. Tell the user the reason and ask whether to fix the variable or set up a new environment.',
     'image-missing': 'Reuse or build the image: `python3 "$SKILL_DIR/scripts/pi_lab.py" ensure-image --image {image} --policy auto ...` (see SKILL.md section 3).',
 }
+
+
+class LabError(RuntimeError):
+    """A blocker. `reason` is a stable machine-readable code; `remedy` is the next action."""
+    def __init__(self, message: str, reason: str = '', remedy: str = ''):
+        super().__init__(message)
+        self.reason = reason
+        self.remedy = remedy
+
+
+def failure_fields(exc, admission):
+    if admission is not None:
+        return admission['reason'], admission.get('remedy', '')
+    if isinstance(exc, LabError):
+        return exc.reason or type(exc).__name__, exc.remedy
+    if type(exc) is CredentialError:
+        return CredentialError.reason, ''
+    return type(exc).__name__, ''
+
+
+def failure_text(text):
+    routes = re.findall(r"""https?://[^\s<>"']+""", text, flags=re.IGNORECASE)
+    redactor = Redactor([*diagnostic_values(), *routes])
+    return redactor.bytes(text.encode(errors='backslashreplace')).decode()
 
 
 def remedy(reason: str, **fields) -> str:
