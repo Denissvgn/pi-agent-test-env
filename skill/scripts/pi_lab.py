@@ -2150,8 +2150,40 @@ def default_lock_file() -> str:
     return explicit
 
 
+class _VersionAction(argparse.Action):
+    """Print the version recorded in skill.json and exit; skill.json is read only when asked."""
+    def __init__(self, option_strings, dest, **kwargs):
+        super().__init__(option_strings, dest, nargs=0, default=argparse.SUPPRESS,
+                         help="Print the tool's version and exit")
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        manifest = Path(__file__).resolve().parent.parent / 'skill.json'
+        print(f"pi-agent-test-env {json.loads(manifest.read_text(encoding='utf-8'))['version']}")
+        parser.exit()
+
+
+def register_command_modules(sub):
+    """Let every module named in command_modules.COMMAND_MODULES add its subcommands.
+
+    A module that cannot be imported, or that lacks register, stops the program
+    with its name: a command is never dropped silently.
+    """
+    import importlib
+    import command_modules
+    for name in command_modules.COMMAND_MODULES:
+        try:
+            module = importlib.import_module(name)
+        except Exception as error:
+            raise SystemExit(f'command module {name!r} cannot be imported: {type(error).__name__}: {error}')
+        register = getattr(module, 'register', None)
+        if not callable(register):
+            raise SystemExit(f'command module {name!r} has no register(subparsers) function')
+        register(sub)
+
+
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--version', action=_VersionAction)
     sub = p.add_subparsers(dest='op', required=True)
     import registry_maintenance
     registry_maintenance.add_arguments(sub, default_lock_file())
@@ -2322,6 +2354,7 @@ def parser():
             q.add_argument('--allow-setup-network', action='store_true')
             q.add_argument('--allow-check-network', action='store_true')
             q.add_argument('--score-after-cancel', action='store_true', help='Explicitly authorize independent scoring after cancellation before any scorer starts')
+    register_command_modules(sub)
     return p
 
 
@@ -2329,6 +2362,8 @@ def main(argv=None):
     args = parser().parse_args(argv)
     args._explicit_options={value.split('=',1)[0] for value in (sys.argv[1:] if argv is None else argv) if value.startswith('--')}
     import resources;resources.describe_holder(op=args.op)
+    handler = getattr(args, 'handler', None)
+    if handler is not None:return handler(args)
     if args.op in ('run','smoke','preflight'):egress.validate_request(sys.modules[__name__],args)
     if args.op in ('registry-inspect', 'registry-recover'):
         import registry_maintenance

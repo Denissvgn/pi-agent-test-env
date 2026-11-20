@@ -6,6 +6,20 @@ copyable plans and profiles belong in `assets/`; runnable examples belong in
 `examples/`. Keep maintainer tests, stored test output, publishing tools and
 planning history outside the skill.
 
+A new `pi_lab.py` command is added as a module with a `register(subparsers)`
+function, not by editing `parser()` and `main()` in `skill/scripts/pi_lab.py`.
+Put the module in `skill/scripts/`, add its name on its own line to
+`COMMAND_MODULES` in `skill/scripts/command_modules.py` (alphabetical order) and
+have `register` add the subparser or subparsers and call
+`set_defaults(handler=function)` on each; `function(args)` returns the exit code.
+`pi_lab.py` registers the modules after its built-in commands and calls the
+handler when one is set. A listed module that cannot be imported stops the
+program at start with its name. Do not add the module to `TRUSTED_CODE` in
+`skill/runtime/application_client_service.py`: that set names the files copied
+into the application helper. When two changes each add a line to
+`COMMAND_MODULES` and conflict, keep both lines. Built-in commands stay where
+they are.
+
 Runtime changes must retain Python 3.12+ and the standard-library-only host
 policy. Standards validation is development tooling and requires Python 3.11+;
 its pinned source and wheels are bundled in `tools/validation/` for offline use.
