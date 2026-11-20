@@ -173,6 +173,10 @@ def evaluate(snapshot, repo, number, head, expected_reviewers, required_checks=(
             blockers.append('Requested reviews are still pending: ' + field)
     if snapshot.get('review_decision') not in (None, 'APPROVED'):
         blockers.append('Repository review requirements are unsatisfied')
+    # Fail closed: a PASS must name accountable review evidence, either an expected
+    # reviewer or a nonblank review of record. Neither entry point may omit both.
+    if not expected_reviewers and not (isinstance(review_of_record, str) and review_of_record.strip()):
+        blockers.append('No accountable review evidence: name an expected reviewer or a review of record')
 
     reviews = snapshot['reviews']
     for row in reviews:
@@ -280,6 +284,8 @@ def command(args):
     except (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError, subprocess.TimeoutExpired) as exc:
         result = {'schema': 1, 'document_type': 'pr_review_gate', 'status': 'BLOCKED',
                   'repo': args.repo, 'pr': args.pr, 'head': args.head,
+                  'expected_reviewers': expected, 'required_checks': required_checks,
+                  'review_of_record': review_of_record,
                   'blockers': ['Review evidence unavailable or incomplete'], 'error_type': type(exc).__name__}
     print(json.dumps(result, indent=2))
     return 0 if result['status'] == 'PASS' else 2

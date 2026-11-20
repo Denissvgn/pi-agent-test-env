@@ -302,5 +302,43 @@ class ReviewGateTests(unittest.TestCase):
         self.assertEqual(result['expected_reviewers'], ['Copilot'])
         self.assertIsNone(result['review_of_record'])
 
+    def test_evaluate_without_expected_reviewer_or_review_of_record_fails_closed(self):
+        # Even a fully green exact-head state must not PASS without accountable review evidence.
+        for review_of_record in (None, '', '   ', '\t\n'):
+            with self.subTest(review_of_record=review_of_record):
+                state = self.required_check_state({})
+                result = gate.evaluate(state, 'owner/repository', 3, HEAD, [], ['ci-ok'], review_of_record)
+                self.assertEqual(result['status'], 'BLOCKED')
+                self.assertIn('No accountable review evidence: name an expected reviewer or a review of record',
+                              result['blockers'])
+
+    def test_evaluate_with_only_copilot_review_and_no_review_of_record_still_requires_named_evidence(self):
+        result = gate.evaluate(snapshot(), 'owner/repository', 3, HEAD, [])
+        self.assertEqual(result['status'], 'BLOCKED')
+        self.assertIn('No accountable review evidence: name an expected reviewer or a review of record',
+                      result['blockers'])
+
+    def test_evaluate_with_review_of_record_or_expected_reviewer_keeps_passing(self):
+        state = self.required_check_state({})
+        self.assertEqual(gate.evaluate(state, 'owner/repository', 3, HEAD, [], ['ci-ok'], 'accepted in thread')['status'],
+                         'PASS')
+        self.assertEqual(gate.evaluate(snapshot(), 'owner/repository', 3, HEAD, ['Copilot'])['status'], 'PASS')
+
+    def test_collection_unavailable_result_reports_policy_inputs_without_diagnostics(self):
+        output = io.StringIO()
+        with mock.patch.object(gate, 'collect', side_effect=ValueError('private diagnostic')), \
+             contextlib.redirect_stdout(output):
+            code = gate.main(['--repo', 'owner/repository', '--pr', '3', '--head', HEAD,
+                              '--expect-reviewer', 'Copilot', '--require-check', 'ci-ok',
+                              '--independent-review', 'accepted in thread'])
+        text = output.getvalue()
+        result = json.loads(text)
+        self.assertEqual(code, 2)
+        self.assertEqual(result['status'], 'BLOCKED')
+        self.assertEqual(result['expected_reviewers'], ['Copilot'])
+        self.assertEqual(result['required_checks'], ['ci-ok'])
+        self.assertEqual(result['review_of_record'], 'accepted in thread')
+        self.assertNotIn('private diagnostic', text)
+
 
 if __name__ == '__main__': unittest.main()
