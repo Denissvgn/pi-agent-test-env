@@ -1,0 +1,22 @@
+name: Pi release support
+description: Report a new upstream Pi release for compatibility review
+title: ""
+labels: []
+assignees: []
+body:
+  - type: input
+    id: upstream-version
+    attributes:
+      label: Upstream Pi version
+      description: The exact upstream release version.
+      placeholder: 1.6.0
+    validations:
+      required: true
+  - type: input
+    id: upstream-link
+    attributes:
+      label: Upstream release link
+      description: Link to the upstream release announcement or tag.
+      placeholder: https://github.com/badlogic/pi-mono/releases
+    validations:
+      required: true
