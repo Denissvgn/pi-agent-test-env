@@ -14,12 +14,16 @@ exact reviewed ARM64 image receipt. It performs no Docker/model calls or secret
 reads. The role example uses `external.plan.json`, whose bindings belong solely to
 the variants. Every source/score and stage budget is frozen before dispatch.
 
+```bash
+python3 "$SKILL_DIR/examples/indexed-inference/configure.py" --image-receipt "$IMAGE_RECEIPT" --output-dir /path/to/new-definitions --a builder-local --b reviewer-local
+```
+
 The included worker policy selects 1 CPU, 1536 MiB, 512 PIDs and one thread hint;
 the broker adds 0.25 CPU, 128 MiB and 64 PIDs. Parallel definitions explicitly
 permit two workers and one inference request. Deployment capacity remains unknown
 unless separately declared. Native qualification is still required.
 
-The recorded native ARM64 campaign passed on Pi 0.87.1 and 1.2.0 using two
-credential references against the same retained backend/model; see
-[QUALIFICATION.md](../../QUALIFICATION.md). Qualify your own selected scope before
-execution. This evidence does not establish distinct-backend/model/API support.
+See [QUALIFICATION.md](../../QUALIFICATION.md) for recorded campaigns and their
+qualified scopes. Qualify your own selected scope before execution. The recorded
+same-backend, two-credential evidence does not establish distinct-backend/model/API
+support.

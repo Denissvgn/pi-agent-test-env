@@ -29,8 +29,10 @@ demonstration; retries are allowed only explicitly, at most two attempts per cel
 
 ## From a clean checkout
 
-Prerequisites: Python 3.10+, local Docker on native ARM64, trusted Pi 0.87.1, 1.2.0 or 1.5.2 core
-image, and a confirmed reachable OpenAI-compatible model with the stored key.
+Prerequisites: Python 3.10+, local Docker on native ARM64, a trusted core image
+for an exact reviewed Pi release (see
+[PI-COMPATIBILITY.md](../../references/PI-COMPATIBILITY.md)), and a confirmed
+reachable OpenAI-compatible model with the stored key.
 Use the skill's environment gate once per conversation; keep `SESSION` and do not
 put keys in chat, definitions or commands. Set `SKILL_DIR` to the absolute `skill/`
 (or installed skill) directory. Qualify image/tool smoke as in SKILL.md first.
@@ -96,7 +98,9 @@ unknown. Tiny samples do not establish significance or deterministic replay.
 `tests/test_application_example.py` runs the real oracle locally against
 known correct, unimplemented and casefold-bug implementations and freezes a
 synthetic endpoint/image matrix. Those checks establish reset/schema/oracle
-behavior, **not model performance**. Real Docker/Pi observations from 7 October
-2026 remain limited to their exact recorded configuration. Normal baseline/candidate both passed two repetitions; the
-four declared cutoff cases were scored failures. That finite observation does not
-establish improvement or qualify a different image/server/configuration.
+behavior, **not model performance**. Historical real Docker/Pi observations from
+7 October 2026 remain limited to their exact recorded configuration. Normal
+baseline/candidate both passed two repetitions; the four declared cutoff cases
+were scored failures. That finite observation does not establish improvement or
+qualify a different image/server/configuration. See
+[QUALIFICATION.md](../../QUALIFICATION.md) for the current qualification scope.
