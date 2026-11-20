@@ -21,6 +21,7 @@ import inference_broker
 import ownership_registry
 from parallel_allocator import Allocator
 import parallel_contract
+from pi_lab import load_plan
 import resources
 import stage_control as controls
 from test_indexed_experiments import IndexedSetup
@@ -196,7 +197,7 @@ class IndexedNativeTests(unittest.TestCase):
                        'activate':lambda values:events.append('activate'),'admit':lambda:None}
             try:yield inference,lambda intent:'owned-network',lambda name:events.append('network-cleanup')
             finally:events.append(('broker-finally',getattr(pool,'dependent_cleanup_confirmed',True)))
-        lab=mock.Mock();lab.ROOT=ROOT/'skill';lab.validate_plan.return_value=plan
+        lab=mock.Mock(load_plan=load_plan);lab.ROOT=ROOT/'skill';lab.validate_plan.return_value=plan
         with mock.patch.object(indexed,'Catalog'),mock.patch.object(indexed,'resolve',return_value=({'entry':binding},{'entry':'synthetic-original'},{})),\
              mock.patch.object(indexed,'capacity',return_value=(value,{'cpu_millis':1000,'memory_mib':1024,'pids_limit':256})),\
              mock.patch.object(indexed.inference_broker,'owner',broker):
