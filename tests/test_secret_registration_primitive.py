@@ -5,10 +5,12 @@ import os
 from pathlib import Path
 import stat
 import tempfile
+import sys
 from unittest import TestCase, mock
 
-from tools.qualification import secret_registration_contract as model
-from tools.qualification import secret_registration_primitive as primitive
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'skill/scripts'))
+from operation_sdk import secret_registration_contract as model
+from operation_sdk import secret_registration_primitive as primitive
 
 
 FAKE = 'fixture-only-value-0123456789abcdef'

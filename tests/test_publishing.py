@@ -90,7 +90,7 @@ class PublishingTests(unittest.TestCase):
             build_release.build(root/'first',repository,candidate=True)
             # A private checkout mode on a source fixture once changed the published
             # source archive; package and tool files drift the same way.
-            for name,mode in (('tests/fixtures/application-contracts/historical-browser-source-identities.json',0o600),
+            for name,mode in (('tests/fixtures/application-contracts/positive.json',0o600),
                               ('skill/references/PROJECTS.md',0o640),('tools/check_examples.py',0o664)):
                 (repository/name).chmod(mode)
             build_release.build(root/'second',repository,candidate=True)

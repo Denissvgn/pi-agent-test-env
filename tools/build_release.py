@@ -19,7 +19,6 @@ SOURCE_ROOT_FILES = ('README.md','CONTRIBUTING.md','LICENSE','.gitignore','.gita
 APPLICATION_TEST_FIXTURES = (
     'README.md', 'positive.json', 'completion.json', 'native-tools.json', 'legacy-baseline.json',
     'historical-experiment.json', 'historical-matrix.json', 'historical-result.json',
-    'historical-browser-source-identities.json',
 )
 
 
