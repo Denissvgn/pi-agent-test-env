@@ -9,6 +9,15 @@ not a native ARM64 Linux binary. Prefer native packages or a reviewed compatible
 browser image. Do not mask an architecture mismatch with an invented loader path
 or an automatic `--platform linux/amd64` fallback.
 
+The bundled images start from Debian 13 (trixie), which still receives security
+fixes for Chromium; Debian 12's long-term support does not cover it. The base is
+the digest-pinned official Node.js 24 image in `docker/pins.json`, so two builds
+start from the same bytes, but the Debian packages are not pinned: the receipt
+records a hash of the installed package list instead. Chromium, its sandbox and
+the reviewed `chromium-userns` policy can behave differently on a new base, so
+repeat `browser-check` with that policy on every new browser image. Earlier
+qualifications describe the earlier images only.
+
 Reused image checks locate a runnable `chromium`/`chromium-browser` and record its
 version. The workflow then runs a real headless DOM/JavaScript smoke before agents.
 This proves browser execution, not application correctness or GPU performance.
@@ -155,5 +164,5 @@ Sources:
 - https://pptr.dev/troubleshooting
 - https://pptr.dev/guides/configuration
 - https://pptr.dev/api/puppeteer.launchoptions
-- https://packages.debian.org/bookworm/chromium
+- https://packages.debian.org/trixie/chromium
 - https://chromium.googlesource.com/chromium/src/+/main/docs/gpu/swiftshader.md

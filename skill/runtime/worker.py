@@ -224,6 +224,77 @@ def select_cwd(task):
     return str(target)
 
 
+def installed_versions(global_root, package):
+    """Every version of an npm package installed under the global node_modules tree.
+
+    Walks nested node_modules directories without following links, so a copy that
+    Pi resolves from a nested directory is seen as well as a hoisted one.
+    """
+    found, pending = set(), [(Path(global_root).parent, 0)]
+    while pending:
+        folder, depth = pending.pop()
+        modules = folder / 'node_modules'
+        manifest = modules / package / 'package.json'
+        if manifest.is_file() and not manifest.is_symlink():
+            try:
+                data = json.loads(manifest.read_text())
+            except (OSError, ValueError):
+                data = {}
+            if data.get('name') == package and isinstance(data.get('version'), str):
+                found.add(data['version'])
+        if depth >= 6 or not modules.is_dir() or modules.is_symlink():
+            continue
+        try:
+            children = sorted(modules.iterdir())
+        except OSError:
+            continue
+        for child in children:
+            if child.name.startswith('.'):
+                continue
+            members = sorted(child.iterdir()) if child.name.startswith('@') and child.is_dir() else [child]
+            pending.extend((member, depth + 1) for member in members if member.is_dir() and not member.is_symlink())
+    return sorted(found)
+
+
+def validator_versions():
+    """Installed versions of the packages that build and validate Pi's tool schemas."""
+    # The global node_modules that holds Pi: the nearest ancestor of the resolved pi script.
+    launcher = Path(os.path.realpath(shutil.which('pi')))
+    root = next((str(parent) for parent in launcher.parents if parent.name == 'node_modules'), None)
+    if root is None:
+        root = execute(['npm', 'root', '-g'])
+    return {field: installed_versions(root, package)
+            for field, package in release_contracts.VALIDATOR_PACKAGES.items()}
+
+
+def package_list_sha256():
+    """SHA-256 of the sorted Debian package list, or None where the image has no dpkg.
+
+    The list is dpkg's own database (`dpkg-query -W`), one `package<TAB>version<TAB>arch`
+    line per installed package. `-W` also lists removed packages that keep their
+    configuration files, so only status `ii` (second character `i`) is kept.
+    """
+    if not shutil.which('dpkg-query'):
+        return None
+    listing = execute(['dpkg-query', '-W', '-f', '${db:Status-Abbrev}\t${Package}\t${Version}\t${Architecture}\n'],
+                      timeout=60)
+    installed = (line.split('\t', 1) for line in listing.splitlines() if line.strip())
+    lines = sorted(rest for status, rest in installed if status[1:2] == 'i')
+    return hashlib.sha256('\n'.join(lines).encode()).hexdigest()
+
+
+def os_release():
+    values = {}
+    try:
+        for line in Path('/etc/os-release').read_text().splitlines():
+            key, _, value = line.partition('=')
+            if key in ('ID', 'VERSION_ID', 'VERSION_CODENAME'):
+                values[key.lower()] = value.strip('"')
+    except OSError:
+        pass
+    return values
+
+
 def probe(profile):
     result = {'platform': platform.system(), 'architecture': platform.machine(),
               'python': platform.python_version(), 'uid': os.getuid()}
@@ -244,6 +315,9 @@ def probe(profile):
         raise RuntimeError(f'Pi CLI incompatible: missing {missing}. Pin a compatible version and rebuild.')
     result['required_flags'] = required_flags
     result['release_contract'] = release_contracts.identity(release)
+    result['validators'] = validator_versions()
+    result['package_list_sha256'] = package_list_sha256()
+    result['os_release'] = os_release()
     if profile == 'browser':
         result['chromium_path'] = chromium_path()
         result['chromium'] = execute([result['chromium_path'], '--version'])

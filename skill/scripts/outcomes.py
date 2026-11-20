@@ -89,7 +89,7 @@ BLOCKED_CONFIGURATION=frozenset((
     # Class names recorded for uncoded errors whose raise sites validate caller input.
     'LabError','ScorerError','ProfileError','JSONDecodeError',
     'application-credentials','browser-policy-invalid','browser-sandbox-blocked','budget-override-invalid',
-    'image-missing','in-place-inspection-error','in-place-linked-entry','invalid-project','missing-secret',
+    'image-incompatible','image-missing','in-place-inspection-error','in-place-linked-entry','invalid-project','missing-secret',
     'model-not-found','resource-policy-invalid','secret-store-insecure','unsupported-agent-profile',
     'unsupported-event-contract','unsupported-pi-release','unsupported-pi-settings',
     'environment-broken','environment-invalid-input','environment-missing','environment-needs-confirmation',

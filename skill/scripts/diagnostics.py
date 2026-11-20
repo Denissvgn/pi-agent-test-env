@@ -16,6 +16,7 @@ SANDBOX_HINT = ('If this command runs inside an AI agent\'s command sandbox, the
 
 REMEDIES = {
     'unsupported-pi-release': f'Select an explicitly reviewed Pi {release_contracts.describe()} native image. Verify the observed version and contract; do not bypass admission or fall back to another release.',
+    'image-incompatible': 'The image installs a validator package (TypeBox or pi-schema) at a version the selected Pi release does not review, or its probe did not report them. Rebuild with `ensure-image --policy build` from the bundled Dockerfile, or select an image built for this exact Pi release; do not bypass admission.',
     'browser-sandbox-blocked': 'Review BROWSER.md and the explicit chromium-userns policy. Qualify it with browser-check on the selected native image, then freeze a new admitted run. Do not disable Chromium sandboxing, add capabilities or silently change a frozen campaign.',
     'docker-cli-missing': 'Install Docker Desktop (macOS/Windows) or Docker Engine (Linux) on the host, then re-run `doctor`.',
     'docker-permission-denied': SANDBOX_HINT + ' Outside a sandbox: make sure Docker Desktop is running as this user; '

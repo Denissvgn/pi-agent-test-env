@@ -48,7 +48,7 @@ Per-container limits do not cap unrelated processes or the model server.
 - Puppeteer troubleshooting: https://pptr.dev/troubleshooting
 - Puppeteer configuration: https://pptr.dev/guides/configuration
 - Browser launch options: https://pptr.dev/api/puppeteer.launchoptions
-- Native Debian Chromium: https://packages.debian.org/bookworm/chromium
+- Native Debian Chromium: https://packages.debian.org/trixie/chromium
 - Chromium SwiftShader: https://chromium.googlesource.com/chromium/src/+/main/docs/gpu/swiftshader.md
 
 These support using the correct Linux executable/architecture, explicit browser
