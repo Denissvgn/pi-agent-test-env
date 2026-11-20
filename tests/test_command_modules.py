@@ -1,15 +1,18 @@
 """Command-module seam and --version; local subprocesses only, no Docker, model or network."""
 import contextlib
+import importlib
 import io
 import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
 SKILL = Path(__file__).resolve().parents[1] / 'skill'
-FIXTURES = Path(__file__).resolve().parent / 'fixtures' / 'command_modules'
+TESTS = Path(__file__).resolve().parent
+SAMPLE = 'test_command_module_example'
 sys.path.insert(0, str(SKILL / 'scripts'))
 import command_modules
 import pi_lab as lab
@@ -40,10 +43,20 @@ class VersionTests(unittest.TestCase):
 
 class CommandModuleTests(unittest.TestCase):
     def setUp(self):
-        for patch in (mock.patch.object(sys, 'path', [str(FIXTURES), *sys.path]),
+        # The sample is a real test_*.py file, so it travels with the source inventory.
+        # The two deliberately broken modules are written to a temporary directory so
+        # that unittest discovery can never import them as top-level test modules.
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        broken = Path(temporary.name)
+        (broken / 'broken_command.py').write_text(
+            "raise RuntimeError('synthetic import failure')\n", encoding='utf-8')
+        (broken / 'no_register_command.py').write_text('', encoding='utf-8')
+        for patch in (mock.patch.object(sys, 'path', [str(TESTS), str(broken), *sys.path]),
                       mock.patch.dict(sys.modules)):
             patch.start()
             self.addCleanup(patch.stop)
+        importlib.invalidate_caches()
 
     def register(self, *names):
         patch = mock.patch.object(command_modules, 'COMMAND_MODULES', names)
@@ -51,14 +64,14 @@ class CommandModuleTests(unittest.TestCase):
         self.addCleanup(patch.stop)
 
     def test_registered_command_is_listed_by_help(self):
-        self.register('sample_command')
+        self.register(SAMPLE)
         self.assertIn('sample-echo', lab.parser().format_help())
         code, out, _ = run_main(['--help'])
         self.assertEqual(code, 0)
         self.assertIn('sample-echo', out)
 
     def test_registered_command_parses_its_own_options(self):
-        self.register('sample_command')
+        self.register(SAMPLE)
         args = lab.parser().parse_args(['sample-echo', '--text', 'hello', '--code', '3'])
         self.assertEqual((args.op, args.text, args.code), ('sample-echo', 'hello', 3))
         self.assertTrue(callable(args.handler))
@@ -67,7 +80,7 @@ class CommandModuleTests(unittest.TestCase):
         self.assertIn('--code', err)
 
     def test_registered_command_returns_its_handler_exit_code(self):
-        self.register('sample_command')
+        self.register(SAMPLE)
         code, out, _ = run_main(['sample-echo', '--text', 'hello', '--code', '7'])
         self.assertEqual(code, 7)
         self.assertEqual(out, 'sample:hello\n')
@@ -81,13 +94,13 @@ class CommandModuleTests(unittest.TestCase):
         self.assertEqual(run_main(['sample-echo'])[0], 2)
 
     def test_built_in_commands_have_no_handler(self):
-        self.register('sample_command')
+        self.register(SAMPLE)
         self.assertFalse(hasattr(lab.parser().parse_args(['validate-agent-profile', '--agent-profile', 'x']), 'handler'))
 
     def test_module_that_cannot_be_imported_stops_the_program_with_its_name(self):
         for name in ('module_that_does_not_exist', 'broken_command'):
             with self.subTest(name=name):
-                self.register('sample_command', name)
+                self.register(SAMPLE, name)
                 with self.assertRaises(SystemExit) as caught:
                     lab.parser()
                 self.assertIn(name, str(caught.exception.code))

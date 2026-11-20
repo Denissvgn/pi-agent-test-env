@@ -1,4 +1,8 @@
-"""Sample command module for tests/test_command_modules.py; registered only inside that test."""
+"""Sample command module for tests/test_command_modules.py; registered only inside that test.
+
+It lives beside the tests, in the file set that source archives and staged copies
+already include. It defines no test cases, so unittest discovery imports it harmlessly.
+"""
 
 
 def register(subparsers):
