@@ -38,10 +38,18 @@ def docker(*argv, timeout=60):
 
 
 def stage(destination, repository=REPO):
-    for path in build_release.source_files(repository):
+    repository = repository.resolve()
+    files = build_release.source_files(repository)
+    manifest_path = repository/'skill/MANIFEST.sha256'
+    _, manifest = build_release.package_inputs(manifest_path.parent, files)
+    for path in files:
         target = destination/path.relative_to(repository)
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, target)
+        if path == manifest_path:
+            target.write_bytes(manifest)
+            shutil.copystat(path, target)
+        else:
+            shutil.copy2(path, target)
     return destination
 
 

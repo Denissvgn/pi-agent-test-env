@@ -306,6 +306,33 @@ class GitPublishingTests(unittest.TestCase):
         stage = docker_ci.stage(self.root/'staged', self.repo)
         self.assertEqual({p.relative_to(stage).as_posix() for p in stage.rglob('*') if p.is_file()}, expected)
 
+    def test_committed_doc_change_stages_exact_candidate_with_release_manifest_preserved(self):
+        source = self.repo/'skill'
+        manifest = source/'MANIFEST.sha256'
+        released = manifest.read_bytes()
+        with (source/'references/PROJECTS.md').open('ab') as doc:
+            doc.write(b'\nUpdated project documentation.\n')
+        self.commit('Update project documentation')
+        with self.assertRaisesRegex(ValueError, 'Manifest differs from package bytes'):
+            check_package.check(source)
+        with self.assertRaisesRegex(ValueError, 'Stale skill manifest'):
+            build_release.build(self.root/'release', self.repo)
+
+        output = self.root/'candidate'
+        result = build_release.build(output, self.repo, candidate=True)
+        self.assertIs(result['dirty'], False)
+        self.assertIs(result['publishable'], False)
+        stage = docker_ci.stage(self.root/'staged', self.repo)
+        with zipfile.ZipFile(next(output.glob('*-source-*.zip'))) as archive:
+            prefix = 'pi-agent-test-env-source/'
+            staged = {p.relative_to(stage).as_posix(): p for p in stage.rglob('*') if p.is_file()}
+            self.assertEqual(set(archive.namelist()), {prefix + name for name in staged})
+            for name, path in staged.items():
+                self.assertEqual(archive.read(prefix + name), path.read_bytes(), name)
+        check_package.check(stage/'skill')
+        self.assertEqual(manifest.read_bytes(), released)
+        self.assertEqual(self.git('status', '--porcelain'), b'')
+
     def test_candidate_keeps_status_and_builds_manifest_only_for_archives(self):
         source = self.repo/'skill'
         manifest = source/'MANIFEST.sha256'

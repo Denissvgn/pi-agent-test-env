@@ -104,11 +104,12 @@ class InstallerTests(unittest.TestCase):
 
 class ArchiveTests(unittest.TestCase):
     def test_all_archives_extract_exact_package_and_manifest(self):
-        import hashlib
-        import zipfile
-        source = (Path(__file__).resolve().parents[1] / 'skill')
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
+            source = root / 'skill'
+            shutil.copytree(Path(__file__).resolve().parents[1] / 'skill', source, symlinks=True)
+            # The standalone CLI seals the package before passing it to build_zip.
+            exporter.update_manifest(source)
             for filename, prefix in exporter.archive_specs(source).items():
                 archive = exporter.build_zip(source, root / filename, prefix, claude_command=filename.endswith('-claude.zip'))
                 with zipfile.ZipFile(archive) as zipped:
