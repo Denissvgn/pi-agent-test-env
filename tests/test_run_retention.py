@@ -1,49 +1,61 @@
 # Check file for run_retention.select. This header is the whole specification.
 #
-#     select(runs, keep=None, older_than_days=None, now=None) -> list of str
+#     select(runs, keep=None, older_than_days=None, now=None)
 #
-# Input
-#   runs            a list of dicts: id (str), started (seconds since the epoch,
-#                   int or float), sealed (bool) and protected (bool).
-#   keep            None, or an integer >= 0.
-#   older_than_days None, or a number >= 0 (it may be fractional); one day is
-#                   86400 seconds.
-#   now             None, or seconds since the epoch. None means the current
-#                   time. It only matters together with older_than_days.
+# Specification
+#   runs is a list of dicts with id (str), started (seconds since the epoch),
+#   sealed (bool) and protected (bool). select returns the ids of the runs to
+#   delete, oldest first.
+#   - An unsealed or protected run is never selected.
+#   - With keep, the keep newest sealed, unprotected runs are spared, ties
+#     broken by id.
+#   - With older_than_days, only runs started before now minus that many days
+#     are selected.
+#   - With both, a run is selected only when both rules select it.
+#   - With neither, nothing is selected.
+#   - A negative keep or a negative number of days raises ValueError.
+#   - select is a pure function of its arguments.
 #
-# Result
-#   The ids of the runs to delete, as a new list, oldest first. Order is by
-#   (started, id) ascending; ids compare as plain strings, so 'run-10' sorts
-#   before 'run-9'. The input list and its dicts are never modified.
+# How the checks read it
+#   - "Eligible" means sealed and not protected. Runs that are not eligible do
+#     not use up keep slots: keep ranks the eligible runs only.
+#   - keep=0 spares nothing (it is a rule, unlike keep=None); a keep at or above
+#     the number of eligible runs spares them all.
+#   - "Started before" is strict: a run that started exactly at now minus the
+#     days is not selected, and with 0 days a run that started exactly at now
+#     is not selected. A day is 86400 seconds.
+#   - With both rules the keep rule still ranks every eligible run, whatever its
+#     age, and the age rule then removes the runs that are not old enough.
+#   - now is the reference time for older_than_days. The checks always pass it
+#     explicitly when they use older_than_days, so a synthetic now fixes every
+#     boundary.
+#   - Oldest first is checked for runs whose started values differ.
+#   - A negative keep or a negative number of days raises ValueError from the
+#     call itself, whatever runs holds: an empty list and a list of runs that are
+#     all ineligible are refused like any other, and an invalid argument is never
+#     hidden in the returned value. The checks call select directly and do not
+#     iterate its result for these.
+#   - Pure means the call does not modify its arguments, checked when the call
+#     returns.
 #
-# Rules
-#   1. A run that is not sealed, or is protected, is never selected and never
-#      counts as a run to keep. Only sealed, unprotected runs are "eligible".
-#   2. keep=N: of the eligible runs, the N newest are spared. Newest means the
-#      greatest (started, id): when two runs have the same started, the one
-#      with the greater id is newer. The other eligible runs are selected.
-#      keep=0 spares nothing; keep larger than the number of eligible runs
-#      spares all of them. keep=0 is a rule, unlike keep=None.
-#   3. older_than_days=D: an eligible run is selected only when
-#      started < now - D * 86400. A run that started exactly at that moment is
-#      not selected. D=0 therefore selects runs that started before now.
-#   4. With both keep and older_than_days, a run is selected only when both
-#      rules select it. The keep rule ranks all eligible runs, whatever their
-#      age; it does not rank only the runs that are old enough.
-#   5. With neither keep nor older_than_days (both None), nothing is selected.
-#   6. A negative keep or a negative older_than_days raises ValueError. The
-#      arguments are validated even when runs is empty or no run is eligible.
+# Ties
+#   The brief says only "ties broken by id", so no order of ids is assumed. For
+#   runs with equal started values the checks require exactly the right number
+#   of runs to be spared, that the runs with different started values are
+#   handled correctly around them, and that the answer is the same whatever
+#   order the runs are given in.
 #
-# Boundaries covered below: empty input, equal timestamps, ties at the edge of
-# keep, keep=0, days=0, the exact cutoff, fractional days, the default now,
-# runs given out of order, and arguments that must stay unmodified.
+# Not specified, so not checked: the direction of the id tie-break, the order of
+# equal-started runs in the result, what now=None means, whether the result
+# shares objects with the arguments or changes when they change later, and
+# non-integer numbers.
 #
 # The file runs in the repository and, unchanged, in a scratch project: it
 # puts skill/scripts (when present) and the working directory on the import
 # path, and it is skipped while run_retention does not exist.
 import copy
+import itertools
 import sys
-import time
 import unittest
 from pathlib import Path
 
@@ -67,7 +79,11 @@ def run(run_id, started, sealed=True, protected=False):
 
 
 def select(runs, **kwargs):
-    return run_retention.select(runs, **kwargs)
+    before = copy.deepcopy(runs)
+    result = run_retention.select(runs, **kwargs)
+    if runs != before:
+        raise AssertionError('select modified its runs argument')
+    return list(result)
 
 
 class RunRetentionTests(unittest.TestCase):
@@ -76,7 +92,7 @@ class RunRetentionTests(unittest.TestCase):
         if run_retention is None:
             raise unittest.SkipTest('module not present')
 
-    # Input and result shape
+    # Empty input, neither rule, order
 
     def test_empty_runs_select_nothing(self):
         self.assertEqual(select([]), [])
@@ -85,49 +101,25 @@ class RunRetentionTests(unittest.TestCase):
         self.assertEqual(select([], older_than_days=0, now=NOW), [])
         self.assertEqual(select([], keep=1, older_than_days=1, now=NOW), [])
 
-    def test_result_is_a_new_list_of_ids(self):
-        runs = [run('a', 1), run('b', 2)]
-        result = select(runs, keep=0)
-        self.assertIsInstance(result, list)
-        self.assertEqual(result, ['a', 'b'])
-        self.assertTrue(all(isinstance(item, str) for item in result))
-        self.assertIsNot(result, runs)
-
-    def test_input_is_not_modified(self):
-        runs = [run('c', 3), run('a', 1, protected=True), run('b', 2)]
-        before = copy.deepcopy(runs)
-        select(runs, keep=1, older_than_days=0, now=NOW)
-        self.assertEqual(runs, before)
-
-    def test_runs_given_out_of_order_are_returned_oldest_first(self):
-        runs = [run('m', 50), run('z', 10), run('a', 90), run('k', 30)]
-        self.assertEqual(select(runs, keep=0), ['z', 'k', 'm', 'a'])
-
-    # Rule 5: neither rule
-
     def test_neither_rule_selects_nothing(self):
         runs = [run('a', 1), run('b', 2), run('c', 3)]
         self.assertEqual(select(runs), [])
         self.assertEqual(select(runs, keep=None, older_than_days=None), [])
         self.assertEqual(select(runs, now=NOW), [])
 
-    # Rule 1: unsealed and protected runs
+    def test_selected_ids_are_oldest_first(self):
+        runs = [run('m', 50), run('z', 10), run('a', 90), run('k', 30)]
+        self.assertEqual(select(runs, keep=0), ['z', 'k', 'm', 'a'])
+        self.assertEqual(select(runs, older_than_days=0, now=NOW), ['z', 'k', 'm', 'a'])
 
-    def test_unsealed_run_is_never_selected(self):
-        runs = [run('open', 1, sealed=False), run('done', 2)]
+    # Unsealed and protected runs
+
+    def test_unsealed_and_protected_runs_are_never_selected(self):
+        runs = [run('open', 1, sealed=False), run('safe', 2, protected=True),
+                run('both', 3, sealed=False, protected=True), run('done', 4)]
         self.assertEqual(select(runs, keep=0), ['done'])
         self.assertEqual(select(runs, older_than_days=0, now=NOW), ['done'])
         self.assertEqual(select(runs, keep=0, older_than_days=0, now=NOW), ['done'])
-
-    def test_protected_run_is_never_selected(self):
-        runs = [run('safe', 1, protected=True), run('done', 2)]
-        self.assertEqual(select(runs, keep=0), ['done'])
-        self.assertEqual(select(runs, older_than_days=0, now=NOW), ['done'])
-        self.assertEqual(select(runs, keep=0, older_than_days=0, now=NOW), ['done'])
-
-    def test_unsealed_and_protected_run_is_never_selected(self):
-        runs = [run('both', 1, sealed=False, protected=True)]
-        self.assertEqual(select(runs, keep=0, older_than_days=0, now=NOW), [])
 
     def test_only_ineligible_runs_select_nothing(self):
         runs = [run('a', 1, sealed=False), run('b', 2, protected=True)]
@@ -141,9 +133,9 @@ class RunRetentionTests(unittest.TestCase):
         self.assertEqual(select(runs, keep=2), ['old1'])
         self.assertEqual(select(runs, keep=3), [])
 
-    # Rule 2: keep
+    # keep
 
-    def test_keep_spares_the_newest_and_selects_the_rest_oldest_first(self):
+    def test_keep_spares_the_newest_and_selects_the_rest(self):
         runs = [run(str(i), i) for i in (5, 3, 1, 4, 2)]
         self.assertEqual(select(runs, keep=2), ['1', '2', '3'])
         self.assertEqual(select(runs, keep=4), ['1'])
@@ -156,46 +148,39 @@ class RunRetentionTests(unittest.TestCase):
         runs = [run('a', 1), run('b', 2), run('c', 3)]
         self.assertEqual(select(runs, keep=3), [])
         self.assertEqual(select(runs, keep=4), [])
-        self.assertEqual(select(runs, keep=1000), [])
-
-    def test_keep_one_with_a_single_run(self):
         self.assertEqual(select([run('a', 1)], keep=1), [])
-        self.assertEqual(select([run('a', 1)], keep=0), ['a'])
 
-    # Ties and ordering
+    # Ties (equal started values)
 
-    def test_equal_started_ties_are_broken_by_id_when_keeping(self):
-        runs = [run('c', 100), run('a', 100), run('b', 100)]
-        # The greater id counts as newer, so it is the one spared.
-        self.assertEqual(select(runs, keep=1), ['a', 'b'])
-        self.assertEqual(select(runs, keep=2), ['a'])
-        self.assertEqual(select(runs, keep=3), [])
+    def test_equal_started_values_give_one_answer_for_any_input_order(self):
+        runs = [run('a', 100), run('b', 100), run('c', 100)]
+        for keep in (0, 1, 2, 3):
+            results = [select(list(order), keep=keep) for order in itertools.permutations(runs)]
+            with self.subTest(keep=keep):
+                for result in results:
+                    self.assertEqual(result, results[0])
+                    self.assertEqual(len(set(result)), 3 - keep)
+                    self.assertTrue(set(result) <= {'a', 'b', 'c'})
 
-    def test_tie_at_the_keep_edge_only_affects_the_tied_runs(self):
-        runs = [run('x', 10), run('b', 20), run('a', 20), run('y', 30)]
-        # Newest first: y, then b (greater id), then a, then x.
-        self.assertEqual(select(runs, keep=2), ['x', 'a'])
-        self.assertEqual(select(runs, keep=3), ['x'])
+    def test_a_tie_at_the_keep_edge_only_affects_the_tied_runs(self):
+        runs = [run('x', 10), run('t1', 20), run('t2', 20), run('y', 30)]
+        # y is the newest. The tied runs are next, and keep=2 spares only one of them.
+        for keep, tied_selected in ((1, 2), (2, 1), (3, 0)):
+            results = [select(list(order), keep=keep) for order in itertools.permutations(runs)]
+            with self.subTest(keep=keep):
+                for result in results:
+                    self.assertEqual(result, results[0])
+                    self.assertEqual(result[0], 'x')
+                    self.assertEqual(len(result), 1 + tied_selected)
+                    self.assertEqual(len(set(result[1:])), tied_selected)
+                    self.assertTrue(set(result[1:]) <= {'t1', 't2'})
 
-    def test_equal_started_ties_are_returned_in_id_order(self):
-        runs = [run('c', 100), run('a', 100), run('b', 100)]
-        self.assertEqual(select(runs, keep=0), ['a', 'b', 'c'])
-        self.assertEqual(select(runs, older_than_days=0, now=NOW), ['a', 'b', 'c'])
+    def test_equal_started_runs_are_selected_together_by_the_age_rule(self):
+        runs = [run('b', 100), run('a', 100), run('new', NOW)]
+        result = select(runs, older_than_days=1, now=NOW)
+        self.assertEqual(sorted(result), ['a', 'b'])
 
-    def test_order_follows_started_before_id(self):
-        runs = [run('a', 20), run('b', 10)]
-        self.assertEqual(select(runs, keep=0), ['b', 'a'])
-
-    def test_ids_compare_as_plain_strings(self):
-        runs = [run('run-9', 5), run('run-10', 5)]
-        self.assertEqual(select(runs, keep=0), ['run-10', 'run-9'])
-        self.assertEqual(select(runs, keep=1), ['run-10'])
-
-    def test_fractional_started_values_are_ordered(self):
-        runs = [run('b', 1.75), run('a', 1.5), run('c', 1.25)]
-        self.assertEqual(select(runs, keep=1), ['c', 'a'])
-
-    # Rule 3: older_than_days
+    # older_than_days
 
     def test_older_than_days_selects_runs_before_the_cutoff(self):
         cutoff = NOW - 2*DAY
@@ -211,57 +196,33 @@ class RunRetentionTests(unittest.TestCase):
         runs = [run('past', NOW - 1), run('same', NOW), run('future', NOW + 1)]
         self.assertEqual(select(runs, older_than_days=0, now=NOW), ['past'])
 
-    def test_fractional_days(self):
-        cutoff = NOW - DAY//2
-        runs = [run('old', cutoff - 1), run('edge', cutoff), run('new', cutoff + 1)]
-        self.assertEqual(select(runs, older_than_days=0.5, now=NOW), ['old'])
-
-    def test_age_rule_keeps_runs_in_started_order(self):
-        runs = [run('b', 300), run('a', 100), run('c', 200)]
-        self.assertEqual(select(runs, older_than_days=1, now=NOW), ['a', 'c', 'b'])
-
-    def test_now_defaults_to_the_current_time(self):
-        current = time.time()
-        runs = [run('ancient', 0), run('recent', current - 60), run('future', current + 400*DAY)]
-        self.assertEqual(select(runs, older_than_days=1), ['ancient'])
-        self.assertEqual(select(runs, older_than_days=1, now=None), ['ancient'])
-
-    def test_now_has_no_effect_without_older_than_days(self):
-        runs = [run('a', 1), run('b', 2)]
-        self.assertEqual(select(runs, now=NOW), [])
-        self.assertEqual(select(runs, keep=1, now=0), ['a'])
-        self.assertEqual(select(runs, keep=1, now=10**12), ['a'])
-
-    # Rule 4: both rules
+    # Both rules
 
     def test_both_rules_select_only_the_intersection(self):
         cutoff = NOW - 10*DAY
         runs = [run('old1', cutoff - 300), run('old2', cutoff - 200), run('old3', cutoff - 100),
                 run('new1', cutoff + 100), run('new2', cutoff + 200)]
-        # keep spares new1 and new2 anyway; age spares nothing beyond them.
+        # keep=2 spares new1 and new2, which the age rule would spare anyway.
         self.assertEqual(select(runs, keep=2, older_than_days=10, now=NOW),
                          ['old1', 'old2', 'old3'])
-        # keep=4 spares old2 and old3 as well, although both are old enough.
+        # keep=4 also spares old2 and old3, although both are old enough.
         self.assertEqual(select(runs, keep=4, older_than_days=10, now=NOW), ['old1'])
         # keep=0 leaves the age rule alone.
         self.assertEqual(select(runs, keep=0, older_than_days=10, now=NOW),
                          ['old1', 'old2', 'old3'])
 
-    def test_keep_ranks_runs_regardless_of_age(self):
+    def test_keep_ranks_all_eligible_runs_whatever_their_age(self):
         cutoff = NOW - 10*DAY
         runs = [run('old1', cutoff - 200), run('old2', cutoff - 100), run('new', cutoff + 100)]
-        # new is the newest, so keep=1 spares it and both old runs go (ranking
-        # only the old runs would spare old2 and select old1 alone).
+        # new is the newest of all, so keep=1 spares it and both old runs go.
         self.assertEqual(select(runs, keep=1, older_than_days=10, now=NOW), ['old1', 'old2'])
-        # Ranking only the old runs would spare both of them and select nothing.
+        # keep=2 spares new and old2.
         self.assertEqual(select(runs, keep=2, older_than_days=10, now=NOW), ['old1'])
-        self.assertEqual(select(runs, keep=3, older_than_days=10, now=NOW), [])
 
     def test_age_spares_young_runs_that_keep_would_select(self):
         cutoff = NOW - 10*DAY
         runs = [run('old', cutoff - 100), run('young1', cutoff + 100), run('young2', cutoff + 200)]
         self.assertEqual(select(runs, keep=1, older_than_days=10, now=NOW), ['old'])
-        self.assertEqual(select(runs, keep=0, older_than_days=10, now=NOW), ['old'])
 
     def test_both_rules_still_skip_unsealed_and_protected_runs(self):
         cutoff = NOW - DAY
@@ -269,46 +230,42 @@ class RunRetentionTests(unittest.TestCase):
                 run('old', cutoff - 3), run('new', cutoff + 3)]
         self.assertEqual(select(runs, keep=1, older_than_days=1, now=NOW), ['old'])
 
-    def test_both_rules_with_zero_keep_and_zero_days(self):
-        runs = [run('past', NOW - 1), run('same', NOW)]
-        self.assertEqual(select(runs, keep=0, older_than_days=0, now=NOW), ['past'])
+    # Negative arguments
 
-    def test_both_rules_with_equal_started_ties(self):
-        cutoff = NOW - DAY
-        runs = [run('b', cutoff - 5), run('a', cutoff - 5), run('c', cutoff - 5)]
-        self.assertEqual(select(runs, keep=1, older_than_days=1, now=NOW), ['a', 'b'])
+    def refuses(self, runs, **kwargs):
+        # The call itself must raise: the result is not consumed here.
+        with self.assertRaises(ValueError):
+            run_retention.select(copy.deepcopy(runs), **kwargs)
 
-    # Rule 6: negative arguments
+    NO_RUNS = []
+    ALL_INELIGIBLE = [run('open', 1, sealed=False), run('safe', 2, protected=True),
+                      run('both', 3, sealed=False, protected=True)]
 
     def test_negative_keep_raises_value_error(self):
-        runs = [run('a', 1)]
-        with self.assertRaises(ValueError):
-            select(runs, keep=-1)
-        with self.assertRaises(ValueError):
-            select(runs, keep=-5, older_than_days=1, now=NOW)
+        runs = [run('a', 1), run('b', 2)]
+        self.refuses(runs, keep=-1)
+        self.refuses(runs, keep=-5, older_than_days=1, now=NOW)
 
     def test_negative_days_raise_value_error(self):
-        runs = [run('a', 1)]
-        with self.assertRaises(ValueError):
-            select(runs, older_than_days=-1, now=NOW)
-        with self.assertRaises(ValueError):
-            select(runs, older_than_days=-0.5, now=NOW)
-        with self.assertRaises(ValueError):
-            select(runs, keep=1, older_than_days=-1, now=NOW)
+        runs = [run('a', 1), run('b', 2)]
+        self.refuses(runs, older_than_days=-1, now=NOW)
+        self.refuses(runs, keep=1, older_than_days=-1, now=NOW)
 
-    def test_negative_arguments_raise_without_runs_or_eligible_runs(self):
-        with self.assertRaises(ValueError):
-            select([], keep=-1)
-        with self.assertRaises(ValueError):
-            select([], older_than_days=-1, now=NOW)
-        with self.assertRaises(ValueError):
-            select([run('a', 1, sealed=False)], keep=-1)
-        with self.assertRaises(ValueError):
-            select([run('a', 1, protected=True)], older_than_days=-1)
+    def test_negative_keep_raises_for_empty_and_all_ineligible_runs(self):
+        for name, runs in (('empty', self.NO_RUNS), ('ineligible', self.ALL_INELIGIBLE)):
+            with self.subTest(runs=name):
+                self.refuses(runs, keep=-1)
+                self.refuses(runs, keep=-7)
+                self.refuses(runs, keep=-1, older_than_days=1, now=NOW)
+                self.refuses(runs, keep=-1, older_than_days=0, now=NOW)
 
-    def test_negative_argument_raises_even_when_now_is_omitted(self):
-        with self.assertRaises(ValueError):
-            select([run('a', 1)], older_than_days=-1)
+    def test_negative_days_raise_for_empty_and_all_ineligible_runs(self):
+        for name, runs in (('empty', self.NO_RUNS), ('ineligible', self.ALL_INELIGIBLE)):
+            with self.subTest(runs=name):
+                self.refuses(runs, older_than_days=-1, now=NOW)
+                self.refuses(runs, older_than_days=-30, now=NOW)
+                self.refuses(runs, keep=0, older_than_days=-1, now=NOW)
+                self.refuses(runs, keep=3, older_than_days=-1, now=NOW)
 
 
 if __name__ == '__main__':
