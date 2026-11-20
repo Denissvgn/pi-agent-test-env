@@ -392,6 +392,57 @@ def thread_environment(jobs):
             'npm_config_jobs': n}
 
 
+# Signals that end a supervisor through its KeyboardInterrupt path. SIGHUP comes
+# from a closed terminal or a lost SSH session and SIGQUIT from Ctrl-\.
+INTERRUPT_SIGNALS = frozenset({signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT})
+
+
+def raise_interrupt(signum, frame):
+    raise KeyboardInterrupt
+
+
+def install_interrupt_handlers():
+    """Give an entry point one interrupt path, whatever dispositions it inherited.
+
+    A process started as a shell background job inherits SIGINT ignored, and
+    Python then leaves it ignored. Install the default SIGINT handler explicitly
+    and route SIGTERM, SIGHUP and SIGQUIT to the same KeyboardInterrupt.
+    """
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+    for kind in INTERRUPT_SIGNALS - {signal.SIGINT}:
+        signal.signal(kind, raise_interrupt)
+
+
+@contextlib.contextmanager
+def deferred_interrupts():
+    """Hold interrupt signals for a bounded cleanup section and deliver them after it.
+
+    The signals are blocked with pthread_sigmask in the calling thread, as
+    _queued_flock blocks SIGINT, so a second Ctrl-C cannot abort a removal half
+    way. Child processes started inside the section inherit the mask, so a
+    terminal Ctrl-C sent to the foreground process group does not stop a cleanup
+    command either. A signal that arrived meanwhile is delivered when the
+    previous mask returns. Only wrap sections whose every step has a time bound.
+    """
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, INTERRUPT_SIGNALS)
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+
+
+def start_without_interrupts(thread):
+    """Start a helper thread that never receives interrupt signals.
+
+    A thread inherits its creator's mask. Without this, a signal held by the
+    main thread during cleanup could be delivered to a helper thread instead,
+    and Python would still raise it in the main thread at once.
+    """
+    with deferred_interrupts():
+        thread.start()
+    return thread
+
+
 def _queued_flock(fd, wait_seconds):
     """Wait in the kernel queue on this FD, with a composable one-shot alarm.
 
