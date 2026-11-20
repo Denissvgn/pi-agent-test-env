@@ -1,9 +1,10 @@
 # Named inference environments
 
-Indexed inference is an explicit experimental path. The root owns selection,
+Indexed inference is an explicit opt-in path. The root owns selection,
 confirmation and frozen assignment; Pi cannot enumerate or choose another profile.
-The reviewed adapter is OpenAI-compatible Chat Completions for exact Pi 0.87.1 and
-1.2.0. Other API protocols, OAuth/ambient cloud chains and fallback are unsupported.
+The reviewed adapter is OpenAI-compatible Chat Completions for every reviewed Pi
+release: 0.87.1, 1.2.0 and 1.5.2. Other API protocols, OAuth/ambient cloud
+chains and fallback are unsupported.
 Qualification is separate from configuration; inspect QUALIFICATION.md before use.
 
 An inference environment is distinct from `--environment FILE` (image capability
@@ -36,8 +37,9 @@ of A. Selecting a remote profile also selects where source/tool results are sent
 
 ## Register and confirm
 
-Copy `assets/inference-profile.example.json`, replace its synthetic values and
-register explicitly. Do not copy real configuration into the project/build context.
+Copy [assets/inference-profile.example.json](../assets/inference-profile.example.json),
+replace its synthetic values and register explicitly. The [endpoint example](../assets/unsloth.example.json) shows the endpoint fields. Do not copy
+real configuration into the project/build context.
 
 ```bash
 python3 "$SKILL_DIR/scripts/pi_lab.py" env register --id builder-local --config /private/profile.json

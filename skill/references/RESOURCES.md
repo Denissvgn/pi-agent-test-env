@@ -20,7 +20,8 @@ The built-in defaults request:
 }
 ```
 
-Use `--resources path/to/policy.json`. Unknown fields, zero/unlimited CPU,
+Use `--resources path/to/policy.json`. The supported host tools and runtime floors
+are summarized in [the Python/Node environment example](../assets/environments/python-node.json). Unknown fields, zero/unlimited CPU,
 negative/unlimited RAM, nonfinite numbers, and out-of-range process/time settings
 are rejected. CLI runtime overrides are `--cpus`, `--memory`, `--pids-limit`, and
 `--jobs`. Image-build overrides are `--build-cpus`, `--build-memory`,
@@ -182,22 +183,19 @@ observation is recorded rather than invented.
 While a stage runs, use these on the parent host:
 
 ```bash
-docker ps --filter label=org.pi-agentic-development.managed=1
+docker ps --filter label=org.pi-agent-test-env.managed=1
 docker stats --no-stream
 docker inspect CONTAINER_ID --format \
   'CPU={{.HostConfig.NanoCpus}} memory={{.HostConfig.Memory}} swap={{.HostConfig.MemorySwap}} pids={{.HostConfig.PidsLimit}}'
 ```
 
-For your *already running* interactive Pi container, a separate manual change is:
+For a running container, `docker update --cpus 1.5 CONTAINER_NAME` changes only
+that container’s CPU quota. Use a name you have verified locally.
 
-```bash
-docker update --cpus 1.5 pi-workspace
-```
-
-This changes only that container's CPU quota. It is not persistent policy for
-future `docker run` commands. Do not lower a running process's memory limit below
-its usage; recreate it with a reviewed memory setting instead. The packaged runner
-sets limits on every new container and never edits unrelated running containers.
+The change is not persistent policy for future `docker run` commands. Do not lower
+a running process's memory limit below its usage; recreate it with a reviewed
+memory setting instead. The packaged runner sets limits on every new container
+and never edits unrelated running containers.
 
 ## Limits of these limits
 
@@ -205,10 +203,10 @@ The local LLM server is separate. A request can consume CPU, RAM, GPU memory, an
 GPU compute there regardless of the Pi client's quota. Configure server-side
 request concurrency, context limits, and CPU/GPU budgets independently. Default
 sequential agents reduce overlapping requests but are not a server-wide limit.
-For a local model server (for example Unsloth), keep the default one-stage-at-a-time
-execution and do not add parallel agents until its parallel-request and loaded-context
-settings have been checked in Unsloth; a 262144-token context multiplies memory use
-per concurrent request.
+For a local model server, keep the default one-stage-at-a-time execution and do
+not add parallel agents until its parallel-request and loaded-context settings
+have been checked; a 262144-token context multiplies memory use per concurrent
+request.
 
 Docker Desktop's Settings > Resources controls the whole VM's CPU/RAM allocation.
 Leave capacity for the desktop and model server. Per-container headroom does not

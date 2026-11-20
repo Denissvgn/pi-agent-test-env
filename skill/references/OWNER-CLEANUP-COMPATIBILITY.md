@@ -42,7 +42,7 @@ and explicitly switch consumers under their own policy. Source checkout tests,
 release tags and review waivers do not authorize a campaign restart.
 
 The final exact source/archive and applicable native/ARM64 Docker checks, review
-and authorized promotion precede release. Real eligible owner cleanup/replay and
+and authorized promotion were required before that release. Real eligible owner cleanup/replay and
 downstream SDK/native qualification are separate gates. Until measured, report
 those scopes unqualified. Historical measurements retain their old source/model/
 image/configuration identities. See [validation](../VALIDATION.md),

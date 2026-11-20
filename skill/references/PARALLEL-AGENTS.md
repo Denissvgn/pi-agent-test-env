@@ -1,4 +1,7 @@
-# Experimental two-trial execution
+# Opt-in two-trial execution
+
+Implemented in 4.5.0 and qualified again in 4.10.0; this page records the
+historical contract for the stable, opt-in feature.
 
 Select this mode only for two independent experiment trials. Each trial keeps
 setup, Pi stages and independent checks sequential, with its own snapshot,

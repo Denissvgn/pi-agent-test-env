@@ -1,6 +1,6 @@
 # Reviewed Pi 1.2.0 execution contract
 
-Pi 0.87.1 and 1.2.0 have separate exact contracts in
+Every reviewed Pi release has a separate exact contract in
 `runtime/release_contracts.py`. The host chooses from the observed image version,
 checks it before dispatch, and binds the selected contract to the worker and
 every continuation. Unknown, ambiguous and prerelease versions are unsupported.
@@ -40,8 +40,8 @@ pin base/builder inputs and retain actual installed dependency/image identities.
 - Both releases require settlement, valid ordered tool/message evidence,
   exact model/provider, successful final stop text and process completion.
   JSON exit 0 alone is insufficient; the release's truncation exit-code fix is
-  specific to text mode. Historical `process-exit` inspection is separately
-  explicit and cannot weaken live admission.
+  specific to text mode. `--event-contract process-exit` is rejected by every reviewed release; live
+  admission requires `agent_settled`.
 - Nested tool calls carrying `parentToolCallId` remain unsupported by this
   direct-tool profile. Profile receipt or tool-policy violations cannot be
   cleared by a clean successor, even after an authorized interrupt.

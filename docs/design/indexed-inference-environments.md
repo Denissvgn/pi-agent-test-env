@@ -1,7 +1,7 @@
 # Indexed inference environments and native skill integration
 
-Status: design proposal for future implementation, not a supported 4.4.0 option.
-Assessment date: 14 October 2026. Repository baseline: released 4.4.0,
+Status: implemented in 4.5.0 and qualified on Pi 1.5.2 in 4.10.0. This historical
+assessment is dated 14 October 2026 and records the released 4.4.0 baseline,
 commit `3664d60370ef48a3b2a696f66c3200618f081487`.
 
 The [fixed implementation and qualification plan](indexed-inference-environments-implementation-plan.md)

@@ -105,7 +105,5 @@ prepared for 1.2.0 cannot continue on 1.5.2.
 
 ## Qualification scope
 
-Source review and the offline process check establish adapter behavior only. A
-native campaign on exact 1.5.2 images is required before any qualification
-claim. Consult [QUALIFICATION.md](../QUALIFICATION.md) for actual completed
-evidence and limits.
+The 4.10.0 campaign qualified the stable scope on Pi 1.5.2 on 11 November 2026.
+Consult [QUALIFICATION.md](../QUALIFICATION.md) for the recorded evidence and limits.

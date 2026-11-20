@@ -44,6 +44,11 @@
       "command": "python3 scripts/pi_lab.py env status --session <SESSION>"
     },
     {
+      "name": "ensure-image",
+      "description": "Build or reuse a capability-checked image under the selected resource and environment policy",
+      "command": "python3 scripts/pi_lab.py ensure-image --image <IMAGE> --profile core --policy reuse --environment <ENVIRONMENT> --resources <RESOURCES> --receipt <NEW_RECEIPT>"
+    },
+    {
       "name": "doctor",
       "description": "Evaluate host prerequisites (Python, Docker, context, image, endpoint, secrets) in one pass",
       "command": "python3 scripts/pi_lab.py doctor --image <QUALIFIED_IMAGE> --session <SESSION>"

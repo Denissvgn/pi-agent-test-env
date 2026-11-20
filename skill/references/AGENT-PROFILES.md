@@ -10,7 +10,8 @@ fixture tool. Validation alone does not load a component or establish integratio
 use. The separate compiled application route is described below.
 
 The closed catalog contains the empty built-in profile, `fixture-lookup`, and
-`application-client`. The application compiler selects exact release-bound
+`application-client`. The reviewed fixture declarations include
+`profile.pi-1.5.2.json` for Pi 1.5.2. The application compiler selects exact release-bound
 bundled assets; legacy plans cannot select it through blanket `--agent-profile`
 application. There is no ambient profile/plugin discovery.
 
