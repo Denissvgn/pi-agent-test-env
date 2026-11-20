@@ -273,14 +273,34 @@ def package_list_sha256():
     The list is dpkg's own database (`dpkg-query -W`), one `package<TAB>version<TAB>arch`
     line per installed package. `-W` also lists removed packages that keep their
     configuration files, so only status `ii` (second character `i`) is kept.
+
+    Where dpkg-query is present its output must be well formed: a digest is never made
+    from a list with rows silently dropped. A row with a malformed status column, an
+    installed row without exactly four non-empty fields, or an empty list raises a
+    RuntimeError that names the row. Rows for packages that are not installed only need
+    a status, because `execute` strips trailing blanks from the final row.
     """
     if not shutil.which('dpkg-query'):
         return None
     listing = execute(['dpkg-query', '-W', '-f', '${db:Status-Abbrev}\t${Package}\t${Version}\t${Architecture}\n'],
                       timeout=60)
-    installed = (line.split('\t', 1) for line in listing.splitlines() if line.strip())
-    lines = sorted(rest for status, rest in installed if status[1:2] == 'i')
-    return hashlib.sha256('\n'.join(lines).encode()).hexdigest()
+    lines = []
+    for number, line in enumerate(listing.splitlines(), 1):
+        if not line.strip():
+            continue
+        fields = line.split('\t')
+        if len(fields[0]) != 3:
+            raise RuntimeError(f'dpkg-query row {number} has an unusable status column: {line[:200]!r}')
+        if fields[0][1] != 'i':
+            continue
+        if len(fields) != 4 or not all(fields[1:]):
+            raise RuntimeError(f'dpkg-query row {number} is an installed package without exactly '
+                               f'package, version and architecture: {line[:200]!r}')
+        lines.append('\t'.join(fields[1:]))
+    if not lines:
+        raise RuntimeError('dpkg-query is present but listed no installed packages; '
+                           f'refusing to digest an empty package list: {listing[:200]!r}')
+    return hashlib.sha256('\n'.join(sorted(lines)).encode()).hexdigest()
 
 
 def os_release():

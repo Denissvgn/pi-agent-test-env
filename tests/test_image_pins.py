@@ -500,6 +500,33 @@ class WorkerProbeTests(unittest.TestCase):
         self.assertEqual(argv[:3], ['dpkg-query', '-W', '-f'])
         self.assertEqual(argv[3], '${db:Status-Abbrev}\t${Package}\t${Version}\t${Architecture}\n')
 
+    def test_unusable_dpkg_evidence_is_a_specific_error_never_a_digest(self):
+        good = 'ii \ta\t1\tarm64'
+        cases = {
+            'installed row without a version': (good + '\nii \tb\t\tarm64', 'row 2.*installed package'),
+            'installed row without an architecture': (good + '\nii \tb\t1', 'row 2.*installed package'),
+            'installed row with an extra field': (good + '\nii \tb\t1\tarm64\textra', 'row 2.*installed package'),
+            'row with no tabs': ('ii b 1 arm64', 'row 1.*status column'),
+            'status column of the wrong width': (good + '\ni\tb\t1\tarm64', 'row 2.*status column'),
+            'status garbage': ('synthetic version', 'row 1.*status column'),
+            'empty output': ('', 'no installed packages'),
+            'only removed packages': ('rc \told\t1\tarm64', 'no installed packages'),
+        }
+        for name, (listing, message) in cases.items():
+            with self.subTest(name), \
+                 mock.patch.object(worker.shutil, 'which', return_value='/usr/bin/dpkg-query'), \
+                 mock.patch.object(worker, 'execute', return_value=listing):
+                with self.assertRaisesRegex(RuntimeError, message):
+                    worker.package_list_sha256()
+
+    def test_a_stripped_final_row_for_a_package_that_is_not_installed_is_accepted(self):
+        # execute() strips trailing blanks, so a last `un` row can arrive without its tabs.
+        import hashlib
+        with mock.patch.object(worker.shutil, 'which', return_value='/usr/bin/dpkg-query'), \
+             mock.patch.object(worker, 'execute', return_value='ii \ta\t1\tarm64\nun \tgone'):
+            digest = worker.package_list_sha256()
+        self.assertEqual(digest, hashlib.sha256(b'a\t1\tarm64').hexdigest())
+
 
 if __name__ == '__main__':
     unittest.main()
