@@ -1,6 +1,5 @@
 name: Pi release support
 description: Report a new upstream Pi release for compatibility review
-title: ""
 labels: []
 assignees: []
 body:
