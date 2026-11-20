@@ -470,6 +470,22 @@ const allowed = [
   'rm -f build.tmp || true',
   'echo hi >> /workspace/log.txt',
   'chmod +x run.sh',
+  // Quoted documentation text: a > inside quotes is literal, not a redirect.
+  "printf '%s' 'Usage: example > /opt/example'",
+  'printf "%s" "Usage: example > /opt/example"',
+  "printf 'Usage: example >> /opt/example' > notes.txt",
+  "echo 'a; b | example > /opt/example'",
+  // fd redirections are metadata: harmless local operands stay allowed.
+  'cp a b 2>/dev/null',
+  'cp a b 2>&1',
+  'cp /opt/src b 2>&1',
+  'cp /opt/src b 2>/dev/null',
+  'cat /opt/src < input.txt',
+  'ls /opt/pi-lab 2>/dev/null',
+  'cp a b >&2',
+  'cp a b 2>&-',
+  // A quoted digit is an ordinary operand, so here the cp target is "2".
+  'cp a /opt/example "2">log.txt',
 ];
 const blocked = [
   'echo x > /opt/pi-control/task.json',
@@ -485,6 +501,24 @@ const blocked = [
   'chmod 777 /opt/pi-lab/x',
   'cp -t /opt/pi-lab a',
   'ls; echo x >/opt/y',
+  // Actual redirect operators after quoted text, and quoted redirect targets.
+  "printf '%s' 'Usage: example' > /opt/example",
+  'printf "%s" "text" >> "/opt/example"',
+  "echo 'a > b' > '/opt/example'",
+  "echo 'note; text' ; echo x >/opt/y",
+  // The command's real target is still found when fd metadata is present.
+  'cp a /opt/example 2>/dev/null',
+  'cp a /opt/example 2>&1',
+  'cp a 2>/dev/null /opt/example',
+  'mv a /opt/example 2> err.log',
+  'cp a /opt/example < input.txt',
+  'cp a /opt/example &>/dev/null',
+  'install a /opt/example >out.log 2>&1',
+  'cp -t /opt/example a 2>/dev/null',
+  'mv /opt/example b 2>&1',
+  'touch /opt/example 1>&2',
+  'echo x 1>>/opt/example',
+  'echo x 2>/opt/example',
 ];
 for (const command of allowed) assert.strictEqual(isBlockedCommand(command), false, command);
 for (const command of blocked) assert.strictEqual(isBlockedCommand(command), true, command);

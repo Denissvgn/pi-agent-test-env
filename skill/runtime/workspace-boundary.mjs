@@ -75,16 +75,114 @@ function underOpt(token) {
   return token.startsWith("/opt/");
 }
 
-function unquote(token) {
-  return token.replace(/^["']+|["']+$/g, "");
+/**
+ * Splits a command into simple commands (on unquoted ;, &&, ||, | and newline)
+ * and words, honouring single quotes, double quotes and backslash escapes.
+ * Quoted or escaped text is argument text, never an operator. An unquoted > or
+ * >> is a redirect operator; redirectsToOpt records whether its target
+ * (optionally quoted) starts with /opt/.
+ * Standard redirections are I/O metadata, not operands: an unquoted fd number
+ * glued to the operator (2>, 1>>, 0<), the operator itself, its target word,
+ * and fd duplications (>&2, 2>&1, <&0, >&-) are kept out of words, so the
+ * command's own operands stay identifiable. A quoted digit ("2">f) is an
+ * ordinary operand. This is lexical only: no expansion, no process substitution.
+ */
+function parseSimpleCommands(command) {
+  const simples = [];
+  let words = [];
+  let word = "";
+  let inWord = false;
+  let redirectsToOpt = false;
+  let quote = null;
+  let plain = true; // current word has no quoted or escaped part
+  let skipWord = false; // next completed word is a redirect target
+
+  const endWord = () => {
+    if (inWord) {
+      if (skipWord) skipWord = false;
+      else words.push(word);
+    }
+    word = "";
+    inWord = false;
+    plain = true;
+  };
+  const endSimple = () => {
+    endWord();
+    simples.push({ words, redirectsToOpt });
+    words = [];
+    redirectsToOpt = false;
+    skipWord = false;
+  };
+
+  for (let i = 0; i < command.length; i++) {
+    const ch = command[i];
+    if (quote === "'") {
+      if (ch === "'") quote = null;
+      else word += ch;
+    } else if (quote === '"') {
+      if (ch === '"') quote = null;
+      else if (ch === "\\" && i + 1 < command.length && '"\\$`'.includes(command[i + 1])) word += command[++i];
+      else word += ch;
+    } else if (ch === "'" || ch === '"') {
+      quote = ch;
+      inWord = true;
+      plain = false;
+    } else if (ch === "\\") {
+      if (i + 1 < command.length) word += command[++i];
+      inWord = true;
+      plain = false;
+    } else if (ch === ";" || ch === "\n") {
+      endSimple();
+    } else if (ch === "&" && command[i + 1] === "&") {
+      i++;
+      endSimple();
+    } else if (ch === "|") {
+      if (command[i + 1] === "|") i++;
+      endSimple();
+    } else if (ch === ">" || ch === "<") {
+      // An unquoted fd number (or &, as in &>) glued to the operator belongs to it.
+      if (inWord && plain && (/^[0-9]+$/.test(word) || (ch === ">" && word === "&"))) {
+        word = "";
+        inWord = false;
+      } else {
+        endWord();
+      }
+      let j = i;
+      while (command[j] === ch) j++;
+      if (command[j] === "(") {
+        // Process substitution is outside this lexer; leave it as ordinary text.
+      } else if (command[j] === "&" && /[0-9-]/.test(command[j + 1] ?? "")) {
+        // fd duplication or close (>&2, <&0, >&-): no target word.
+        j++;
+        while (command[j] >= "0" && command[j] <= "9") j++;
+        if (command[j] === "-") j++;
+      } else {
+        if (command[j] === "&") j++; // >&file sends both streams to file
+        skipWord = true;
+        if (ch === ">") {
+          let k = j;
+          while (command[k] === " " || command[k] === "\t") k++;
+          if (command[k] === '"' || command[k] === "'") k++;
+          if (command.startsWith("/opt/", k)) redirectsToOpt = true;
+        }
+      }
+      i = j - 1;
+    } else if (ch === " " || ch === "\t") {
+      endWord();
+    } else {
+      word += ch;
+      inWord = true;
+    }
+  }
+  endSimple();
+  return simples;
 }
 
-function simpleCommandWritesOpt(simple) {
-  // A redirect with > or >> whose target starts with /opt/.
-  if (/(?:^|[^>])>{1,2}\s*["']?\/opt\//.test(simple)) {
+function simpleCommandWritesOpt({ words: tokens, redirectsToOpt }) {
+  // An unquoted > or >> whose target starts with /opt/.
+  if (redirectsToOpt) {
     return true;
   }
-  const tokens = simple.split(/\s+/).filter(Boolean).map(unquote);
   let i = 0;
   while (i < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[i])) i++;
   const name = tokens[i] === undefined ? "" : tokens[i].split("/").pop();
@@ -116,7 +214,9 @@ function simpleCommandWritesOpt(simple) {
 /**
  * True when the command writes under /opt: a > or >> redirect, or tee, touch,
  * rm, mv, cp, ln, install or chmod aimed at a /opt/ path, within one simple
- * command (split on ;, &&, || and |). Reading or running /opt paths is allowed.
+ * command (split on unquoted ;, &&, || and |). Redirect operators and quotes
+ * are recognised lexically: a > inside quoted text is not a redirect. Reading
+ * or running /opt paths is allowed.
  * This only improves the message a model sees; the read-only mount is the real
  * boundary.
  */
@@ -124,7 +224,7 @@ export function isBlockedCommand(command) {
   if (typeof command !== "string") {
     return false;
   }
-  return command.split(/;|&&|\|\||\||\n/).some(simpleCommandWritesOpt);
+  return parseSimpleCommands(command).some(simpleCommandWritesOpt);
 }
 
 /**
