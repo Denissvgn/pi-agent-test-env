@@ -1,7 +1,10 @@
 """Literal registration observations; these tests perform no store operation."""
+from pathlib import Path
+import sys
 from unittest import TestCase, mock
 
-from tools.qualification import secret_registration_contract as contract
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'skill/scripts'))
+from operation_sdk import secret_registration_contract as contract
 
 
 def expectations():

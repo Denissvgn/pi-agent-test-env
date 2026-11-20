@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 import uuid
@@ -36,6 +37,53 @@ def load(name):
 fixture_module=load('fixture');oracle=load('oracle');configure=load('configure');scorer=load('content_scorer')
 KEY_A='disposable-example-alice-938475620'
 KEY_B='disposable-example-bob-85948362710'
+
+
+class FixtureJournalPathTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.keys = {'alice': KEY_A, 'bob': KEY_B}
+
+    def test_public_or_linked_journal_directory_denies_before_socket_creation(self):
+        public = self.root / 'public'
+        public.mkdir(mode=0o755)
+        private = self.root / 'private'
+        private.mkdir(mode=0o700)
+        linked = self.root / 'linked'
+        linked.symlink_to(private, target_is_directory=True)
+        with mock.patch.object(socket, 'socket', side_effect=AssertionError('Unexpected socket')):
+            for path in (public, linked):
+                with self.subTest(path=path.name), self.assertRaises(ValueError):
+                    fixture_module.FixtureServer(path, self.keys)
+        self.assertEqual(list(public.iterdir()), [])
+        self.assertEqual(list(private.iterdir()), [])
+
+    def test_journal_uses_private_child_of_foreign_mount_root(self):
+        child = self.root / 'private'
+        child.mkdir(mode=0o700)
+        original_stat = Path.stat
+
+        def mount_stat(path, *args, **kwargs):
+            info = original_stat(path, *args, **kwargs)
+            if path == self.root:
+                return SimpleNamespace(st_uid=info.st_uid + 1, st_mode=info.st_mode)
+            return info
+
+        http = fixture_module.ThreadingHTTPServer
+        with (mock.patch.object(Path, 'stat', mount_stat),
+              mock.patch.object(http, 'server_bind'),
+              mock.patch.object(http, 'server_activate'),
+              mock.patch.object(http, 'server_port', 0, create=True)):
+            with self.assertRaises(ValueError):
+                fixture_module.FixtureServer(self.root, self.keys)
+            server = fixture_module.FixtureServer(child, self.keys)
+        self.addCleanup(server.stop)
+        self.assertEqual(server.root, child)
+        self.assertEqual(server.journal['requests'], [])
+        self.assertTrue((child / 'journal.json').is_file())
+        self.assertFalse((self.root / 'journal.json').exists())
 
 
 class AuthenticatedExampleTests(unittest.TestCase):

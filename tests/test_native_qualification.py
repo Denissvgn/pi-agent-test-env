@@ -255,6 +255,18 @@ class PlanningTests(unittest.TestCase):
         self.assertIn('assets/security/chromium-userns.json', value['input_files'])
         self.assertIn('examples/python-project/slug.py', value['input_files'])
 
+    def test_source_identity_covers_the_maintained_qualification_tools(self):
+        names = {
+            'application_owner_consumer', 'application_owner_consumer_policy',
+            'application_owner_consumer_worker', 'application_owner_migration',
+            'application_owner_reader_conformance', 'fixtures', 'indexed', 'indexed_budget',
+            'legacy_registry_v1', 'parallel', 'parallel_service', 'pi_release', 'service',
+        }
+        value = driver.source_identity()
+        self.assertEqual(set(value['harness_files']), {
+            f'tools/qualification/{name}.py' for name in names
+        })
+
     def test_all_generated_plans_admit_exact_budgets_and_no_literal_credentials(self):
         for kind in ('smoke', 'protocol', 'length', 'error', 'abort', 'timeout', 'recovery',
                      'discovery', 'boundary', 'contamination', 'provider-fatal', 'crash', 'credentials', 'browser'):

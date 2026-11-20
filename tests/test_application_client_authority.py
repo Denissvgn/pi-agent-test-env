@@ -10,6 +10,7 @@ import secrets
 import shutil
 import socket
 import time
+from types import SimpleNamespace
 import subprocess
 import sys
 import tempfile
@@ -97,6 +98,14 @@ class BaseFixture(unittest.TestCase):
 
 
 class AuthorityAdmissionTests(BaseFixture):
+    def test_public_launch_metadata_contains_only_actor_digests(self):
+        authority = self.admit()
+        participants = [{'application_id': 'synthetic-app', 'tenant_id': 'tenant',
+                         'actor_id': f'actor-{i}', 'role': 'writer'} for i in range(8)]
+        authority._plan['stages'] = [{'participant': p} for p in participants]
+        expected = sorted('application-actor:' + client.c.digest(p) for p in participants)
+        self.assertEqual(authority.launch_spec()['actors'], expected)
+
     def test_ac16_authority_repr_and_worker_independent_contexts_withhold_values(self):
         authority, grant = self.authority()
         public = repr(authority) + repr(grant) + json.dumps(grant.context()) + json.dumps(authority.independent_context())
@@ -398,6 +407,30 @@ class DockerBoundary:
 
 
 class OwnedLifecycleTests(BaseFixture):
+    def test_identity_binding_honors_the_original_deadline(self):
+        for now in (1000., 1006.):
+            with self.subTest(now=now):
+                helper = object.__new__(client.OwnedHelper)
+                helper._check_daemon = mock.Mock()
+                helper._command = mock.Mock(return_value=SimpleNamespace(returncode=0, stdout='[{}]'))
+                helper._verify_observation = mock.Mock(return_value='f' * 64)
+                helper.name = 'controlled-helper'
+                helper.registry = mock.Mock()
+                helper.record = {}
+                helper.container_id = None
+                with mock.patch.object(client.time, 'monotonic', return_value=now):
+                    if now > 1005.:
+                        with self.assertRaises(client.ClientError) as caught:
+                            helper._bind_container_identity(1005.)
+                        self.assertEqual(caught.exception.reason, 'cleanup_unconfirmed')
+                        helper._command.assert_not_called()
+                        helper.registry.write.assert_not_called()
+                        self.assertIsNone(helper.container_id)
+                    else:
+                        helper._bind_container_identity(1005.)
+                        self.assertEqual(helper.container_id, 'f' * 64)
+                        helper.registry.write.assert_called_once_with({'container_id': 'f' * 64})
+
     def launch(self, capacity=None, authority=None, boundary=None):
         authority = authority or self.authority()[0]
         boundary = boundary or DockerBoundary()

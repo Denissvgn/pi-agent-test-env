@@ -143,9 +143,8 @@ def _ledger(body, reference, record, related, rows):
             role = original.get('qualification_role')
             need(role in ('fixture', 'scripted-inference') and original.get('application_helper') is True
                  and original.get('client_mode') == 'qualification-' + role, 'unsupported_qualification_subtype')
-            # The original qualification ledger excludes these later proof
-            # attachments (application_launch._intent_identity). Ordinary
-            # subjects retain their distinct full immutable-intent rule.
+            # The original qualification ledger excludes later proof attachments
+            # from its intent hash.
             excluded |= {'qualification_service_cleanup', 'qualification_preworker_cleanup'}
         immutable = {key: value for key, value in original.items() if key not in excluded}
         need(row.get('intent_sha256') == cleanup.digest(immutable), 'legacy_intent_binding_mismatch')
