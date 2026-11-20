@@ -61,9 +61,11 @@ def manifest(body):
     return result
 
 
-def check(source, verify_manifest=True):
+def check(source, verify_manifest=True, *, paths=None):
     source = source.resolve(strict=True)
-    files = {p.relative_to(source).as_posix():p for p in export_skill.file_list(source)}
+    if paths is None:
+        paths = export_skill.file_list(source)
+    files = {p.relative_to(source).as_posix():p for p in paths}
     require(REQUIRED_FILES <= files.keys(), 'Package lacks required entry/runtime/license files')
     require(all((source/name).is_dir() for name in REQUIRED_DIRECTORIES), 'Package lacks runtime resource directories')
     # Example subject tests are runtime acceptance inputs, unlike maintainer tests.
@@ -90,7 +92,10 @@ def check(source, verify_manifest=True):
             if target.startswith(('http:','https:','#','mailto:')): continue
             relative = target.split('#',1)[0]
             require(not relative or (path.parent/relative).is_file(), 'Broken package link: '+str(path)+' -> '+target)
-            if relative: require((path.parent/relative).resolve().is_relative_to(source), 'Link escapes installed package')
+            if relative:
+                target_path = (path.parent/relative).resolve()
+                require(target_path.is_relative_to(source), 'Link escapes installed package')
+                require(target_path.relative_to(source).as_posix() in files, 'Link target missing from package: '+target)
     return {'status':'pass','version':metadata['version'],'file_count':len(files),'manifest_entries':len(files)-1,
             'package_content_sha256':hashlib.sha256(json.dumps(hashes,sort_keys=True,separators=(',',':')).encode()).hexdigest(),
             'files':hashes,'scope':'Complete runtime package; no internal planning or stored validation output.'}
