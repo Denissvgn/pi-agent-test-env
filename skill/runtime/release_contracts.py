@@ -359,6 +359,48 @@ def image_identity(image, expected=None):
     return identity(release)
 
 
+# npm package names behind the PACKAGE_PIN_FIELDS, which the worker looks up in the image.
+VALIDATOR_PACKAGES = {'typebox': 'typebox', 'pi_schema': '@earendil-works/pi-schema'}
+
+
+def require_validator_report(observed):
+    """Refuse a fresh image probe that did not report every validator package.
+
+    Only a live probe is held to this: the worker always reports each package, as a
+    list that is empty when the package is absent. Saved receipts from before the
+    report existed are read through validate_validators, which leaves them alone.
+    """
+    if (not isinstance(observed, dict) or set(observed) != set(VALIDATOR_PACKAGES)
+            or any(not isinstance(found, list) or any(type(version) is not str for version in found)
+                   for found in observed.values())):
+        raise ValueError('The image probe did not report the installed validator package versions '
+                         f'({" and ".join(VALIDATOR_PACKAGES.values())})')
+
+
+def validate_validators(observed, release):
+    """Refuse an image whose installed validator packages differ from the release's pins.
+
+    observed maps each field of VALIDATOR_PACKAGES to the versions found in the image.
+    A package the entry does not pin is not checked, and an image whose probe did not
+    report the map at all (None) is not judged here; a live probe is held to
+    require_validator_report before it gets this far.
+    """
+    if observed is None:
+        return
+    if not isinstance(observed, dict):
+        raise ValueError('The image reported its validator packages in an unreadable form')
+    for field, package in VALIDATOR_PACKAGES.items():
+        pin = _selected(release)[field]
+        if pin is None:
+            continue
+        found = observed.get(field)
+        if not isinstance(found, list) or any(type(version) is not str for version in found):
+            raise ValueError(f'The image did not report the installed {package} version')
+        if sorted(found) != [pin['version']]:
+            raise ValueError(f'The image has {package} {", ".join(sorted(found)) or "missing"}; '
+                             f'Pi {release} reviews {package} {pin["version"]}')
+
+
 def validate_binding(value, release):
     if (not isinstance(value, dict) or set(value) != {'release', 'id', 'revision', 'sha256'}
             or type(value.get('revision')) is not int

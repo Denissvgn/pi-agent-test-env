@@ -30,7 +30,7 @@ import uuid
 
 from evidence import analyze
 from resources import configure, requested_policy, thread_environment, admission_lock, admission_diagnostic, AdmissionError, TMP_MOUNT
-from builder import limited_build
+from builder import limited_build, resolve_base, buildkit_reference, digest_of
 import secret_store
 import application_credentials
 import ownership_registry
@@ -488,6 +488,11 @@ def probe_image(args, image: str) -> dict:
             info['capabilities'] = json.loads((top / 'logs/stdout.jsonl').read_text())
         except ValueError as exc:
             raise LabError('Image probe did not produce valid JSON') from exc
+        try:
+            release_contracts.require_validator_report(info['capabilities'].get('validators')
+                                                       if isinstance(info['capabilities'], dict) else None)
+        except ValueError as exc:
+            raise LabError(str(exc), 'image-incompatible', remedy('image-incompatible')) from exc
         args.chromium_path = info['capabilities'].get('chromium_path', '/usr/bin/chromium')
     return info
 
@@ -501,6 +506,10 @@ def admit_image(image, expected=None):
     except ValueError as exc:
         raise LabError(str(exc), 'unsupported-pi-release',
                        f'Select and qualify an exact reviewed Pi {release_contracts.describe()} image; no fallback.') from exc
+    try:
+        release_contracts.validate_validators(image.get('capabilities', {}).get('validators'), selected['release'])
+    except ValueError as exc:
+        raise LabError(str(exc), 'image-incompatible', remedy('image-incompatible')) from exc
     return selected
 
 
@@ -518,7 +527,8 @@ def ensure_image(args) -> dict:
                 receipt['release_contract'] = admit_image(receipt, args.pi_version or None)
                 if candidate != args.image:
                     command(['docker', 'image', 'tag', receipt['id'], args.image])
-                receipt.update(action='reused', alias=args.image, host=host)
+                receipt.update(action='reused', alias=args.image, host=host,
+                               package_list_sha256=receipt['capabilities'].get('package_list_sha256'))
                 if args.receipt:
                     save(checked_path(Path(args.receipt)), receipt)
                 return receipt
@@ -535,12 +545,24 @@ def ensure_image(args) -> dict:
     context = checked_path(Path(args.build_context)) if args.build_context else (dockerfile.parent if args.dockerfile else ROOT / 'docker')
     if not dockerfile.is_file() or not context.is_dir() or context in (Path('/'), Path.home()):
         raise LabError('Use an existing reviewed Dockerfile and a dedicated environment-only build context, not / or home')
+    try:
+        base = resolve_base(args, dockerfile)
+        buildkit_image = buildkit_reference(args)
+    except (OSError, ValueError) as exc:
+        raise LabError(str(exc)) from exc
     build_receipt = limited_build(args, dockerfile, context, command)
     receipt = probe_image(args, args.image)
     receipt['release_contract'] = admit_image(receipt, args.pi_version)
+    # The receipt names the base the build really used: the pinned or explicit
+    # reference, or, for a project's own Dockerfile, its FROM lines as written.
     receipt.update(action='built', host=host, prior_candidates=attempted,
                    requested_pi_version=args.pi_version,
-                   base_image=args.base_image, build=build_receipt)
+                   base_image=base['image'], base_source=base['source'], base_references=base['references'],
+                   base_digest=digest_of(base['image']),
+                   base_argument=base['argument'], base_argument_in_from=base['argument_in_from'],
+                   buildkit=build_receipt.get('buildkit') or {'image': buildkit_image, 'digest': digest_of(buildkit_image)},
+                   package_list_sha256=receipt['capabilities'].get('package_list_sha256'),
+                   build=build_receipt)
     if args.receipt:
         save(checked_path(Path(args.receipt)), receipt)
     return receipt
@@ -2282,7 +2304,7 @@ def parser():
             q.add_argument('--policy', choices=['auto', 'reuse', 'build'], default='auto')
             q.add_argument('--reuse', action='append', default=[], metavar='TRUSTED_IMAGE')
             q.add_argument('--pi-version', default=DEFAULT_VERSION)
-            q.add_argument('--base-image', default='node:24-bookworm-slim')
+            q.add_argument('--base-image', help='Base image of the bundled Dockerfile; default is the digest-pinned reference in docker/pins.json')
             q.add_argument('--apt-package', action='append', default=[])
             q.add_argument('--receipt')
             q.add_argument('--dockerfile', help='Reviewed custom environment Dockerfile; must honor PI_VERSION and supply baseline tools')
@@ -2291,7 +2313,7 @@ def parser():
             q.add_argument('--build-memory', help='Memory ceiling for BuildKit; swap disabled')
             q.add_argument('--build-parallelism', type=int, help='Maximum parallel BuildKit steps')
             q.add_argument('--build-timeout', type=int, help='Image-build wall-time budget in seconds')
-            q.add_argument('--buildkit-image', default='moby/buildkit:buildx-stable-1', help='Trusted BuildKit image; use a digest for reproducibility')
+            q.add_argument('--buildkit-image', help='Trusted BuildKit image; default is the digest-pinned reference in docker/pins.json')
         if name in ('run', 'smoke', 'preflight'):
             q.add_argument('--inference-env',help='Explicit confirmed named indexed inference environment')
             q.add_argument('--catalog-dir',help='Owner-private indexed catalog override')
