@@ -19,8 +19,11 @@ required before any run.
 ## Configure an explicit plan
 
 Set `SKILL_DIR` to the installed skill directory. Supply an already reviewed
-immutable native `linux/arm64` image/runtime receipt identifying exact Pi 0.87.1
-or 1.2.0. Browser configuration additionally requires a matching successful
+immutable native `linux/arm64` image/runtime receipt identifying an exact
+reviewed Pi release. See
+[PI-COMPATIBILITY.md](../../references/PI-COMPATIBILITY.md) for the reviewed
+releases and their compatibility requirements. Browser configuration additionally
+requires a matching successful
 `chromium-userns` browser admission receipt with confirmed cleanup. The API
 variant uses a core receipt; it rejects a browser-only admission receipt.
 
