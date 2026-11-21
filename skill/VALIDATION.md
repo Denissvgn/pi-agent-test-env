@@ -3,13 +3,9 @@
 Package checks separate structural integrity, offline behavior and live execution.
 Passing one category does not imply the others passed.
 
-For the 4.6.0 application-client/native-budget additions, native qualification
-remains partial. Offline tests and reviewed package bytes do not establish
-authenticated browser acceptance, affected runtime admission or sensitive
-cleanup. Release preparation does not create a native qualification window or
-clear historical uncertainty. See the current scope in
-[QUALIFICATION.md](QUALIFICATION.md); the dated live evidence below remains
-attached to its original executable and environment.
+See [QUALIFICATION.md](QUALIFICATION.md) for the current qualified scope and
+its limits. Dated live evidence below remains attached to its original executable
+and environment; offline checks do not establish live acceptance.
 
 ## 4.11.0 release checks
 

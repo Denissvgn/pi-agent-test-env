@@ -1,6 +1,6 @@
 # Reviewed Pi 1.2.0 execution contract
 
-Pi 0.87.1 and 1.2.0 have separate exact contracts in
+Every reviewed release has a separate exact contract in
 `runtime/release_contracts.py`. The host chooses from the observed image version,
 checks it before dispatch, and binds the selected contract to the worker and
 every continuation. Unknown, ambiguous and prerelease versions are unsupported.
@@ -37,7 +37,7 @@ pin base/builder inputs and retain actual installed dependency/image identities.
 - Require `agent_settled.aborted` to be a boolean on 1.2.0. True, missing or
   malformed values cannot establish clean completion. The 0.87.1 event remains
   fieldless. A Pi abort cannot authorize parent cancellation or continuation.
-- Both releases require settlement, valid ordered tool/message evidence,
+- Every reviewed release requires settlement, valid ordered tool/message evidence,
   exact model/provider, successful final stop text and process completion.
   JSON exit 0 alone is insufficient; the release's truncation exit-code fix is
   specific to text mode. Historical `process-exit` inspection is separately
