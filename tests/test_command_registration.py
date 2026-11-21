@@ -42,7 +42,7 @@ class VersionTests(unittest.TestCase):
 
 class RegistrationTests(unittest.TestCase):
     def test_sample_module_is_listed_parsed_and_returns_exit_code(self):
-        with mock.patch.object(command_modules, 'COMMAND_MODULES', ('sample_command_module',)):
+        with mock.patch.object(command_modules, 'COMMAND_MODULES', ('test_sample_command_module',)):
             code, help_text = run_main(['--help'])
             self.assertEqual(code, 0)
             self.assertIn('sample-greet', help_text)
