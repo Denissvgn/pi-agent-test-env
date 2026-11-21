@@ -7,6 +7,9 @@ and isolation.
 
 ## Scope
 
+Host prerequisite diagnostics may report `python-version` when the host is
+below the documented Python 3.12 floor.
+
 The runner evaluates a small application through reviewed CLI/API commands, with
 fresh snapshots, serial Pi trials, an independent key-free deterministic scorer,
 fixed finite budgets and the exact selected model. Start with the bundled Python
@@ -178,7 +181,7 @@ Precedence, first match wins:
 | 1 | `cancelled` | `termination.reason` is `cancelled`; the phase is where the run was |
 | 2 | `blocked`; `admission`, `image`, `preflight` or `setup` | no agent stage was launched, and the run was not stopped by one of the stage failures of rows 3 to 6 |
 | 3 | `infrastructure_fault`, `cleanup` | a removal was not confirmed in any stage: `termination.reason` or `trigger` is `cleanup_error`, or a stage receipt has `cleanup_confirmed` false |
-| 4 | `endpoint_unreachable`, `endpoint_auth_failed`, `endpoint_error`; `preflight` or `agent` | the endpoint preflight failed, or an agent stage ended without a verified completion on provider errors that the retry policy did not absorb |
+| 4 | `endpoint_unreachable`, `endpoint_auth_failed`, `endpoint_error`; `preflight` or `agent` | the endpoint preflight failed, or an agent stage ended without a verified completion on provider errors that the retry policy did not absorb; the reason is the last unabsorbed provider stop reason |
 | 5 | `infrastructure_fault`; `agent` or `check`, or the phase the run was in when its controller was lost | the supervisor lost its controller; the runner failed after launch; a stage receipt carries a supervisor fault; a check command could not be started; a scorer could not be executed |
 | 6 | `setup_failed`, `setup` | a setup command ended with a failure |
 | 7 | `out_of_memory`; `agent` or `check` | the memory limit killed a stage (`oom`) |
@@ -219,7 +222,9 @@ outcome than was recorded:
   `unsuccessful_messages` in the trace evidence of its last Pi process, less the
   attempts in `provider_retries` when the endpoint allows retries. A model
   server that stops answering without returning an error leaves no such entry;
-  the stage ends as `agent_timeout`.
+  the stage ends as `agent_timeout`. For `endpoint_error`, `reason` is the last
+  unabsorbed provider stop reason (for example, `error`), rather than the
+  overall run termination reason.
 - The supervisor faults of row 5 are the receipt fields
   `native_tool_budget_error`, `recovery_error`, `observation_error`,
   `budget_error` and `capture_errors`.

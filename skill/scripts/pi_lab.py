@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Host-side orchestration for real Pi agents. Python >=3.10, local Docker daemon.
+"""Host-side orchestration for real Pi agents. Python >=3.12, local Docker daemon.
 
 The parent has Docker access; children do not. Results live outside the child mount.
 See SKILL.md and references/SECURITY.md before use.
@@ -1922,7 +1922,7 @@ def _host_lock_check(args) -> dict:
     selected = os.environ.get('PI_LAB_LOCK_FILE')
     if selected is not None and Path(selected).expanduser().absolute() == lease:
         selected_by, origin = 'PI_LAB_LOCK_FILE', 'selected by PI_LAB_LOCK_FILE'
-    elif lease == Path(host_lock_file()).absolute():
+    elif not getattr(args, 'lock_file_explicit', False) and lease == Path(host_lock_file()).absolute():
         selected_by, origin = 'default', 'shared host lease; PI_LAB_LOCK_FILE did not select it'
     else:
         selected_by, origin = '--lock-file', 'selected by --lock-file; PI_LAB_LOCK_FILE did not select it'
@@ -1983,7 +1983,8 @@ def cmd_doctor(args) -> int:
             item['remedy'] = remedy(reason, **fields)
         checks.append(item)
 
-    add('python', 'ok' if sys.version_info >= (3, 10) else 'fail', platform.python_version())
+    python_status, python_detail = python_floor_check()
+    add('python', python_status, python_detail, 'python-version' if python_status == 'fail' else '')
     docker_ok = False
     try:
         info = docker_info()
@@ -2010,10 +2011,22 @@ def cmd_doctor(args) -> int:
     else:
         add('image', 'skip', 'Docker unavailable')
 
-    endpoint_path = args.endpoint or (str(lab_env.endpoint_path()) if lab_env.endpoint_path().exists() else None)
+    saved_endpoint_path = None
+    home_unavailable = False
+    if args.endpoint:
+        endpoint_path = args.endpoint
+    else:
+        try:
+            saved_endpoint_path = lab_env.endpoint_path()
+            endpoint_path = str(saved_endpoint_path) if saved_endpoint_path.exists() else None
+        except (RuntimeError, OSError):
+            endpoint_path = None
+            home_unavailable = True
     if not args.endpoint:
         session = args.session or os.environ.get('PI_LAB_SESSION')
-        if not lab_env.endpoint_path().exists():
+        if home_unavailable:
+            add('environment', 'warn', 'No home directory is available to inspect a saved model environment')
+        elif not saved_endpoint_path.exists():
             add('environment', 'fail', 'No saved model environment', 'environment-missing')
         elif not session:
             add('environment', 'warn', 'Saved environment found; pass --session ID to check confirmation')
@@ -2087,6 +2100,13 @@ def cmd_doctor(args) -> int:
     return 2 if blockers else 0
 
 
+def python_floor_check(version=None, version_text=None):
+    """Return the doctor result for the supported host Python floor."""
+    version = sys.version_info if version is None else version
+    return ('ok' if version >= (3, 12) else 'fail',
+            platform.python_version() if version_text is None else version_text)
+
+
 def cmd_secrets(args) -> int:
     store = getattr(args, 'secrets_dir', None)
     try:
@@ -2119,8 +2139,12 @@ def cmd_secrets(args) -> int:
 
 
 def default_runs_dir() -> str:
-    new_dir = Path.home() / '.local/state/pi-agent-test-env/runs'
-    old_dir = Path.home() / '.local/state/pi-agentic-development/runs'
+    try:
+        home = Path.home()
+    except (RuntimeError, OSError):
+        return '~/.local/state/pi-agent-test-env/runs'
+    new_dir = home / '.local/state/pi-agent-test-env/runs'
+    old_dir = home / '.local/state/pi-agentic-development/runs'
     if not new_dir.exists() and old_dir.exists():
         return str(old_dir)
     return str(new_dir)
@@ -2144,7 +2168,11 @@ def default_lock_file() -> str:
     """
     explicit = os.environ.get('PI_LAB_LOCK_FILE')
     if explicit is None:
-        return host_lock_file()
+        try:
+            return host_lock_file()
+        except (RuntimeError, OSError):
+            # Keep parser construction usable for commands with an explicit lease.
+            return '~/.local/state/pi-agent-test-env/operation.lock'
     if not explicit or '\0' in explicit or not os.path.isabs(explicit):
         raise SystemExit('PI_LAB_LOCK_FILE must be an absolute lease path')
     return explicit
@@ -2237,7 +2265,11 @@ def parser():
     doc.add_argument('--probe-image', action='store_true', help='Run full container capability probe (requires Docker)')
     doc.add_argument('--egress-proof', action='store_true',
                      help='Run the endpoint-only containment proof alone, with no endpoint and no key (requires Docker)')
-    doc.add_argument('--lock-file', default=default_lock_file())
+    class LockFileAction(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string=None):
+            setattr(namespace, self.dest, values)
+            setattr(namespace, 'lock_file_explicit', True)
+    doc.add_argument('--lock-file', default=default_lock_file(), action=LockFileAction)
     doc.add_argument('--lock-wait-seconds', type=int, default=0)
     doc.add_argument('--platform', choices=['linux/arm64', 'linux/amd64'])
     doc.add_argument('--profile', choices=['core', 'browser'], default='core')
