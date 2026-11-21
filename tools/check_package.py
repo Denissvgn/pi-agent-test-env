@@ -104,8 +104,9 @@ def check(source, verify_manifest=True, *, paths=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source',type=Path,default=REPO/'skill')
+    parser.add_argument('--no-manifest', action='store_true', help='Skip checksum manifest verification')
     args = parser.parse_args()
-    try: result = check(args.source)
+    try: result = check(args.source, verify_manifest=not args.no_manifest)
     except (OSError,ValueError,KeyError,TypeError) as exc:
         print(json.dumps({'status':'fail','reason':str(exc)})); return 1
     print(json.dumps(result,indent=2)); return 0

@@ -91,7 +91,10 @@ def run(image, report, *, platform=None, limits=None, timeout=1800):
     identity = json.loads(docker('image', 'inspect', image))[0]
     if identity['Os'] != 'linux' or PLATFORMS.get(identity['Architecture']) != platform:
         raise ValueError('Image must match the native platform; emulation is not a qualification')
+    base = (identity.get('Config', {}).get('Labels') or {}).get('ci.python-image-reference', '')
+    digest = base.rsplit('@', 1)[-1] if re.fullmatch(r'.+@sha256:[0-9a-f]{64}', base) else None
     result = {'status': 'fail', 'image': image, 'image_id': identity['Id'], 'platform': platform,
+              'python_image_digest': digest,
               'limits': limits, 'network': 'none', 'source_read_only': True, 'jobs': []}
     with tempfile.TemporaryDirectory(prefix='pi-docker-ci-') as temporary:
         source = stage(Path(temporary).resolve()/'candidate')
