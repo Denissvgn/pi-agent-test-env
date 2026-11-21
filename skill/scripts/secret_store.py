@@ -6,6 +6,8 @@ never inside a project or a child mount. Values are never printed; status shows
 only a short SHA-256 fingerprint so a user can confirm which key is active.
 """
 from __future__ import annotations
+from contextlib import contextmanager
+from contextvars import ContextVar
 import getpass
 import hashlib
 import os
@@ -16,6 +18,30 @@ import sys
 
 NAME_RE = re.compile(r'[A-Z_][A-Z0-9_]*')
 MAX_LEN = 4096
+_diagnostic_values = ContextVar('diagnostic_values', default=None)
+
+
+@contextmanager
+def diagnostic_scope():
+    """Keep resolved values available for redaction only during this command."""
+    if _diagnostic_values.get() is not None:
+        yield
+        return
+    token = _diagnostic_values.set(set())
+    try:
+        yield
+    finally:
+        _diagnostic_values.reset(token)
+
+
+def remember_secrets(values):
+    current = _diagnostic_values.get()
+    if current is not None:
+        current.update(value for value in values if value)
+
+
+def diagnostic_secrets():
+    return _diagnostic_values.get() or ()
 
 
 class SecretError(RuntimeError):
@@ -55,6 +81,7 @@ def clean_value(raw: str) -> str:
         raise SecretError(f'Secret longer than {MAX_LEN} characters; refusing')
     if any(c.isspace() or ord(c) < 32 or ord(c) == 127 for c in value):
         raise SecretError('Secret contains whitespace or control characters; paste only the key itself')
+    remember_secrets([value])
     return value
 
 
@@ -133,6 +160,7 @@ def resolve_secret(name: str, store=None) -> tuple[str, str]:
     check_name(name)
     value = os.environ.get(name, '').strip()
     if value:
+        remember_secrets([value])
         return value, 'env'
     value = read_secret(name, store)
     if value:

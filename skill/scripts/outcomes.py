@@ -8,8 +8,25 @@ import stat
 import uuid
 
 import stage_control as controls
+from diagnostics import LabError, failure_text
+import secret_store
 from resources import admission_diagnostic
-from application_credentials import CredentialError
+from application_credentials import CredentialError, Redactor
+
+
+def failure_fields(exc, admission):
+    """Only the admission catalog and runner-owned errors supply diagnostic fields."""
+    if admission is not None:
+        return admission
+    if isinstance(exc, LabError):
+        return {'reason': exc.reason or type(exc).__name__, 'remedy': exc.remedy}
+    if type(exc) is CredentialError:
+        return {'reason': CredentialError.reason}
+    return {'reason': type(exc).__name__}
+
+
+def error_digest(exc):
+    return hashlib.sha256(str(exc).encode('utf-8', 'backslashreplace')).hexdigest()
 
 
 def initial():
@@ -431,20 +448,20 @@ class Attempt:
 
     def fail(self,exc):
         self.record['infrastructure']['status']='failed'
-        diagnostic = admission_diagnostic(exc)
-        self.record['infrastructure']['reason']=(diagnostic['reason'] if diagnostic is not None
-                                               else CredentialError.reason if type(exc) is CredentialError
-                                               else type(exc).__name__ if isinstance(exc,ValueError)
-                                               else getattr(exc,'reason','') or type(exc).__name__)
+        diagnostic = failure_fields(exc, admission_diagnostic(exc))
         # Keep diagnostic identifiers, never raw exception text/keys/URLs.
-        guidance = (diagnostic.get('remedy', '') if diagnostic is not None else '' if isinstance(exc,ValueError)
-                    else getattr(exc,'remedy',''))
+        reason = diagnostic['reason']
+        guidance = diagnostic.get('remedy', '')
+        if isinstance(exc, LabError):
+            redactor = Redactor(secret_store.diagnostic_secrets())
+            reason, guidance = failure_text(reason, redactor), failure_text(guidance, redactor)
+        self.record['infrastructure']['reason'] = reason
         if guidance:self.record['infrastructure']['remedy']=guidance
         else:self.record['infrastructure'].pop('remedy',None)
-        if diagnostic is not None and 'registry_diagnostic' in diagnostic:
+        if 'registry_diagnostic' in diagnostic:
             self.record['infrastructure']['registry_diagnostic']=diagnostic['registry_diagnostic']
         else:self.record['infrastructure'].pop('registry_diagnostic',None)
-        self.record['infrastructure']['error_digest']=hashlib.sha256(str(exc).encode()).hexdigest()
+        self.record['infrastructure']['error_digest']=error_digest(exc)
         if self.record['scoring']['status']=='not_started':
             self.record['scoring'].update(status='skipped',reason='infrastructure_failure')
         elif self.record['scoring']['status']=='running':
