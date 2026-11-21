@@ -35,7 +35,88 @@ class CiToolsTests(unittest.TestCase):
             source.write_text('[one](target.md#hello-world) [two](target.md#repeat-1)\n')
             self.assertEqual(check_links.check(root, [source, target]), [])
             source.write_text('[broken](target.md#missing)\n')
-            self.assertIn('missing anchor', check_links.check(root, [source])[0])
+            self.assertIn('missing anchor', check_links.check(root, [source, target])[0])
+
+    def test_root_relative_links_use_repository_root(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / 'docs' / 'fixture.md'
+            source.parent.mkdir()
+            source.write_text(
+                '[heading](/target.md#heading) [directory](/docs/) [root](/) '
+                '[external](//example.invalid/missing.md) [missing](/missing.md)\n'
+            )
+            target = root / 'target.md'
+            target.write_text('# Heading\n')
+            self.assertEqual(
+                check_links.check(root, [source, target]),
+                ['docs/fixture.md: /missing.md: missing target'],
+            )
+
+    def test_html_comments_hide_links_and_headings(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / 'fixture.md'
+            source.write_text(
+                '# Visible\n\n<!-- [example](missing.md) -->\n\n'
+                '<!--\n# Hidden\n[further example]: missing.md\n-->\n\n'
+                '```markdown\n<!--\n```\n\n'
+                '`<!--` [visible](#visible) [broken](#hidden)\n'
+            )
+            self.assertEqual(
+                check_links.check(root, [source]),
+                ['fixture.md: #hidden: missing anchor'],
+            )
+
+    def test_indented_code_hides_links_and_headings(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / 'fixture.md'
+            source.write_text(
+                '# Visible\n\n    # Hidden\n    [example](missing.md)\n\n'
+                '\t[also hidden]: missing.md\n\n'
+                'A paragraph can continue\n    [inline](#missing-inline)\n\n'
+                '- Parent item\n\n    - [nested](#missing-nested)\n\n'
+                '[visible](#visible) [broken](#hidden)\n'
+            )
+            self.assertEqual(
+                check_links.check(root, [source]),
+                [
+                    'fixture.md: #missing-inline: missing anchor',
+                    'fixture.md: #missing-nested: missing anchor',
+                    'fixture.md: #hidden: missing anchor',
+                ],
+            )
+
+    def test_heading_anchors_preserve_literal_underscores(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / 'fixture.md'
+            source.write_text(
+                '# API_v2\n\n[heading](#api_v2)\n\n'
+                '## _Emphasized_ `_literal_`\n\n[formatting](#emphasized-_literal_)\n'
+            )
+            self.assertEqual(check_links.check(root, [source]), [])
+
+    def test_link_targets_must_be_tracked_with_exact_case(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / 'fixture.md'
+            source.write_text(
+                '[temporary](untracked.md) [asset](assets/Target.txt) '
+                '[wrong case](assets/target.txt)\n'
+            )
+            (root / 'untracked.md').write_text('# Not in Git\n')
+            asset = root / 'assets' / 'Target.txt'
+            asset.parent.mkdir()
+            asset.write_text('Tracked asset\n')
+            self.assertEqual(
+                check_links.check(root, [source, asset]),
+                [
+                    'fixture.md: untracked.md: missing target',
+                    'fixture.md: assets/target.txt: missing target',
+                ],
+            )
 
     @unittest.skipUnless((ROOT / '.git').exists(), 'requires a Git checkout')
     def test_tracked_markdown_links(self):
