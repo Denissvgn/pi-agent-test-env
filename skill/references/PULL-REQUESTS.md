@@ -29,7 +29,10 @@ Before merging:
 ```bash
 python3 "$SKILL_DIR/scripts/pr_review_gate.py" \
   --repo OWNER/REPOSITORY --pr PR_NUMBER --head VERIFIED_HEAD_SHA \
-  --expect-reviewer Copilot > /tmp/pr-review-gate.json
+  --expect-reviewer Copilot --require-check CHECK_NAME > /tmp/pr-review-gate.json
+python3 "$SKILL_DIR/scripts/pr_review_gate.py" \
+  --repo OWNER/REPOSITORY --pr PR_NUMBER --head VERIFIED_HEAD_SHA \
+  --independent-review "REVIEWER AND LOCATION" --require-check CHECK_NAME > /tmp/pr-review-gate-independent.json
 ```
 
 `--expect-reviewer` is repeatable for additional required reviewers. Its default

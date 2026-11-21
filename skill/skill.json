@@ -161,7 +161,7 @@
     {
       "name": "pr-review-gate",
       "description": "Parent-host read-only GitHub exact-head review/readiness gate; requires authenticated gh CLI and never merges",
-      "command": "python3 scripts/pi_lab.py pr-review-gate --repo OWNER/REPOSITORY --pr 1 --head VERIFIED_HEAD_SHA --expect-reviewer Copilot"
+      "command": "python3 scripts/pi_lab.py pr-review-gate --repo OWNER/REPOSITORY --pr 1 --head VERIFIED_HEAD_SHA --expect-reviewer Copilot --require-check CHECK_NAME"
     }
   ],
   "exit_codes": {
