@@ -63,10 +63,9 @@ The structural analyzer requires:
 - no exhausted retries, pending tool calls, or nonzero process exit;
 - `agent_settled` under the default completion contract.
 
-Explicit `--event-contract process-exit` supports an audited earlier one-shot Pi
-schema that has no `agent_settled`. It still requires an ended lifecycle, final
-assistant response, matching identity, completed tools, no pending retry, and exit
-0. Missing events never cause an automatic relaxation. Context overflow/length
+`--event-contract process-exit` is rejected by every reviewed Pi release because
+each requires `agent_settled`; it is not a usable execution option. Missing
+events never cause an automatic relaxation. Context overflow/length
 termination is not successful completion. Zero/missing usage is reported, not
 invented and not proof by itself that no model call occurred.
 
@@ -121,7 +120,7 @@ LLM, browser, Docker, or model-tool acceptance run. Preparation-stage validation
 coverage and omissions are documented in `VALIDATION.md`.
 
 Protocol reference:
-[Pi 0.87.1 JSON specification](https://github.com/earendil-works/pi/blob/f07218c4d4bbc12bef056a7058c3dd49dfe41abe/packages/coding-agent/docs/json.md).
+The [Pi 0.87.1 JSON specification](https://github.com/earendil-works/pi/blob/f07218c4d4bbc12bef056a7058c3dd49dfe41abe/packages/coding-agent/docs/json.md) is supplemented by release-specific event contracts in [PI-1.2.0.md](PI-1.2.0.md) and [PI-1.5.2.md](PI-1.5.2.md).
 The release-specific state-machine requirements, example shapes and dated
 qualification scope are in [PI-COMPATIBILITY.md](PI-COMPATIBILITY.md).
 
@@ -153,9 +152,9 @@ PI-COMPATIBILITY.md; synthetic fixtures never qualify a release live.
 Protocol validity, final completion and clean invocation are separate evidence
 fields. Default retries/compaction are disallowed; explicitly enabled diagnostic
 retry fixtures may complete with invocation_status=recovered, retaining earlier
-errors and never agent_invocation_verified=true. Explicit process-exit legacy
-ordering remains available without auto-downgrade, but rejects Pi 0.87.1 when its
-version is observed. Actual release/event support requires matching live traces.
+errors and never agent_invocation_verified=true. The process-exit contract is
+rejected by every reviewed release. Actual release/event support requires matching
+live traces.
 
 ## Independent scorer schema 1
 

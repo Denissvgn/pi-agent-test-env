@@ -1,7 +1,9 @@
 # Opt-in parallel Pi agents
 
-Status: implementation contract. Experimental schema-2 code must pass the gates
-below before promotion; this document alone establishes no qualification. Implement the phases in order; each phase has a verification gate.
+Status: implemented in 4.5.0 and qualified again in 4.10.0. This historical
+contract describes the shipped schema-2 opt-in. The phases and gates below are
+historical; implementation was promoted in 4.5.0 and qualified again in 4.10.0.
+
 The shipped serial path and exact Pi 0.87.1/1.2.0 contracts remain the baseline.
 
 ## Objective and first scope
@@ -267,10 +269,10 @@ receipts cannot establish overlapping-worker behavior.
 
 ## Rollout and completion criteria
 
-Ship serial default first, then an explicitly selected experimental two-trial
-mode after all gates pass. Avoid enabling it through auto-detected CPU count or
-saved configuration migration. Roll back by selecting serial mode in a newly
-prepared experiment; do not edit a running/frozen parallel experiment in place.
+The implemented parallel mode remains opt-in, with serial as the default. This
+historical plan records the original rollout sequence and rollback procedure;
+select serial mode in a newly prepared experiment and do not edit a frozen
+parallel experiment in place.
 
 Complete means two genuine Pi containers overlapped on native ARM64 within the
 frozen aggregate budget, both exact Pi releases passed their positive and fault

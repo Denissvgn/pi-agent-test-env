@@ -2,10 +2,10 @@
 
 Original general-source list reviewed on 2026-10-05; release-specific Pi inspection
 added on 2026-10-07. Mutable references below are background reading, not pins.
-[PI-COMPATIBILITY.md](PI-COMPATIBILITY.md) defines the exact 0.87.1 source-inspected
-candidate at `f07218c4d4bbc12bef056a7058c3dd49dfe41abe`, artifact integrity,
-mandatory/optional interfaces and scoped native runtime evidence. It does
-not automatically select that version or qualify a different user configuration.
+[PI-COMPATIBILITY.md](PI-COMPATIBILITY.md), [PI-1.2.0.md](PI-1.2.0.md) and
+[PI-1.5.2.md](PI-1.5.2.md) define the inspected Pi releases, artifact integrity,
+interfaces and scoped runtime evidence. They do not automatically select a
+release or qualify a different configuration.
 
 ## Skill format and Pi
 
@@ -57,8 +57,7 @@ weakened modes rather than automatic fixes. Browser launch does not prove a UI t
 
 ## Source and test provenance
 
-This is a revised workflow package built from the user-provided
-`pi-local-agent-tests.zip`. It is not an official Pi/Docker/Unsloth release. The
-English documentation, generic templates, resource policy/builder code, and new
-tests are part of this revision. No upstream source files or font assets are
-redistributed. Test fixtures simulate protocol data only for unit testing.
+This workflow package is not an official release of the upstream projects it integrates with. The English
+documentation, generic templates, resource policy/builder code and tests are
+maintained here. No upstream source files or font assets are redistributed. Test
+fixtures simulate protocol data only for unit testing. [moby-default.json](../assets/security/README.md) is copied unchanged from the pinned Moby profile described there.

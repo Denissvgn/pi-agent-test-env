@@ -1,7 +1,7 @@
 # Indexed inference environments: implementation and qualification plan
 
-Status: fixed-order implementation plan; no indexed runtime feature or native
-execution is authorized by this document alone. Date: 14 October 2026.
+Status: implemented in 4.5.0 and qualified on Pi 1.5.2 in 4.10.0. This historical
+plan is dated 14 October 2026; it does not authorize runtime execution.
 Baseline: released 4.4.0 at `3664d60370ef48a3b2a696f66c3200618f081487`.
 The [impact assessment](indexed-inference-environments.md) supplies the rationale.
 Where its open questions differ from decisions below, this plan governs the

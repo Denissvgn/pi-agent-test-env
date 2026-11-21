@@ -10,7 +10,8 @@ fixture tool. Validation alone does not load a component or establish integratio
 use. The separate compiled application route is described below.
 
 The closed catalog contains the empty built-in profile, `fixture-lookup`, and
-`application-client`. The application compiler selects exact release-bound
+`application-client`. The reviewed fixture declarations include
+`profile.pi-1.5.2.json` for Pi 1.5.2. The application compiler selects exact release-bound
 bundled assets; legacy plans cannot select it through blanket `--agent-profile`
 application. There is no ambient profile/plugin discovery.
 
@@ -21,7 +22,7 @@ tools, required_tools, assets, service_endpoints. The empty builtin declaration
 has id/kind builtin and empty arrays. The fixture kind/id is fixture-lookup,
 with one component `{id: fixture-lookup, kind: pi-extension, version: "1",
 pi_release: "0.87.1", entrypoint: fixture-lookup.mjs}` (or the separately reviewed
-exact `1.2.0` declaration) and exactly one declared and
+exact `1.2.0` or `1.5.2` declaration) and exactly one declared and
 required successful tool, fixture_lookup. Service endpoints must be empty: this
 profile adds no network service, credentials, setup command or privileges.
 
@@ -97,6 +98,7 @@ fixture calls/read-only mounts and original failures; arbitrary configurations
 remain unqualified. See VALIDATION.md for evidence scope.
 
 For Pi 1.2.0 select `assets/profiles/fixture-lookup/profile.pi-1.2.0.json` explicitly.
+For Pi 1.5.2 select `assets/profiles/fixture-lookup/profile.pi-1.5.2.json` explicitly.
 The original `profile.json` remains release-bound to 0.87.1 with unchanged bytes.
 See [PI-1.2.0.md](PI-1.2.0.md) for the exact newer contract.
 

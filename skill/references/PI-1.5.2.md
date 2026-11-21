@@ -58,8 +58,9 @@ reproduced the frozen 1.2.0 tool declarations exactly.
 - On SIGTERM, Pi now aborts the active run and waits for it before exiting.
   Extensions receive the aborted events and the aborted turn is written to the
   session file; stdout still receives none of it. A tool that ignores its abort
-  signal delays exit until a second signal. Native cancellation and continuation
-  lanes must confirm that cancelled segments still resume as exact sessions.
+  signal delays exit until a second signal. The 4.10.0 native campaign observed
+  cancellation and continuation on Pi 1.5.2; see the recorded scope in
+  [QUALIFICATION.md](../QUALIFICATION.md).
 - Resuming with a thinking level other than the last recorded one writes a
   `thinking_level_change` session entry. The runner resumes with its frozen
   level, so this does not occur in its runs.
@@ -105,7 +106,5 @@ prepared for 1.2.0 cannot continue on 1.5.2.
 
 ## Qualification scope
 
-Source review and the offline process check establish adapter behavior only. A
-native campaign on exact 1.5.2 images is required before any qualification
-claim. Consult [QUALIFICATION.md](../QUALIFICATION.md) for actual completed
-evidence and limits.
+The 4.10.0 campaign qualified the stable scope on Pi 1.5.2 on 11 November 2026.
+Consult [QUALIFICATION.md](../QUALIFICATION.md) for the recorded evidence and limits.

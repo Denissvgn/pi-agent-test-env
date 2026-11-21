@@ -2,7 +2,7 @@
 
 **English, project-adaptable, resource-bounded workflows for real local-LLM agents.**
 
-This package replaces the project-specific `pi-local-agent-tests` skill. It includes
+This package provides reusable agent workflows. It includes
 an Agent Skills `SKILL.md`, a host-side runner, a Docker build, capability contracts,
 sequential agent plans, independent checks, and small starter projects. The parent
 can be any development agent or a human with permission to run the host scripts;
@@ -127,7 +127,7 @@ Docker Desktop settings, and the separate local-model-server budget.
 
 ```bash
 python3 "$SKILL_DIR/scripts/pi_lab.py" ensure-image \
-  --image pi-agent-tests:browser --reuse pi-workspace:chromium \
+  --image pi-agent-tests:browser --reuse <existing-browser-image> \
   --profile browser --policy reuse \
   --environment "$SKILL_DIR/assets/environments/browser.json" \
   --resources "$SKILL_DIR/assets/resources/browser.json" \
@@ -205,8 +205,9 @@ browser execution is part of the acceptance contract.
 
 On Docker Desktop a host-served endpoint may use `host.docker.internal`. On local
 Linux add `--host-gateway`. For a sibling server use a container DNS name and the
-same user-defined network with `--network`. Do not assume adding a model to
-Studio's Connections automatically republishes it through Studio's plain API.
+same user-defined network with `--network`. `doctor` checks host-side endpoint reachability, not the container route. Its exit
+code is 3 only when a missing key is the sole blocker; otherwise blockers return 2.
+Use `preflight` to check container-side connectivity.
 
 ## Try a real implementation task
 
@@ -275,11 +276,11 @@ budget as the test; large browser runs may require a reviewed bounded increase.
 
 ## Prerequisites Diagnostics & Secret Store
 
-- **Diagnostic Doctor:** Validate host Python, Docker engine & context, container reachability, model endpoint configuration, and secret store in a single diagnostic pass:
+- **Diagnostic Doctor:** Validate host Python, Docker engine & context, container reachability, host-side model endpoint reachability, and secret store in a single diagnostic pass:
   ```bash
   python3 "$SKILL_DIR/scripts/pi_lab.py" doctor --image "$IMAGE" --session "$SESSION"
   ```
-  Classifies failure reasons with machine-readable codes and actionable remedies. Exits with code `3` (`EXIT_NEEDS_SECRET`) if the model key is missing.
+  Classifies failure reasons with machine-readable codes and actionable remedies. Exits with code `3` only when a missing key is the sole blocker; otherwise it exits `2`. It does not check the container route.
 
 - **Host-side Secret Store:** Store inference and named application keys securely in `~/.config/pi-agent-test-env/secrets/` (`0600` permissions, directory `0700`):
   ```bash
@@ -324,8 +325,7 @@ the child's mount. The output reports the exact directory. Inspect:
 An invocation is structurally verified only with matching model/provider,
 completed message/agent lifecycles, required successful tool calls, and exit 0.
 Every reviewed release requires `agent_settled`; 1.2.0 and 1.5.2 also require a
-valid non-aborted settlement flag. Historical `process-exit` trace inspection cannot
-weaken live execution. Prose cannot replace tool events or authorize another model.
+valid non-aborted settlement flag. `--event-contract process-exit` is rejected by every reviewed release. Prose cannot replace tool events or authorize another model.
 
 `PASS`/0 is a clean autonomous mechanical plan result. Assisted/recovered success
 returns exit 1; blocked/cancelled runs return exit 2. Invocation and independent
@@ -334,16 +334,6 @@ Mechanical results are not automatic approval of a reviewer's findings
 or a security certification. Inspect review output, tests, and diff before applying
 anything back to the original. `--in-place` must be consciously opted into; it
 mounts original files and is not equivalent to the snapshot's exclusions.
-
-## Migration from the previous package
-
-Use the new directory/name `pi-agent-test-env`. Stage and review the complete
-English package separately; do not overwrite an existing installation automatically. Endpoints are now required inputs, and
-the model server lives in the saved environment (or an `--endpoint` file), not in the runner. Reuse does not require a build-version argument, but the installed release
-still needs its exact interface contract and qualification receipts. A build
-requires an explicit reviewed version. Defaults now cap runtime/build resource use, serialize cooperating runs, and
-record OOM/applied-limit evidence. Host `.pi-lab` storage and `/opt/pi-lab` helper paths are
-retained for test-helper compatibility; plan schema remains version 1.
 
 See [VALIDATION.md](VALIDATION.md) for exactly what was and was not executed during
 package preparation. Commands in examples are not claims of successful live runs.
