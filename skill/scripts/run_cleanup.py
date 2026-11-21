@@ -451,17 +451,21 @@ def status_line(runroot):
 
 def add_arguments(sub, default_lock, default_results=None):
     for name, help_text in (
-        ('leftovers', 'List containers and networks that a finished or abandoned run left behind; read-only'),
-        ('cleanup', 'Remove what one run left behind, under the host lease; without --yes it only reports')):
+        ('leftovers', 'List leftover Docker resources (experimental)'),
+        ('cleanup', 'Preview or remove leftovers (experimental)'),
+    ):
         parser = sub.add_parser(name, help=help_text)
         parser.add_argument('--run', required=name == 'cleanup',
-                            help='Run id or run directory' + ('' if name == 'cleanup' else ' (default: every run)'))
+                            help='Select a run ID or directory (required)' if name == 'cleanup'
+                            else 'Select a run ID or directory (default: all runs)')
         parser.add_argument('--results-dir', default=default_results,
-                            help='Where run directories are looked up by run id')
-        parser.add_argument('--lock-file', default=default_lock)
-        parser.add_argument('--json', action='store_true', help='Print the report as JSON')
+                            help='Look up run directories here (default: per-user runs directory)')
+        parser.add_argument('--lock-file', default=default_lock,
+                            help='Select the host lease (default: PI_LAB_LOCK_FILE or shared per-user lease)')
+        parser.add_argument('--json', action='store_true', help='Print the report as JSON (default: text)')
         if name == 'cleanup':
-            parser.add_argument('--yes', action='store_true', help='Remove; without it nothing is changed')
+            parser.add_argument('--yes', action='store_true',
+                                help='Remove managed Docker resources for the selected run (default: report only)')
 
 
 def command(args):
