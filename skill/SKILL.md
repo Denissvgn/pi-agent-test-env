@@ -270,8 +270,8 @@ python3 "$SKILL_DIR/scripts/pi_lab.py" smoke --image "$IMAGE" --session "$SESSIO
   --resources "$SKILL_DIR/assets/resources/low-impact.json"
 ```
 
-The explicit ARM64 example is for this workstation; use the native platform on
-another host. `reuse` never builds. `auto`/`build` require an explicitly reviewed
+This example selects the native ARM64 platform; use the native platform for the
+host architecture. `reuse` never builds. `auto`/`build` require an explicitly reviewed
 Pi version and a finite separate BuildKit budget. See package README for build
 recipes. Only reviewed docker/ context is sent; never include application secrets.
 Do not silently use latest Pi or replace a previously qualified image.

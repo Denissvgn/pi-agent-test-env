@@ -513,12 +513,6 @@ scope. Live downstream application workflows/actors, arbitrary integrations, add
 server-wide concurrency and performance improvements remain separate claims.
 
 
-The package implements bounded coding delegation, frozen application experiments
-and one explicit fixture lookup integration. Compatibility depends on the exact
-runtime image, Pi release, model endpoint and resource configuration selected for
-execution. A manifest is an integrity inventory, not a publisher signature or
-image authorization.
-
 ## Evidence scope
 
 Version 4.3.0 added reviewed contracts for Pi 0.87.1 and 1.2.0, with offline
