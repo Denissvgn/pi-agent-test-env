@@ -1,4 +1,4 @@
-kind: changed
+kind: upgrade-note
 
 Blocked runs print the failing phase and error message to stderr. Diagnostic
 messages redact resolved credentials and endpoint URLs. Set `PI_LAB_DEBUG=1`
