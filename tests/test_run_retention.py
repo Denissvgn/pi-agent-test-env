@@ -8,8 +8,9 @@
 #                    protected (bool).
 #   keep             None, or an integer >= 0.
 #   older_than_days  None, or a number >= 0.
-#   now              None, or seconds since the epoch. None means the current
-#                    time (time.time()).
+#   now              None, or seconds since the epoch. It is the reference
+#                    point for older_than_days and is always supplied by the
+#                    caller (see R8).
 #
 # Definitions
 #   candidate  a run with sealed True and protected False.
@@ -36,13 +37,19 @@
 #   R7  A negative keep or a negative older_than_days raises ValueError. The
 #       check happens before anything else, so it applies to empty runs too.
 #       keep=0 and older_than_days=0 are valid.
-#   R8  When now is None the current time is used. When now is given the clock
-#       is not consulted.
+#   R8  The module imports only the Python standard library and reads no file,
+#       environment variable or clock. Age filtering is measured only from the
+#       now the caller passes. With keep alone, or with no rule, now may be
+#       omitted and has no effect. What older_than_days does when now is
+#       omitted is not specified, and no case below depends on it, apart from
+#       R7, whose validation comes first and so applies whether or not now is
+#       given.
 #
 # Boundaries covered below: empty runs, no rules, keep of 0 / exactly the
 # candidate count / more than it, equal started values, ids that sort
 # differently as numbers and as text, started one second either side of the
-# cutoff and exactly at it, zero days, negative values.
+# cutoff and exactly at it, several runs sharing the cutoff or the second just
+# before it, zero days, negative values.
 #
 # The file runs in the repository and, unchanged, in a scratch project. It puts
 # skill/scripts (when present) and the working directory on the import path and
@@ -53,7 +60,6 @@
 import copy
 import importlib
 import sys
-import time
 import unittest
 from pathlib import Path
 
@@ -199,20 +205,28 @@ class RunRetentionTests(unittest.TestCase):
         runs = [run("b", 5), run("c", 7), run("a", 5), run("z", 1)]
         self.assertEqual(select(runs, older_than_days=1, now=now), ["z", "a", "b", "c"])
 
-    def test_older_than_days_uses_the_given_now_not_the_clock(self):
+    def test_older_than_days_is_measured_from_the_given_now(self):
         runs = [run("a", 4 * DAY)]
         self.assertEqual(select(runs, older_than_days=2, now=5 * DAY), [])
         self.assertEqual(select(runs, older_than_days=2, now=6 * DAY + 1), ["a"])
 
-    def test_now_defaults_to_the_current_time(self):
-        current = time.time()
+    def test_equal_started_values_at_and_before_the_cutoff(self):
+        now = 10 * DAY
+        cutoff = now - 3 * DAY
         runs = [
-            run("epoch", 0),
-            run("two-days", current - 2 * DAY),
-            run("half-day", current - DAY / 2),
-            run("future", current + 3600),
+            run("d", cutoff),
+            run("c", cutoff),
+            run("b", cutoff - 1),
+            run("a", cutoff - 1),
         ]
-        self.assertEqual(select(runs, older_than_days=1), ["epoch", "two-days"])
+        self.assertEqual(select(runs, older_than_days=3, now=now), ["a", "b"])
+        self.assertEqual(select(runs, keep=1, older_than_days=3, now=now), ["a", "b"])
+        self.assertEqual(select(runs, keep=3, older_than_days=3, now=now), [])
+
+    def test_keep_alone_does_not_need_now(self):
+        runs = [run("a", 1), run("b", 2), run("c", 3)]
+        self.assertEqual(select(runs, keep=1), ["a", "b"])
+        self.assertEqual(select(runs, keep=1, now=None), ["a", "b"])
 
     def test_both_rules_need_both_to_select(self):
         now = 100 * DAY
