@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import copy
 import datetime as dt
+import errno
 import fnmatch
 import hashlib
 import json
@@ -24,6 +25,7 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 from typing import Any
 from urllib.parse import urlsplit
 import uuid
@@ -50,7 +52,7 @@ from usage_contract import combine as combine_usage, summarize as summarize_usag
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'runtime'))
 import pi_contract
 import release_contracts
-from diagnostics import classify_docker_error, first_line, remedy
+from diagnostics import LabError, classify_docker_error, failure_fields, failure_text, first_line, remedy
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / 'runtime'
@@ -62,14 +64,7 @@ EXCLUDES = {'.git', '.pi', '.agents', '.pi-runtime', '.pi-lab', 'node_modules',
 SECRET_PATTERNS = ['.env', '.env.*', '*.pem', '*.key', 'id_rsa*', 'id_ed25519*']
 ACTIVE: set[str] = set()
 EXIT_NEEDS_SECRET = 3
-
-
-class LabError(RuntimeError):
-    """A blocker. `reason` is a stable machine-readable code; `remedy` is the next action."""
-    def __init__(self, message: str, reason: str = '', remedy: str = ''):
-        super().__init__(message)
-        self.reason = reason
-        self.remedy = remedy
+EXIT_INTERNAL = 70
 
 
 def now() -> str:
@@ -272,7 +267,9 @@ def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
         launch,argv=registry.intent(argv,name,binding={'stage_id':stage[1]['stage_id'],'segment_id':controls.read(stage[0]/'stages'/stage[1]['stage_id']/'state.json').get('segment_id')} if stage else None)
     save(logdir / 'command.json', {'argv': argv, 'api_key_inherited': bool(secret), 'started_at': now()})
     application_secrets = application_secrets or {}
-    redactor = application_credentials.Redactor([secret, *application_secrets.values(), *redaction_secrets])
+    values = [secret, *application_secrets.values(), *redaction_secrets]
+    secret_store.remember_values(values)
+    redactor = application_credentials.Redactor(values)
     env = {k: v for k, v in os.environ.items() if not k.startswith('PI_APP_')}
     env.update(application_secrets)
     if secret:
@@ -702,6 +699,37 @@ def safe_relative(value: str) -> str:
     return p.as_posix()
 
 
+def load_plan(path):
+    path = Path(path).expanduser()
+    base = checked_path(path.parent)
+    if any(c in path.name for c in ',\n\r'):
+        raise LabError('Docker bind source paths containing commas or newlines are not supported')
+    try:
+        # Bind schema selection and validation to the same regular file.
+        fd = os.open(base / path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, encoding='utf-8', newline='') as source:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise LabError('Plan must be a regular file')
+            body = source.read(2 * 1024 * 1024 + 1)
+            if len(body) > 2 * 1024 * 1024:
+                raise LabError('Plan exceeds the size limit')
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise LabError('Plan path is a symlink; pass the regular plan file') from exc
+        raise
+    except UnicodeDecodeError as exc:
+        raise LabError('Plan file must be UTF-8') from exc
+    raw = json.loads(body)
+    if not isinstance(raw, dict):
+        raise LabError('Plan must be a JSON object')
+    if raw.get('document_type') in ('application_plan_source', 'application_execution_plan'):
+        import application_contracts
+        raw = application_contracts.loads(body)
+    elif len(body) > 1024 * 1024:
+        raise LabError('Plan exceeds the size limit')
+    return base, raw
+
+
 def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=False, *, dependency_reader=None) -> dict:
     agent_profile=agent_profile or agent_profiles.builtin()
     if not isinstance(value, dict):
@@ -727,6 +755,8 @@ def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=
         raise LabError('A plan needs real agent stages AND independent checks; prose alone cannot pass')
     if len(value['agents']) > 8 or len(value['checks']) > 20 or len(value.get('setup', [])) > 20:
         raise LabError('Plan exceeds bounded agent/check count')
+    if 'name' in value and not isinstance(value['name'], str):
+        raise LabError('Plan name must be a string')
     result = {'schema': 1, 'name': value.get('name', 'agent-tests'), 'agents': [],
               'setup': [], 'checks': [], 'protected_paths': [], 'required_paths': []}
     for name in value.get('required_paths', []):
@@ -751,6 +781,8 @@ def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=
             raise LabError('Each agent needs exactly one of prompt or prompt_file')
         if 'prompt_file' in t:
             selected = t.pop('prompt_file')
+            if not isinstance(selected, str):
+                raise LabError('prompt_file must be a string path')
             if dependency_reader is None:
                 source = (base / selected).resolve()
                 t['prompt'] = source.read_text()
@@ -764,7 +796,7 @@ def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=
         if not isinstance(t['prompt'], str) or not t['prompt'].strip() or len(t['prompt'].encode()) > 128 * 1024:
             raise LabError('Agent prompt must be nonempty and at most 128 KiB')
         t.setdefault('name', f'agent-{i+1}')
-        if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,50}', t['name']) or t['name'] in names:
+        if not isinstance(t['name'], str) or not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,50}', t['name']) or t['name'] in names:
             raise LabError('Agent names must be unique lowercase slugs')
         names.add(t['name'])
         t['cwd'] = working_directory(t.get('cwd', '.'))
@@ -809,7 +841,7 @@ def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=
             if not isinstance(argv, list) or not argv or not all(isinstance(x, str) and x and '\x00' not in x for x in argv):
                 raise LabError('Check argv must be a nonempty string array; not a shell string')
             t.setdefault('name', f'{section}-{i+1}')
-            if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,50}', t['name']):
+            if not isinstance(t['name'], str) or not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,50}', t['name']):
                 raise LabError('Check names must be lowercase slugs')
             t['cwd'] = working_directory(t.get('cwd', '.'))
             t.setdefault('timeout_seconds', 300)
@@ -1157,6 +1189,7 @@ def _suite_admission(args, existing_identity):
     return existing_admission_lock(args.lock_file,existing_identity,args.lock_wait_seconds)
 
 
+@secret_store.diagnostic_scope()
 def run_suite(args, smoke=False, initial_record=None, *, existing_lease_identity=None):
     """Run under ordinary admission or an explicitly bound existing native lease.
 
@@ -1178,6 +1211,7 @@ def run_suite(args, smoke=False, initial_record=None, *, existing_lease_identity
     args._attempt_root=attempt.root
     args._attempt_identity={k:attempt.record[k] for k in ('run_id','attempt_id')}
     import resources;resources.describe_holder(run_id=attempt.record['run_id'])
+    internal_failure = False
     attempt.record['probe_receipt_contract']=1
     attempt.persist()
     try:
@@ -1230,16 +1264,19 @@ def run_suite(args, smoke=False, initial_record=None, *, existing_lease_identity
                 attempt.record['scoring'].update(status='skipped',reason='post_cancellation_scoring_unavailable')
     except Exception as exc:
         _observe_last_process(attempt)
+        secret_store.remember_values(getattr(args, '_application_values', ()))
         attempt.fail(exc)
-        held_by=_busy_holder(attempt.record['infrastructure'],exc)
+        infrastructure = attempt.record['infrastructure']
+        internal_failure = emit_failure(exc, phase=infrastructure['phase']) == EXIT_INTERNAL
+        held_by=_busy_holder(infrastructure,exc)
         if held_by:print(held_by,file=sys.stderr)
     try:report=attempt.finalize()
     except (OSError,ValueError,controls.ControlError):
         report=outcomes.fallback(attempt.record,'finalization','evidence_finalization_failed')
         print(json.dumps(report),file=sys.stderr)
-        return 2
+        return EXIT_INTERNAL if internal_failure else 2
     print(json.dumps(report,indent=2,ensure_ascii=False))
-    return report['exit_code']
+    return EXIT_INTERNAL if internal_failure else report['exit_code']
 
 
 def _observe_last_process(attempt):
@@ -1290,13 +1327,14 @@ def _execute_suite(args,attempt,smoke=False):
     summary['endpoint']['routes']={name:{'url':endpoint.get(name,endpoint['base_url']),'digest':hashlib.sha256(endpoint.get(name,endpoint['base_url']).encode()).hexdigest()} for name in ('base_url','host_base_url')}
     summary['infrastructure']['phase']='secret'
     secret = endpoint_secret(endpoint, args)
+    secret_store.remember_values([secret, *(indexed.redaction if indexed else ())])
     # Admit every reference before image probes, setup or any worker dispatch.
     project = checked_path(Path(args.project)) if args.project else None
     admitted_plan = None
     stage_credentials = {}
     if not smoke and project is not None and args.plan:
-        planpath = checked_path(Path(args.plan))
-        admitted_plan = validate_plan(json.loads(planpath.read_text()), planpath.parent, profile,external_bindings=bool(indexed and getattr(args,'_indexed_bindings',None)))
+        base, raw = getattr(args, '_plan_input', None) or load_plan(args.plan)
+        admitted_plan = validate_plan(raw, base, profile,external_bindings=bool(indexed and getattr(args,'_indexed_bindings',None)))
         overrides = budget_overrides(args, admitted_plan)
         if overrides: summary['budget_overrides'] = overrides
         secret_store_outside(project, args)
@@ -1309,6 +1347,7 @@ def _execute_suite(args,attempt,smoke=False):
             forbidden_roots=[ROOT, getattr(args, '_experiment_root', None)])
     redaction_secrets = [value for assigned in stage_credentials.values() for value in assigned.values()]
     if indexed:redaction_secrets+=indexed.redaction
+    secret_store.remember_values(redaction_secrets)
     summary['infrastructure']['phase']='host'
     summary['host'] = require_host(args)
     summary['network']=egress.admit(sys.modules[__name__],args,endpoint,admitted_plan)
@@ -1909,7 +1948,7 @@ def host_endpoint_check(endpoint: dict, key: str, timeout: float = 10.0) -> tupl
         return 'fail', f'HTTP {exc.code} from /models', reason
     except (URLError, OSError, ValueError) as exc:
         return 'fail', f'Cannot reach host route {base}: {getattr(exc, "reason", exc)}', 'endpoint-unreachable'
-    ids = [m.get('id') for m in listing.get('data', []) if isinstance(m, dict)]
+    ids = [m.get('id') for m in lab_env.model_entries(listing) if isinstance(m, dict)]
     if endpoint['model'] not in ids:
         return 'fail', f'Model {endpoint["model"]} not listed; server offers {ids[:5]}', 'model-not-found'
     return 'ok', f'{endpoint["model"]} is listed by the server', ''
@@ -2042,8 +2081,12 @@ def cmd_doctor(args) -> int:
             add('endpoint-key', 'ok', f'{name} from {st["active_source"]} ({st["fingerprint"]})')
             key = secret_store.resolve_secret(name, getattr(args, 'secrets_dir', None))[0]
         if key and not args.skip_network:
-            status_, detail, reason = host_endpoint_check(endpoint, key)
-            add('endpoint-host-reachability', status_, detail, reason, name=name)
+            try:
+                status_, detail, reason = host_endpoint_check(endpoint, key)
+                add('endpoint-host-reachability', status_, detail, reason, name=name)
+            except LabError as exc:
+                emit_failure(exc, phase='endpoint')
+                add('endpoint-host-reachability', 'fail', str(exc))
         elif not key:
             add('endpoint-host-reachability', 'skip', 'No key available')
 
@@ -2351,11 +2394,9 @@ def main(argv=None):
     if args.op=='validate-agent-profile':
         profile=agent_profiles.load(args.agent_profile);print(json.dumps({'valid':True,'profile_id':profile['id'],'sha256':agent_profiles.identity(profile)}));return 0
     if args.op == 'validate-plan':
-        path = checked_path(Path(args.plan))
-        import application_contracts
-        raw=json.loads(path.read_text())
-        if type(raw) is dict and raw.get('document_type') in ('application_plan_source','application_execution_plan'):
-            raw=application_contracts.loads(path.read_bytes())
+        base, raw = load_plan(args.plan)
+        if raw.get('document_type') in ('application_plan_source','application_execution_plan'):
+            import application_contracts
             if args.agent_profile or args.external_inference_bindings:raise LabError('Application inputs bind profiles and inference explicitly')
             final=raw['document_type']=='application_execution_plan'
             plan=(application_contracts.validate_ir(raw) if final else application_contracts.validate_source(raw))
@@ -2364,7 +2405,7 @@ def main(argv=None):
                 'plan_sha256':plan.get('plan_sha256'),'runtime_qualified':False},indent=2))
             return 0
         profile=agent_profiles.load(args.agent_profile) if args.agent_profile else agent_profiles.builtin()
-        plan = validate_plan(json.loads(path.read_text()), path.parent,profile,external_bindings=args.external_inference_bindings)
+        plan = validate_plan(raw, base,profile,external_bindings=args.external_inference_bindings)
         print(json.dumps({'valid': True, 'name': plan['name'], 'agents': len(plan['agents']),
                           'checks': len(plan['checks']), 'setup': len(plan['setup'])}, indent=2))
         return 0
@@ -2386,9 +2427,10 @@ def main(argv=None):
     if args.op == 'env':
         return lab_env.run(args, lambda path: load_endpoint(checked_path(path)))
     if args.op in ('run','smoke'):
-        if args.op=='run' and args.plan:
-            raw=controls.read(args.plan)
-            if raw.get('schema')==2:args._indexed_plan_selection=not bool(getattr(args,'inference_env',None))
+        if args.op == 'run' and args.plan:
+            args._plan_input = load_plan(args.plan)
+            if args._plan_input[1].get('schema') == 2:
+                args._indexed_plan_selection = not bool(args.inference_env)
         return run_suite(args,smoke=args.op=='smoke')
     if args.op=='preflight' and getattr(args,'inference_env',None):
         import indexed_broker
@@ -2445,7 +2487,8 @@ def browser_check(args):
         report['reason'] = 'cancelled'
         raise
     except (OSError, ValueError, LabError, controls.ControlError) as exc:
-        report['reason'] = getattr(exc, 'reason', '') or 'browser-admission-failed'
+        diagnostic = admission_diagnostic(exc) or {}
+        report['reason'] = (exc.reason if isinstance(exc, LabError) else diagnostic.get('reason')) or 'browser-admission-failed'
         report['error_type'] = type(exc).__name__
     finally:
         save(root / 'browser-admission.json', report)
@@ -2478,32 +2521,61 @@ def _busy_holder(infrastructure, exc):
     return resources.holder_text(holder) if holder is not None else ''
 
 
+def _debug_traceback(exc, *, admission):
+    if os.environ.get('PI_LAB_DEBUG') != '1':
+        return
+    if admission:
+        # Only catalog text is public for these exceptions, even in debug output.
+        trace = 'Traceback (most recent call last):\n' + ''.join(traceback.format_tb(exc.__traceback__))
+    else:
+        trace = ''.join(traceback.format_exception(exc))
+    print(failure_text(trace), end='', file=sys.stderr)
+
+
+def emit_failure(exc, *, phase='cli'):
+    diagnostic = admission_diagnostic(exc)
+    reason, guidance = failure_fields(exc, diagnostic)
+    message = diagnostic.get('message', 'Admission failed') if diagnostic is not None else str(exc)
+    blocked = diagnostic is not None or isinstance(exc, (LabError, controls.ControlError, ValueError, OSError))
+    message = ' '.join(failure_text(message).splitlines()).strip() or reason
+    if blocked:
+        print(f'BLOCKED [{failure_text(reason)}] phase={phase}: {message}', file=sys.stderr)
+        guidance = guidance or 'Correct the reported problem and retry the command.'
+        print('Remedy: ' + ' '.join(failure_text(guidance).splitlines()), file=sys.stderr)
+    else:
+        print(f'INTERNAL [{reason}]: {message}', file=sys.stderr)
+    _debug_traceback(exc, admission=diagnostic is not None)
+    if not blocked:
+        return EXIT_INTERNAL
+    return EXIT_NEEDS_SECRET if reason == 'missing-secret' else 2
+
+
 def cli_failure(exc):
     diagnostic = admission_diagnostic(exc)
     if diagnostic is not None:
-        infrastructure = {**diagnostic,'error_digest':hashlib.sha256(str(exc).encode()).hexdigest()}
+        infrastructure = {**diagnostic,'error_digest':hashlib.sha256(str(exc).encode(errors='backslashreplace')).hexdigest()}
         held_by = _busy_holder(infrastructure, exc)
         print(json.dumps({'schema':1,'document_type':'admission_failure','status':'BLOCKED','exit_code':2,
                           'infrastructure':infrastructure}),
               file=sys.stderr)
         if held_by:
             print(held_by, file=sys.stderr)
+        _debug_traceback(exc, admission=True)
         return 2
-    reason = getattr(exc, 'reason', '')
-    tag = f' [{reason}]' if reason else ''
-    print(f'BLOCKED{tag}: {exc}', file=sys.stderr)
-    remedy_text = getattr(exc, 'remedy', '')
-    if remedy_text:
-        print(f'Remedy: {remedy_text}', file=sys.stderr)
-    return EXIT_NEEDS_SECRET if reason == 'missing-secret' else 2
+    return emit_failure(exc)
+
+
+@secret_store.diagnostic_scope()
+def cli(argv=None):
+    try:
+        return main(argv)
+    except KeyboardInterrupt:
+        print('INTERRUPTED', file=sys.stderr)
+        return 130
+    except Exception as exc:
+        return cli_failure(exc)
 
 
 if __name__ == '__main__':
     signal.signal(signal.SIGTERM, _interrupt)
-    try:
-        sys.exit(main())
-    except KeyboardInterrupt:
-        print('INTERRUPTED', file=sys.stderr)
-        sys.exit(130)
-    except (LabError, controls.ControlError, ValueError, OSError) as exc:
-        sys.exit(cli_failure(exc))
+    sys.exit(cli())

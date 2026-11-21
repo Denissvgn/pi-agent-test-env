@@ -24,6 +24,7 @@ from urllib.parse import urlsplit, urlunsplit
 from urllib.request import ProxyHandler, Request, build_opener
 
 import secret_store
+from diagnostics import LabError
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"runtime"))
 from context_contract import interpret_context, check_context
@@ -260,6 +261,12 @@ def classify_http(exc: Exception) -> tuple[str, str]:
 META_KEYS = ('n_ctx_train', 'n_params', 'size', 'n_vocab')
 
 
+def model_entries(listing):
+    if not isinstance(listing, dict) or not isinstance(listing.get('data'), list):
+        raise LabError('/models must return a JSON object with a data array')
+    return listing['data']
+
+
 def model_summary(item, models=None, props=None):
     context=interpret_context(item.get('id'),models or [item],props)
     sources=context['effective_sources']
@@ -327,11 +334,12 @@ def health_check(endpoint: dict, store=None, timeout: float = 15.0, chat: bool =
     except Exception as exc:  # noqa: BLE001
         reason, detail = classify_http(exc)
         raise EnvError(f'{base_url}/models: {detail}', 'broken', reason) from None
-    ids = [m.get('id') for m in listing.get('data', []) if isinstance(m, dict)]
+    entries = model_entries(listing)
+    ids = [m.get('id') for m in entries if isinstance(m, dict)]
     if endpoint.get('model') not in ids:
         raise EnvError(f'Model {endpoint.get("model")} is no longer listed; server offers {ids[:8]}', 'broken',
                        'model-not-found')
-    context=interpret_context(endpoint['model'],listing.get('data',[]),fetch_props(base_url,key,timeout))
+    context=interpret_context(endpoint['model'],entries,fetch_props(base_url,key,timeout))
     try:check_context(context,endpoint['context_window'])
     except ValueError as exc:raise EnvError(str(exc),'broken','context-too-small') from None
     detail = {'models_listed': len(ids), 'key_source': source, 'chat': 'skipped','context':context}

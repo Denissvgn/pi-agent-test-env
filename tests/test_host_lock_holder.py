@@ -104,6 +104,14 @@ class HostLockHolderTests(unittest.TestCase):
             finally:
                 fcntl.flock(handle, fcntl.LOCK_UN)
 
+    def holder_line(self, errors):
+        message, remedy = resources.ADMISSION_FAILURES['host-admission-busy']
+        lines = errors.splitlines()
+        self.assertEqual(lines[:2], ['BLOCKED [host-admission-busy] phase=admission: ' + message,
+                                     'Remedy: ' + remedy])
+        self.assertLessEqual(len(lines), 3)
+        return lines[2] if len(lines) == 3 else ''
+
     def refused_run(self):
         """An in-process run that must be refused before any stage: (result, stderr)."""
         args = lab.parser().parse_args(self.run_arguments('refused', self.lease))
@@ -116,7 +124,7 @@ class HostLockHolderTests(unittest.TestCase):
         self.assertEqual((result['status'], result['exit_code']), ('BLOCKED', 2))
         self.assertEqual(result['infrastructure']['reason'], 'host-admission-busy')
         self.assertEqual(lab.controls.read(Path(result['run_dir'])/'result.json'), result)
-        return result, errors.getvalue()
+        return result, self.holder_line(errors.getvalue())
 
     def refused_command(self):
         """An in-process ensure-image refused at admission: (failure object, later stderr lines)."""
@@ -175,7 +183,7 @@ class HostLockHolderTests(unittest.TestCase):
         self.assertNotEqual(value['run_id'], holder['run_id'])
         self.assertLessEqual(before-entered['entered_unix']-2, holder['age_seconds'])
         self.assertLessEqual(holder['age_seconds'], after-entered['entered_unix']+2)
-        text = HELD_BY.fullmatch(result.stderr.strip())
+        text = HELD_BY.fullmatch(self.holder_line(result.stderr))
         self.assertIsNotNone(text, result.stderr)
         self.assertEqual((int(text.group(1)), text.group(2), int(text.group(3))),
                          (helper.pid, 'run', int(holder['age_seconds'])))
@@ -428,7 +436,7 @@ class HostLockHolderTests(unittest.TestCase):
         self.assertEqual(value['invocation'], {'status': 'not_started', 'attempted_stages': 0})
         holder = value['infrastructure']['holder']
         self.assertEqual((holder['pid'], holder['op'], holder['run_id']), (helper.pid, 'run', entered['run_id']))
-        self.assertIsNotNone(HELD_BY.fullmatch(result.stderr.strip()), result.stderr)
+        self.assertIsNotNone(HELD_BY.fullmatch(self.holder_line(result.stderr)), result.stderr)
         self.assertEqual(sorted(p.name for p in shared.parent.iterdir()), ['operation.lock', 'operation.lock.registry'])
         self.assertFalse(any(path.name.startswith('operation.lock') for path in list(first.iterdir())+list(second.iterdir())))
 

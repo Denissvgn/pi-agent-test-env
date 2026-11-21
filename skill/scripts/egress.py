@@ -94,13 +94,13 @@ def _self_managed(args):
                 or getattr(args, 'compiled_plan', None) or getattr(args, '_experiment_root', None))
 
 
-def _indexed_plan(args):
+def _indexed_plan(lab, args):
     """A schema 2 plan selects indexed execution by itself; its own errors are reported later."""
     if not getattr(args, 'plan', None):
         return False
     try:
-        value = json.loads(Path(args.plan).expanduser().read_text(encoding='utf-8'))
-    except (OSError, ValueError):
+        _, value = getattr(args, '_plan_input', None) or lab.load_plan(args.plan)
+    except (OSError, ValueError, controls.ControlError, lab.LabError):
         return False
     return isinstance(value, dict) and type(value.get('schema')) is int and value['schema'] == 2
 
@@ -116,7 +116,7 @@ def validate_request(lab, args):
     if not isinstance(mode, str) or re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,127}', mode) is None:
         raise _blocker(lab, '--network must be none, bridge, endpoint-only or a Docker network name',
                        'network-mode-refused')
-    if mode == MODE and (_self_managed(args) or _indexed_plan(args)):
+    if mode == MODE and (_self_managed(args) or _indexed_plan(lab, args)):
         raise _blocker(lab, '--network endpoint-only cannot be combined with experiment commands, --inference-env, '
                             'indexed or parallel execution or a compiled application plan', 'feature-conflict')
 

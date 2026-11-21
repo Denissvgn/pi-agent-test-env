@@ -9,7 +9,7 @@ import uuid
 
 import stage_control as controls
 from resources import admission_diagnostic
-from application_credentials import CredentialError
+from diagnostics import failure_fields, failure_text
 
 
 def initial():
@@ -432,19 +432,14 @@ class Attempt:
     def fail(self,exc):
         self.record['infrastructure']['status']='failed'
         diagnostic = admission_diagnostic(exc)
-        self.record['infrastructure']['reason']=(diagnostic['reason'] if diagnostic is not None
-                                               else CredentialError.reason if type(exc) is CredentialError
-                                               else type(exc).__name__ if isinstance(exc,ValueError)
-                                               else getattr(exc,'reason','') or type(exc).__name__)
-        # Keep diagnostic identifiers, never raw exception text/keys/URLs.
-        guidance = (diagnostic.get('remedy', '') if diagnostic is not None else '' if isinstance(exc,ValueError)
-                    else getattr(exc,'remedy',''))
-        if guidance:self.record['infrastructure']['remedy']=guidance
+        reason, guidance = failure_fields(exc, diagnostic)
+        self.record['infrastructure']['reason'] = reason
+        if guidance:self.record['infrastructure']['remedy']=failure_text(guidance)
         else:self.record['infrastructure'].pop('remedy',None)
         if diagnostic is not None and 'registry_diagnostic' in diagnostic:
             self.record['infrastructure']['registry_diagnostic']=diagnostic['registry_diagnostic']
         else:self.record['infrastructure'].pop('registry_diagnostic',None)
-        self.record['infrastructure']['error_digest']=hashlib.sha256(str(exc).encode()).hexdigest()
+        self.record['infrastructure']['error_digest']=hashlib.sha256(str(exc).encode(errors='backslashreplace')).hexdigest()
         if self.record['scoring']['status']=='not_started':
             self.record['scoring'].update(status='skipped',reason='infrastructure_failure')
         elif self.record['scoring']['status']=='running':
