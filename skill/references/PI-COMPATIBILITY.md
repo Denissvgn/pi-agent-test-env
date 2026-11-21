@@ -282,4 +282,4 @@ is explicit and is not a verified token ceiling.
 
 ## Indexed inference opt-in
 
-Indexed environments support only the reviewed Chat Completions adapter on both exact releases. Each fresh stage admits its own frozen settings and retains environment/authority identity during continuation. Other API protocols need separate qualification; see [INFERENCE-ENVIRONMENTS.md](INFERENCE-ENVIRONMENTS.md).
+Indexed environments support only the reviewed Chat Completions adapter on every reviewed release. Each fresh stage admits its own frozen settings and retains environment/authority identity during continuation. Other API protocols need separate qualification; see [INFERENCE-ENVIRONMENTS.md](INFERENCE-ENVIRONMENTS.md).
