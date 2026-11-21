@@ -2152,6 +2152,7 @@ def default_lock_file() -> str:
 
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--version', action=_VersionAction, help='Show the skill version and exit')
     sub = p.add_subparsers(dest='op', required=True)
     import registry_maintenance
     registry_maintenance.add_arguments(sub, default_lock_file())
@@ -2322,12 +2323,45 @@ def parser():
             q.add_argument('--allow-setup-network', action='store_true')
             q.add_argument('--allow-check-network', action='store_true')
             q.add_argument('--score-after-cancel', action='store_true', help='Explicitly authorize independent scoring after cancellation before any scorer starts')
+    register_command_modules(sub)
     return p
+
+
+class _VersionAction(argparse.Action):
+    """Print the skill version from skill.json and exit; read only when requested."""
+
+    def __init__(self, option_strings, dest=argparse.SUPPRESS, default=argparse.SUPPRESS, help=None):
+        super().__init__(option_strings, dest=dest, default=default, nargs=0, help=help)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        metadata = json.loads((ROOT / 'skill.json').read_text(encoding='utf-8'))
+        print(f"pi-agent-test-env {metadata['version']}")
+        parser.exit()
+
+
+def register_command_modules(sub):
+    """Let every module named in COMMAND_MODULES add its own subcommands.
+
+    A module that cannot be imported, or that has no register function, stops the
+    program with its name; a command is never dropped silently.
+    """
+    import importlib
+    import command_modules
+    for name in command_modules.COMMAND_MODULES:
+        try:
+            module = importlib.import_module(name)
+            register = module.register
+        except Exception as exc:
+            raise SystemExit(f'command module {name!r} cannot be loaded: {exc}') from exc
+        register(sub)
 
 
 def main(argv=None):
     args = parser().parse_args(argv)
     args._explicit_options={value.split('=',1)[0] for value in (sys.argv[1:] if argv is None else argv) if value.startswith('--')}
+    handler = getattr(args, 'handler', None)
+    if handler is not None:
+        return handler(args)
     import resources;resources.describe_holder(op=args.op)
     if args.op in ('run','smoke','preflight'):egress.validate_request(sys.modules[__name__],args)
     if args.op in ('registry-inspect', 'registry-recover'):
