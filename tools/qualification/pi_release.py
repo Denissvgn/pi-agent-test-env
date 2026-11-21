@@ -33,6 +33,7 @@ import secret_store
 import provenance
 import experiments
 import application_credentials
+import resources
 
 BASE = 'node@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20'
 BUILDKIT = 'moby/buildkit@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea'
@@ -736,6 +737,9 @@ def main():
 
 
 if __name__ == '__main__':
+    resources.install_interrupt_handlers()
     try: main()
+    except KeyboardInterrupt:
+        print('INTERRUPTED', file=sys.stderr); sys.exit(130)
     except (ValueError, RuntimeError, TimeoutError, OSError) as exc:
         print('QUALIFICATION_BLOCKED: '+str(exc), file=sys.stderr); sys.exit(2)

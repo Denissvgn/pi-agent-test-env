@@ -389,7 +389,14 @@ python3 "$SKILL_DIR/scripts/pi_lab.py" patch-session --run /path/to/run --stage 
 ```
 
 Extensions are bounded requests; distinguish queueing, supervisor application and
-child observations. Accepted controls mark assistance. Guidance enters the next
+child observations. Accepted controls mark assistance. The supervisor checks its
+deadline before any control work and waits at most two seconds for a control lock;
+a control command stopped while holding one only delays requests, and the process
+record names `control_lock_busy`. If a closing stage transition or a follow-on
+segment launch cannot take the lock, the stage keeps its last committed status,
+is not finalized and its receipt records `recovery_error`, unless another fault
+is already recorded. An unreadable request moves to
+`budget-requests/rejected/` with its reason. Guidance enters the next
 exact-session process segment; `steer --interrupt` requests parent interruption
 and authorized continuation, not turn-level delivery. Segment limits accumulate.
 For an explicitly native-budgeted stage, `extend-budget --tool-calls +10` requests

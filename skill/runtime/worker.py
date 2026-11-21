@@ -215,8 +215,8 @@ def environment_probe(contract):
     return result
 
 
-def select_cwd(task):
-    root = Path('/workspace').resolve()
+def select_cwd(task, workspace='/workspace'):
+    root = Path(workspace).resolve()
     target = (root / task.get('cwd', '.')).resolve()
     if not target.is_relative_to(root) or not target.is_dir():
         raise RuntimeError(f'Stage cwd does not exist inside /workspace: {target}')
@@ -808,12 +808,58 @@ def main():
     elif a.operation == 'agent':
         return agent(json.loads(Path(a.config).read_text()), json.loads(Path(a.task).read_text()))
     else:
-        task = json.loads(Path(a.task).read_text())
-        select_cwd(task)
-        for key in ('PI_LAB_API_KEY', 'UNSLOTH_API_KEY', 'OPENAI_API_KEY'):
-            os.environ.pop(key, None)
-        os.execvp(task['argv'][0], task['argv'])
+        return check(json.loads(Path(a.task).read_text()))
     return 0
+
+
+CHECK_TIMEOUT_EXIT = 124
+
+
+def check(task, workspace='/workspace'):
+    """Run a check command under its own timeout_seconds inside the container.
+
+    The host deadline still applies; this timer keeps a check bounded even when
+    the host cannot remove the container in time. At the limit the check's whole
+    process group is killed and the timeout is recorded on stderr.
+    """
+    select_cwd(task, workspace)
+    for key in ('PI_LAB_API_KEY', 'UNSLOTH_API_KEY', 'OPENAI_API_KEY'):
+        os.environ.pop(key, None)
+    limit = task.get('timeout_seconds', 300)
+    if type(limit) is not int or not 0 < limit <= 3600:
+        raise ValueError('Check timeout_seconds must be an integer in 1..3600')
+    p = subprocess.Popen(task['argv'], start_new_session=True)
+
+    def kill_group(signum=signal.SIGKILL):
+        try:
+            os.killpg(p.pid, signum)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    def forward(signum, frame):
+        kill_group(signum)
+    forwarded = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT)
+    old_handlers = {sig: signal.getsignal(sig) for sig in forwarded}
+    for sig in forwarded:
+        signal.signal(sig, forward)
+    try:
+        try:
+            code = p.wait(timeout=limit)
+        except subprocess.TimeoutExpired:
+            kill_group()
+            p.wait()
+            print('PI_LAB_LIMIT: ' + json.dumps({'check_timeout': True, 'timeout_seconds': limit,
+                                                'action': 'process_group_killed'}), file=sys.stderr, flush=True)
+            return CHECK_TIMEOUT_EXIT
+        return code if code >= 0 else 128 - code
+    finally:
+        for sig, handler in old_handlers.items():
+            signal.signal(sig, handler)
+        # Leave no member of the check's group running after it returns.
+        if p.poll() is None:
+            kill_group();p.wait()
+        else:
+            kill_group()
 
 
 if __name__ == '__main__':

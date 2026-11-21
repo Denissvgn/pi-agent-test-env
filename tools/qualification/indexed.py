@@ -725,4 +725,8 @@ def main():
             controls.atomic(root/'state.json',state);raise
     print(json.dumps(value,indent=2))
 
-if __name__=='__main__':main()
+if __name__=='__main__':
+    resources.install_interrupt_handlers()
+    try:main()
+    except KeyboardInterrupt:
+        print('INTERRUPTED',file=sys.stderr);sys.exit(130)

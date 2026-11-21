@@ -801,4 +801,8 @@ def infrastructure_gateway(root,manifest):
     finally:authority.close()
 
 
-if __name__=='__main__':main()
+if __name__=='__main__':
+    resources.install_interrupt_handlers()
+    try:main()
+    except KeyboardInterrupt:
+        print('INTERRUPTED',file=sys.stderr);sys.exit(130)
