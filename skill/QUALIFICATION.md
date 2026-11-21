@@ -24,7 +24,7 @@ does not exercise them.
 | Host Python 3.10 and 3.11 | Deferred: the supported floor is 3.12 and release checks no longer run on them; `doctor` still accepts 3.10 until 4.12.0 |
 | Repeated-tool-call guard (4.9.1) | Always on; stopped no stage in the release campaign, and its stop path is covered by offline tests |
 | Direct-endpoint `transient_retries` (4.9.1) | Experimental, for Pi 1.2.0 and 1.5.2; offline tests only, not exercised by the release campaign |
-| Compiled application client and native call budgets (4.6.0) | Experimental; partial native qualification, authenticated browser workflows unqualified |
+| Compiled application client and native call budgets (4.6.0) | Experimental; partial native qualification on earlier Pi releases only, none on Pi 1.5.2; authenticated browser workflows unqualified |
 | `registry-inspect` and `registry-recover` (4.6.1) | Experimental; not exercised by the release campaign |
 | Application owner cleanup (4.7.0) and legacy owner proof (4.8.0) | Experimental; synthetic conformance only, no real owner cleanup or replay |
 | Operation SDK | Experimental; fixture-only integration checks |
@@ -173,7 +173,7 @@ reference written from the task specification: 20,051 inputs each, with no
 mismatch. Reviewer prose included advisory inaccuracies and is not approval or a
 measurement of model-review quality; generated fixture code was not promoted.
 
-The pull requests merged for this release (24 to 30) have no completed automated
+The pull requests merged for this release (24 to 31) have no completed automated
 exact-head review. The configured reviewer returned only insufficient-quota
 notices, and the maintainer explicitly waived that requirement for each merge
 after the remaining review gate passed: no unresolved threads, pending review
@@ -260,7 +260,7 @@ retains its own identity, outcome and unrun cells.
   now waits up to about 100 ms to observe the replacement. This runner change,
   with the guard and retry changes, required the fresh campaign above.
 
-The pull requests merged for this release (20 to 22) have no completed automated
+The pull requests merged for this release (20 to 23) have no completed automated
 exact-head review. The configured reviewer returned only insufficient-quota
 notices, and the maintainer explicitly waived that requirement for each merge
 after the remaining review gate passed: no unresolved threads, pending review
@@ -268,7 +268,7 @@ requests or status checks.
 
 These measurements retain their executable, harness and frozen inputs. A later
 fix to two maintainer tests changed nothing the campaign ran. The 4.9.1 version
-metadata, documentation and manifest update changes package identity while
+metadata, documentation and manifest update changed package identity while
 preserving the tested executable and fixture bytes.
 
 ## Historical 4.9.0 release campaign
@@ -338,7 +338,7 @@ longer than the old 5-second per-call bound. Post-exit cleanup now has its own
 required the fresh campaign above. The earlier attempts retain their own
 identities, outcomes and unrun cells.
 
-The pull requests merged for this release (15 to 18) have no completed automated
+The pull requests merged for this release (15 to 19) have no completed automated
 exact-head review. The configured reviewer returned only insufficient-quota
 notices, and the maintainer explicitly waived that requirement for each merge
 after the remaining review gate passed: no unresolved threads, pending review
@@ -432,7 +432,7 @@ accepted and schema 2 rejected independently of the predecessor's inventory cap.
 
 The two live profiles used separate explicit store references against the same
 retained backend and model. Controlled routing fixtures separately observed
-distinct routes and authorities. These observations qualify the implemented
+distinct routes and authorities. These observations qualified the implemented
 Chat Completions adapter within the recorded scope; they do not establish real
 distinct-backend/model/API-protocol compatibility, provider/account independence,
 server-wide concurrency, performance improvements or live downstream application acceptance.
@@ -512,12 +512,6 @@ explicit experimental two-trial executor within its recorded image/model/resourc
 scope. Live downstream application workflows/actors, arbitrary integrations, additional workers,
 server-wide concurrency and performance improvements remain separate claims.
 
-
-The package implements bounded coding delegation, frozen application experiments
-and one explicit fixture lookup integration. Compatibility depends on the exact
-runtime image, Pi release, model endpoint and resource configuration selected for
-execution. A manifest is an integrity inventory, not a publisher signature or
-image authorization.
 
 ## Evidence scope
 

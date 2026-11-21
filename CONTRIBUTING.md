@@ -162,7 +162,7 @@ incomplete API evidence and failing/in-progress checks block merging. No timeout
 or admin bypass turns them into a pass. Use `--match-head-commit` for the merge.
 See [the promotion procedure](skill/references/PULL-REQUESTS.md). The
 [opt-in parallel-agent design](docs/design/parallel-agents.md) sets the fixed verification order;
-serial execution remains the default. Experimental schema-2 selection requires
+serial execution remains the default. Opt-in schema-2 selection requires
 its documented cohort, resource and qualification contract. Build release
 artifacts from the final reviewed tree and preserve published tags/assets when
 shipping a corrective patch version.
