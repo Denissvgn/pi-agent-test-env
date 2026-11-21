@@ -118,6 +118,16 @@ class HostLockHolderTests(unittest.TestCase):
         self.assertEqual(lab.controls.read(Path(result['run_dir'])/'result.json'), result)
         return result, errors.getvalue()
 
+    def test_busy_attempt_preserves_latest_active_run(self):
+        results=self.root/'refused-results';results.mkdir()
+        active=results/'active-run';active.mkdir()
+        (results/'latest').symlink_to(active)
+        with self.raw_holder(b''):
+            result,_=self.refused_run()
+        self.assertEqual(result['infrastructure']['reason'],'host-admission-busy')
+        self.assertEqual((results/'latest').resolve(),active)
+        self.assertTrue(Path(result['run_dir']).is_dir())
+
     def refused_command(self):
         """An in-process ensure-image refused at admission: (failure object, later stderr lines)."""
         argv = ['ensure-image', '--policy', 'reuse', '--image', 'not-launched', '--platform', 'linux/arm64',

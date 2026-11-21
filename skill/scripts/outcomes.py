@@ -395,7 +395,10 @@ class Attempt:
         finally:os.close(parent)
         controls.atomic(self.root/'identity.json',{k:self.record[k] for k in ('schema','run_id','attempt_id')})
         self.persist()
-        latest=canonical/'latest'
+
+    def publish_latest(self, args):
+        """Select this admitted attempt as the latest ordinary run."""
+        latest=self.root.parent/'latest'
         try:
             if getattr(args,'_parallel_session',None):return
             if latest.is_symlink():latest.unlink()
