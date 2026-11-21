@@ -10,6 +10,7 @@ import copy
 import json
 import os
 import secrets
+from socketserver import TCPServer
 import stat
 import sys
 import threading
@@ -325,6 +326,11 @@ class Server(HTTPServer):
     def __init__(self, address, authority):
         self.authority = authority
         super().__init__(address, Handler)
+
+    def server_bind(self):
+        # The listen address is numeric. Readiness must not wait for reverse DNS.
+        TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address
 
 
 def main():
