@@ -24,6 +24,8 @@ that the publisher signature or transparency bundle was cryptographically verifi
 Unlike the inspected 0.87.1 artifact, this package has no bundled npm shrinkwrap;
 pin base/builder inputs and retain actual installed dependency/image identities.
 
+The upstream [Pi 1.2.0 JSON specification](https://github.com/earendil-works/pi/blob/06a466935536f8c9bcacb2d5efc0fc021be1bdff/packages/coding-agent/docs/json.md) describes the release protocol.
+
 ## Runtime behavior
 
 - Keep `--mode json --print`, explicit provider/model/tools/session identity,

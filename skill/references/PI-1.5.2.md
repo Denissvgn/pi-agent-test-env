@@ -32,6 +32,8 @@ the supplied recipe, the runner's exact command line and settings, and a model
 endpoint that refuses connections. The same check against the admitted 1.2.0 image
 reproduced the frozen 1.2.0 tool declarations exactly.
 
+The upstream [Pi 1.5.2 JSON specification](https://github.com/earendil-works/pi/blob/b4afdddf44e059c67ccf5097e5317d913521b470/packages/coding-agent/docs/json.md) describes the release protocol.
+
 ## Runtime behavior
 
 - Keep `--mode json --print`, explicit provider, model, tools and session
