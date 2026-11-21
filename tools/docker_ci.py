@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the offline maintainer checks in a bounded native Linux container.
 
-The published source allowlist is staged into a fresh directory and mounted
+The source archive file set is staged into a fresh directory and mounted
 read-only, so tests see exactly the files a source archive would contain and
 cannot change them. The container has no network, no capabilities, a read-only
 root filesystem, a private /tmp and fixed CPU/memory/process ceilings. The image
@@ -38,10 +38,16 @@ def docker(*argv, timeout=60):
 
 
 def stage(destination):
-    for path in build_release.source_files(REPO):
+    paths = build_release.source_files(REPO)
+    contents, _, _ = build_release.package_inputs(REPO / 'skill', paths)
+    for path in paths:
         target = destination/path.relative_to(REPO)
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, target)
+        if path in contents:
+            target.write_bytes(contents[path])
+            shutil.copymode(path, target)
+        else:
+            shutil.copy2(path, target)
     return destination
 
 
