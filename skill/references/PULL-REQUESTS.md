@@ -29,14 +29,14 @@ Before merging:
 ```bash
 python3 "$SKILL_DIR/scripts/pr_review_gate.py" \
   --repo OWNER/REPOSITORY --pr PR_NUMBER --head VERIFIED_HEAD_SHA \
-  --expect-reviewer Copilot > /tmp/pr-review-gate.json
+  --expect-reviewer Copilot --require-check CHECK_NAME > /tmp/pr-review-gate.json
+python3 "$SKILL_DIR/scripts/pr_review_gate.py" \
+  --repo OWNER/REPOSITORY --pr PR_NUMBER --head VERIFIED_HEAD_SHA \
+  --independent-review "REVIEWER AND LOCATION" --require-check CHECK_NAME > /tmp/pr-review-gate-independent.json
 ```
 
-`--expect-reviewer` is repeatable and has no default; the command above names Copilot
-because this repository configures automatic Copilot review. Without
-`--expect-reviewer`, pass `--independent-review TEXT` (who accepted the change and
-where), which is recorded as `review_of_record`. Repeat `--require-check NAME` for each
-check that must be present, completed and successful on the exact head. The gate
+`--expect-reviewer` is repeatable for additional required reviewers. Its default
+is Copilot because this repository configures automatic Copilot review. The gate
 requires an open non-draft PR, clean server merge state, no pending reviews,
 completed expected exact-head reviews, no undismissed requests for changes, zero
 unresolved threads and successful/completed commit checks/statuses. Copilot's

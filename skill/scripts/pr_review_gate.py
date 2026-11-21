@@ -5,6 +5,7 @@ import datetime
 import json
 import re
 import subprocess
+import sys
 
 
 def reviewer_name(name):
@@ -268,7 +269,13 @@ def command(args):
         raise ValueError('Use owner/repository, a positive PR number and an exact 40-character head SHA')
     expected = args.expect_reviewer or []
     if not expected and not (args.independent_review or '').strip():
-        raise ValueError('Without --expect-reviewer, --independent-review TEXT is required to name the review of record')
+        message = 'Without --expect-reviewer, --independent-review TEXT is required to name the review of record'
+        print('usage: pr_review_gate.py [--expect-reviewer NAME] [--independent-review TEXT]; ' + message, file=sys.stderr)
+        blocked = {'schema': 1, 'document_type': 'pr_review_gate', 'status': 'BLOCKED',
+                   'repo': args.repo, 'pr': args.pr, 'head': args.head,
+                   'blockers': [message], 'error_type': 'ValueError'}
+        print(json.dumps(blocked, indent=2))
+        return 2
     if any(not name.strip() for name in args.require_check):
         raise ValueError('Required check names must be nonempty')
     if any(not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?', name) for name in expected):

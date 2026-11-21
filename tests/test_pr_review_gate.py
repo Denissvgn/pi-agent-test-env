@@ -239,7 +239,7 @@ class ReviewGateTests(unittest.TestCase):
     def test_cli_api_failure_is_sanitized_and_blocks(self):
         output = io.StringIO()
         with mock.patch.object(gate, 'collect', side_effect=ValueError('private diagnostic')), contextlib.redirect_stdout(output):
-            code = gate.main(['--repo', 'owner/repository', '--pr', '3', '--head', HEAD, '--expect-reviewer', 'Copilot'])
+            code = gate.main(['--repo', 'owner/repository', '--pr', '3', '--head', HEAD])
         self.assertEqual(code, 2); self.assertNotIn('private diagnostic', output.getvalue())
         self.assertEqual(json.loads(output.getvalue())['status'], 'BLOCKED')
 
@@ -262,9 +262,11 @@ class ReviewGateTests(unittest.TestCase):
 
     def test_without_expected_reviewer_independent_review_is_required(self):
         error = io.StringIO()
-        with contextlib.redirect_stderr(error), self.assertRaises(SystemExit) as exit_context:
-            gate.main(['--repo', 'owner/repository', '--pr', '3', '--head', HEAD])
-        self.assertEqual(exit_context.exception.code, 2)
+        output = io.StringIO()
+        with contextlib.redirect_stderr(error), contextlib.redirect_stdout(output):
+            code = gate.main(['--repo', 'owner/repository', '--pr', '3', '--head', HEAD])
+        self.assertEqual(code, 2)
+        self.assertEqual(json.loads(output.getvalue())['status'], 'BLOCKED')
         self.assertIn('usage:', error.getvalue())
         self.assertIn('--independent-review', error.getvalue())
 
