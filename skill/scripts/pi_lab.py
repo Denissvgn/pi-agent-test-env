@@ -904,7 +904,15 @@ def snapshot(src: Path, dst: Path, additional: list[str], limit_mb: int, score_c
     dst.mkdir()
     def walk(folder: Path, target: Path):
         nonlocal total
-        for child in sorted(folder.iterdir()):
+        try:
+            children = sorted(folder.iterdir())
+        except OSError:
+            if not score_copy:
+                raise
+            # A directory the agent made unreadable cannot stop its checks from running.
+            skipped.append(folder.relative_to(src).as_posix() + ' [unreadable]')
+            return
+        for child in children:
             rel = child.relative_to(src).as_posix()
             excluded=is_excluded(child.name,additional)
             if score_copy and child.name in {'node_modules','.venv','venv','__pycache__'}:excluded=False
@@ -925,38 +933,140 @@ def snapshot(src: Path, dst: Path, additional: list[str], limit_mb: int, score_c
                 total += child.stat().st_size
                 if total > limit_mb * 1024 * 1024:
                     raise LabError(f'Project copy exceeds {limit_mb} MiB; add --exclude or stage a smaller checkout')
-                shutil.copy2(child, target / child.name)  # New inode, not a hard link.
+                try:
+                    shutil.copy2(child, target / child.name)  # New inode, not a hard link.
+                except PermissionError:
+                    if not score_copy:
+                        raise
+                    skipped.append(rel + ' [unreadable]')
             else:
                 skipped.append(rel + ' [special file]')
     walk(src, dst)
     return {'copied_bytes': total, 'skipped': skipped}
 
 
-def tree_hashes(root: Path, include_ignored: bool = False) -> dict[str, str]:
+OMITTED_LIMIT = 500
+_KINDS = ((stat.S_ISLNK, 'symlink'), (stat.S_ISREG, 'file'), (stat.S_ISDIR, 'directory'), (stat.S_ISFIFO, 'fifo'),
+          (stat.S_ISSOCK, 'socket'), (stat.S_ISBLK, 'block-device'), (stat.S_ISCHR, 'char-device'))
+
+
+def entry_kind(path: Path) -> str:
+    try:
+        mode = path.lstat().st_mode
+    except OSError:
+        return 'unknown'
+    return next((name for test, name in _KINDS if test(mode)), 'unknown')
+
+
+def tree_hashes(root: Path, include_ignored: bool = False, omitted: list | None = None) -> dict[str, str]:
+    """Hash regular files and record links, by path relative to `root`.
+
+    The returned values never depend on `omitted`. When a list is given, the paths that the
+    hashes leave out are appended to it as {'path', 'rule', 'kind'} and an unreadable path no
+    longer raises: the topmost excluded name (its contents are not walked), a path that is
+    neither a regular file, a directory nor a link, and a path that could not be read."""
     result = {}
     if not root.exists():
         return result
+    def note(rel, rule, kind):
+        if omitted is not None:
+            omitted.append({'path': rel, 'rule': rule, 'kind': kind})
     def entry(p, rel):
         if p.is_symlink():
             result[rel] = 'symlink:' + os.readlink(p)
         elif p.is_file():
-            with p.open('rb') as f:
-                h = hashlib.file_digest(f, 'sha256') if hasattr(hashlib, 'file_digest') else None
-                if h is None:
-                    h = hashlib.sha256()
-                    for b in iter(lambda: f.read(1024 * 1024), b''):
-                        h.update(b)
-            result[rel] = f'{stat.S_IMODE(p.stat().st_mode):04o}:' + h.hexdigest()
+            try:
+                with p.open('rb') as f:
+                    h = hashlib.file_digest(f, 'sha256') if hasattr(hashlib, 'file_digest') else None
+                    if h is None:
+                        h = hashlib.sha256()
+                        for b in iter(lambda: f.read(1024 * 1024), b''):
+                            h.update(b)
+                result[rel] = f'{stat.S_IMODE(p.stat().st_mode):04o}:' + h.hexdigest()
+            except OSError as exc:
+                if omitted is None:
+                    raise
+                note(rel, 'unreadable:' + type(exc).__name__, 'file')
+        elif omitted is not None and not p.is_dir():
+            kind = entry_kind(p)
+            if kind != 'unknown':
+                note(rel, 'special-file', kind)
+    def unlistable(exc):
+        try:
+            note(Path(exc.filename).relative_to(root).as_posix(), 'unreadable:' + type(exc).__name__, 'directory')
+        except (TypeError, ValueError):
+            pass
     if root.is_file() or root.is_symlink():
         entry(root, '.')
         return result
-    for base, dirs, files in os.walk(root, followlinks=False):
+    for base, dirs, files in os.walk(root, followlinks=False, onerror=unlistable if omitted is not None else None):
+        if not include_ignored:
+            for name in sorted(n for n in (*dirs, *files) if n in EXCLUDES):
+                p = Path(base) / name
+                note(p.relative_to(root).as_posix(), 'excluded-name:' + name, entry_kind(p))
         dirs[:] = sorted(d for d in dirs if include_ignored or d not in EXCLUDES)
         for name in list(dirs) + sorted(files):
             p = Path(base) / name
             if include_ignored or name not in EXCLUDES:
                 entry(p, p.relative_to(root).as_posix())
     return result
+
+
+def _shape(value):
+    return 'link' if value.startswith('symlink:') else 'file'
+
+
+def change_record(before: dict, after: dict, omitted_before: list, omitted_after: list, workspace: Path,
+                  in_place: bool, started_ns: int) -> dict:
+    """Counts of the entries of changes.json and the paths that record cannot name.
+
+    A path that replaced a directory or that a directory replaced is one `type_changed` entry,
+    like a file that became a link; the paths below the directory count as added or deleted.
+    `links` counts the entries whose before or after value is a link and overlaps the others."""
+    counts = dict.fromkeys(('added', 'modified', 'deleted', 'mode_only', 'type_changed', 'links'), 0)
+    def directories(rows):
+        return {'/'.join(parts[:i]) for parts in (name.split('/')[:-1] for name in rows) for i in range(1, len(parts) + 1)}
+    before_dirs, after_dirs = directories(before), directories(after)
+    for path in before.keys() | after.keys():
+        was, now = before.get(path), after.get(path)
+        if was == now:
+            continue
+        counts['links'] += any(v is not None and _shape(v) == 'link' for v in (was, now))
+        if was is None:
+            counts['type_changed' if path in before_dirs else 'added'] += 1
+        elif now is None:
+            counts['type_changed' if path in after_dirs else 'deleted'] += 1
+        elif _shape(was) != _shape(now):
+            counts['type_changed'] += 1
+        elif _shape(was) == 'file' and was.split(':', 1)[1] == now.split(':', 1)[1]:
+            counts['mode_only'] += 1
+        else:
+            counts['modified'] += 1
+    known = {row['path'] for row in omitted_before}
+    def listed(row):
+        if row['path'] not in known:
+            return True
+        if not in_place:
+            return False
+        try:
+            return (workspace / row['path']).lstat().st_mtime_ns >= started_ns
+        except OSError:
+            return False
+    rows = sorted((row for row in omitted_after if listed(row)), key=lambda row: row['path'])
+    record = {'schema': 1, **counts, 'omitted': rows[:OMITTED_LIMIT]}
+    if len(rows) > OMITTED_LIMIT:
+        record['omitted_total'] = len(rows)
+    return record
+
+
+def change_line(record: dict) -> str:
+    counts = ' '.join(f'{name}={record[name]}' for name in
+                      ('added', 'modified', 'deleted', 'mode_only', 'type_changed', 'links'))
+    line = 'Changes: ' + counts
+    if record['omitted']:
+        first = ', '.join(f'{row["path"]} ({row["rule"]})' for row in record['omitted'][:3])
+        line += f'; omitted {record.get("omitted_total", len(record["omitted"]))}: {first}'
+    return line
 
 
 def protected_hashes(workspace: Path, paths: list[str]) -> dict:
@@ -1394,7 +1504,9 @@ def _execute_suite(args,attempt,smoke=False):
                 scorer_receipts[index]=scoring.freeze(check['scorer'],parent/str(index))
                 save(parent/(str(index)+'.json'),scorer_receipts[index])
         summary['workspace'] = str(workspace)
-        before = tree_hashes(workspace)
+        started_ns = time.time_ns()
+        omitted_before = []
+        before = tree_hashes(workspace, omitted=omitted_before)
         save(runroot / 'files-before.json', before)
         summary['provenance'].update(snapshot_sha256=provenance.digest(before),
             source_sha256=provenance.digest(tree_hashes(project)) if project else None,
@@ -1489,11 +1601,15 @@ def _execute_suite(args,attempt,smoke=False):
         score_artifacts(args,attempt,plan,image,workspace,scorer_receipts,redaction_secrets=redaction_secrets)
         safe=all(row['process'].get('cleanup_confirmed') is True for row in summary['agents'])
         if safe:
-            after = tree_hashes(workspace)
+            omitted_after = []
+            after = tree_hashes(workspace, omitted=omitted_after)
             save(runroot / 'files-after.json', after)
             changed = {p: {'before': before.get(p), 'after': after.get(p)}
                        for p in sorted(before.keys() | after.keys()) if before.get(p) != after.get(p)}
             save(runroot / 'changes.json', changed)
+            summary['changes'] = change_record(before, after, omitted_before, omitted_after, workspace,
+                                               bool(getattr(args, 'in_place', False)), started_ns)
+            print(change_line(summary['changes']), file=sys.stderr)
         summary['assistance']=controls.assistance(runroot)
         # Terminal status is derived only by the sealed outcome finalizer.
         summary['scope'] = 'Only the supplied plan and checks; not proof of general model or product correctness.'
@@ -1540,6 +1656,19 @@ def score_artifacts(args,attempt,plan,image,workspace,receipts,post_cancel=False
         copy_root=runroot/('score-subject-'+str(index))
         snapshot(frozen,copy_root,[],args.max_project_mb,score_copy=True)
         protected_before=protected_hashes(copy_root,plan['protected_paths'])
+        subject=copy_root/check.get('cwd','.')
+        if not subject.resolve().is_relative_to(copy_root.resolve()) or not subject.resolve().is_dir():
+            # The agent removed or replaced the directory the check runs in: record the check as failed
+            # and run the others. Nothing was started, so there is nothing to clean up.
+            (runroot/label).mkdir(exist_ok=True)
+            result=scoring.blank(check.get('scorer'),receipts.get(index))
+            result.update(reason='check-target-missing',command_sha256=hashlib.sha256(json.dumps(check['argv']).encode()).hexdigest(),
+                          post_cancellation=post_cancel)
+            process={'exit_code':2,'cleanup_confirmed':True,'not_started':'check-target-missing'}
+            save(runroot/label/'score.json',result);results.append(result)
+            summary['checks'].append({'name':check['name'],'logs':label,'process':process,'scorer':result})
+            summary['scoring']['results']=list(results);attempt.persist()
+            continue
         try:
             process=run_stage(args,image['id'],runroot,copy_root,label,['check'],task=check,
                               network=args.network if check['network']=='inherit' else 'none',

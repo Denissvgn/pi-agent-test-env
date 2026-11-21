@@ -328,6 +328,62 @@ no pending retry/tool/message. Retain earlier aborts/errors; mark recovered and
 assisted. Never validate arbitrary concatenated traces as a clean invocation.
 After sealing, any continuation requires a new linked assisted attempt/run.
 
+A check whose working directory no longer exists as a directory in the frozen
+workspace (removed, or replaced by a file or by a link that leaves it) is not
+started. It is recorded as a failed check: scorer status `error`, reason
+`check-target-missing`, a process record with `not_started` and no stage logs
+beyond `score.json`. The remaining checks run. The outcome is `check_failed` (see
+the verdict rows above), not `infrastructure_fault`.
+
+## Change record
+
+After the agent stages, and only when every removal was confirmed, the runner
+hashes the workspace again and writes `changes.json`: one entry per path whose
+value differs from the snapshot, `{"before": …, "after": …}`, with the values
+that `files-before.json` and `files-after.json` hold (`<mode>:<sha256>` for a
+regular file, `symlink:<target>` for a link, null for absent). File contents are
+never copied into it. No shape of change blocks a run: whether a change is
+acceptable is for the checks and for the caller.
+
+`summary.json` and `result.json` carry `changes` (null until the record exists):
+
+| field | meaning |
+| --- | --- |
+| `schema` | `1` |
+| `added`, `modified`, `deleted` | entries of `changes.json` that are new, differ in content or link target, or are gone |
+| `mode_only` | a regular file whose mode changed and whose content did not |
+| `type_changed` | a regular file that became a link or back; a directory replaced by a file (the file's path, while the paths that were below the directory count as `deleted`); a file replaced by a directory (the file's path, while the paths below the directory count as `added`) |
+| `links` | entries whose before or after value is a link; it overlaps the counts above |
+| `omitted` | at most 500 `{path, rule, kind}` entries, sorted by path |
+| `omitted_total` | present only when more than 500 paths were omitted |
+
+The counts of `added`, `modified`, `deleted`, `mode_only` and `type_changed` add up
+to the number of entries in `changes.json`. After the run one line on stderr gives
+the counts and, when `omitted` is not empty, the number of omitted paths and the
+first three.
+
+The hashes leave some paths out. `omitted` names them and the rule that kept each
+one out:
+
+- `excluded-name:<name>`: the topmost path under one of the excluded names (`.git`,
+  `.pi`, `.agents`, `.pi-runtime`, `.pi-lab`, `node_modules`, `.venv`, `venv`,
+  `__pycache__`, `.DS_Store`, `.npmrc`, `.netrc`, `.ssh`, `.aws`, `.kube`) that exists
+  after the run and not in the snapshot. Nothing below it is walked, and a link is
+  not followed. For an in-place run, where excluded names exist before the run, a
+  path that existed before is listed only when its own modification time is not
+  earlier than the start of the run; a change deeper inside an excluded directory
+  that leaves that directory's time unchanged is not seen.
+- `special-file`: a path that is neither a regular file, a directory nor a link
+  (`kind`: `fifo`, `socket`, `block-device`, `char-device`).
+- `unreadable:<ErrorName>`: a file that could not be opened or a directory that could
+  not be listed. Hashing continues. A previously recorded file that became
+  unreadable appears in `changes.json` as deleted and here with its reason. The
+  checks run on a copy that leaves such a path out.
+
+Empty directories are not recorded anywhere. The secret-name patterns apply to the
+project snapshot, not to `changes.json`: a new file named `.env.local` or `api.key`
+is an ordinary entry.
+
 ## Provenance and comparison
 
 Retain source revision plus dirty-tree/snapshot digest and exclusions; original
