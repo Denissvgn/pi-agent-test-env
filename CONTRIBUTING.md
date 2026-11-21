@@ -31,7 +31,7 @@ The suite also needs `node` (Node.js 24 or later) on `PATH`: several tests run
 the bundled JavaScript extensions and fail, rather than skip, without it.
 
 To repeat the checks on native Linux with an exact Python, build the test image
-and run the bounded container runner. It stages the published source allowlist,
+and run the bounded container runner. It stages the published source inventory,
 mounts it read-only, disables the network and records a JSON report:
 
 ```bash
@@ -184,12 +184,20 @@ excludes plans, backlogs, development reports, stored test output and earlier
 distributions. Source archives include the maintainer tests and publishing tools;
 skill archives contain only the installable skill.
 
-A release build refuses unless the first `## ` entry in `skill/CHANGELOG.md`
-names the `skill.json` version, so archives can never reuse an already published
-version name for different bytes. For candidate verification before the version
-bump, pass `--candidate`; its output and the verification report record
-`"publishable": false`. Before tagging, confirm the version is new on the remote
-with `git ls-remote --tags origin "v<version>"`; local clones can lack newer tags.
+In a Git checkout the build selects tracked files using `git ls-files` and
+applies the repository's `export-ignore` attributes. Docker CI stages the same
+files. A release requires a clean tree and refuses ignored or untracked files
+inside `skill/`, `tests/` and `tools/`. The first `## ` entry in
+`skill/CHANGELOG.md` must name the `skill.json` version, and the checked-in
+manifest must match the selected skill files.
+
+Use `--candidate` to verify work in progress. Candidate archives include edits
+to tracked files and contain a freshly computed manifest. The build leaves
+`skill/MANIFEST.sha256` untouched. The result reports the HEAD commit and tree,
+dirty flag, Python and zlib versions, and `SOURCE_DATE_EPOCH` (null when unset).
+An extracted source archive uses a directory walk and reports null for the Git
+fields. Before tagging, confirm the version is new on the remote with
+`git ls-remote --tags origin "v<version>"`. A local clone can lack newer tags.
 
 Archives are byte-reproducible from the same tree: members carry a fixed time
 (`SOURCE_DATE_EPOCH` when set, otherwise 1980-01-01) and explicit Unix modes,

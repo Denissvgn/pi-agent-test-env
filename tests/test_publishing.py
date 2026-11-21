@@ -1,19 +1,24 @@
 """Published-content boundaries and safe verifier rejection behavior."""
 import hashlib
+import io
 import os
 from pathlib import Path
+import platform
 import stat
+import subprocess
 import shutil
 import sys
 import tempfile
 import unittest
 from unittest import mock
 import zipfile
+import zlib
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(REPOSITORY/'tools'))
 import build_release
 import check_package
+import docker_ci
 import verify_release
 
 
@@ -58,6 +63,7 @@ class PublishingTests(unittest.TestCase):
             self.assertEqual((repository/'skill/MANIFEST.sha256').read_bytes(),before)
             self.assertFalse(build_release.build(root/'candidate',repository,candidate=True)['publishable'])
             self.set_changelog_entry(repository,version+' (release)')
+            check_package.export_skill.update_manifest(repository/'skill')
             self.assertTrue(build_release.build(root/'release',repository)['publishable'])
 
     def test_archives_are_byte_reproducible_regardless_of_file_times(self):
@@ -99,7 +105,14 @@ class PublishingTests(unittest.TestCase):
                 with zipfile.ZipFile(path) as archive:
                     modes={i.filename:stat.S_IMODE(i.external_attr>>16) for i in archive.infolist()}
                 command=modes.pop('.claude/commands/pi-agent-test-env.md',None)
-                self.assertEqual(set(modes.values()),{0o644},path.name)
+                if '-source-' in path.name:
+                    base, prefix = repository, 'pi-agent-test-env-source'
+                else:
+                    base = repository/'skill'
+                    prefix = check_package.export_skill.archive_specs(base)[path.name]
+                for name, mode in modes.items():
+                    original = base/name.removeprefix(prefix+'/')
+                    self.assertEqual(mode, 0o755 if original.stat().st_mode & stat.S_IXUSR else 0o644, name)
                 self.assertEqual(command,0o600 if path.name.endswith('-claude.zip') else None)
             # The verifier expects the same canonical modes from the drifted checkout.
             def passing(argv,cwd,timeout=180):
@@ -125,24 +138,28 @@ class PublishingTests(unittest.TestCase):
         self.assertFalse(any(p.startswith('skill/tests/') for p in paths))
         self.assertNotIn('BACKLOG.md',paths);self.assertNotIn('RELEASE_BACKLOG.md',paths)
 
-    def test_validation_allowlist_excludes_unregistered_reports_and_build_output(self):
+    def test_extracted_source_walk_includes_new_fixture(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root=Path(temporary).resolve();repository=root/'source'
-            for path in build_release.source_files(REPOSITORY):
-                target=repository/path.relative_to(REPOSITORY);target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(path,target)
-            extra=repository/'tools/validation/generated/reports.json';extra.parent.mkdir();extra.write_text('private development history')
-            (extra.parent/'previous.zip').write_bytes(b'previous artifact')
-            paths=build_release.source_files(repository)
-            self.assertFalse(any('generated' in p.parts for p in paths))
-            unreviewed = repository/'tests/fixtures/application-contracts/private-response.json'
-            unreviewed.parent.mkdir(parents=True, exist_ok=True)
-            unreviewed.write_text('unregistered fixture output')
-            self.assertNotIn(unreviewed, build_release.source_files(repository))
-            before=(repository/'skill/MANIFEST.sha256').read_bytes()
+            root=Path(temporary).resolve();repository=self.copied_repository(root)
+            fixture=repository/'tests/fixtures/new fixture.txt'
+            fixture.write_text('fixture')
+            result=build_release.build(root/'release',repository,candidate=True)
+            self.assertIsNone(result['commit'])
+            self.assertIsNone(result['tree'])
+            self.assertIsNone(result['dirty'])
+            with zipfile.ZipFile(next((root/'release').glob('*-source-*.zip'))) as archive:
+                self.assertEqual(archive.read('pi-agent-test-env-source/tests/fixtures/new fixture.txt'),b'fixture')
             with self.assertRaisesRegex(ValueError,'outside'):
                 build_release.build(repository/'tools/validation/new-release',repository)
-            self.assertEqual((repository/'skill/MANIFEST.sha256').read_bytes(),before)
-            self.assertFalse((repository/'tools/validation/new-release').exists())
+
+    def test_source_inventory_still_checks_vendored_validator_integrity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            repository = self.copied_repository(root)
+            (repository/'tools/validation/vendor/agentskills-source.tar.gz').write_bytes(b'corrupt')
+            with self.assertRaisesRegex(ValueError, 'Vendor integrity failure'):
+                build_release.build(root/'release', repository, candidate=True)
+            self.assertFalse((root/'release').exists())
 
     def test_case_alias_report_cannot_bypass_input_guard(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -219,6 +236,140 @@ class PublishingTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'size'):
                 verify_release.extract(path,output,expected)
             self.assertFalse(output.exists())
+
+
+@unittest.skipUnless((REPOSITORY/'.git').exists(), 'requires a Git checkout')
+class GitPublishingTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.repo = self.root/'checkout'
+        subprocess.run(['git', 'clone', '--quiet', '--local', '--no-hardlinks', str(REPOSITORY), self.repo],
+                       check=True)
+        # Make a release-ready baseline even on branches working on the next version.
+        source = self.repo/'skill'
+        entry = source/'CHANGELOG.md'
+        version = check_package.export_skill.package_metadata(source)['version']
+        lines = entry.read_text().splitlines(keepends=True)
+        lines[next(i for i,line in enumerate(lines) if line.startswith('## '))] = '## ' + version + '\n'
+        entry.write_text(''.join(lines))
+        check_package.export_skill.update_manifest(source)
+        self.commit('Prepare release fixture')
+
+    def git(self, *args):
+        return subprocess.check_output(['git', '-C', self.repo, *args])
+
+    def commit(self, message):
+        self.git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgSign=false',
+                 'commit', '--quiet', '--allow-empty', '-am', message)
+
+    def test_release_names_ignored_and_untracked_inputs(self):
+        names = ['skill/.env', 'tests/test_scratch.py', 'tools/endpoint.local.json']
+        for name in names:
+            (self.repo/name).write_text('local only')
+        with self.assertRaises(ValueError) as caught:
+            build_release.build(self.root/'release', self.repo)
+        for name in names:
+            self.assertIn(name, str(caught.exception))
+        self.assertFalse((self.root/'release').exists())
+
+    def test_build_records_git_and_runtime_provenance(self):
+        with mock.patch.dict(os.environ, SOURCE_DATE_EPOCH='1700000000'):
+            result = build_release.build(self.root/'release', self.repo)
+        self.assertEqual(result['commit'], self.git('rev-parse', 'HEAD').decode().strip())
+        self.assertEqual(result['tree'], self.git('rev-parse', 'HEAD^{tree}').decode().strip())
+        self.assertIs(result['dirty'], False)
+        self.assertEqual(result['python_version'], platform.python_version())
+        self.assertEqual(result['zlib_version'], zlib.ZLIB_RUNTIME_VERSION)
+        self.assertEqual(result['source_date_epoch'], 1700000000)
+
+    def test_source_and_docker_stage_match_git_export_with_new_fixture(self):
+        fixture = self.repo/'tests/fixtures/new fixture.txt'
+        fixture.write_text('included')
+        omitted = self.repo/'tests/fixtures/omitted'
+        omitted.mkdir()
+        (omitted/'private.txt').write_text('excluded')
+        with (self.repo/'.gitattributes').open('a') as attributes:
+            attributes.write('\n/tests/fixtures/omitted export-ignore\n')
+        self.git('add', '--', 'tests/fixtures')
+        self.commit('Add tracked fixtures')
+        tracked = {os.fsdecode(p) for p in self.git('ls-files', '-z').split(b'\0') if p}
+        with zipfile.ZipFile(io.BytesIO(self.git('archive', '--format=zip', 'HEAD'))) as exported:
+            expected = {i.filename for i in exported.infolist() if not i.is_dir()}
+        self.assertLessEqual(expected, tracked)
+        self.assertIn('tests/fixtures/omitted/private.txt', tracked - expected)
+        self.assertIn('tests/fixtures/new fixture.txt', expected)
+        build_release.build(self.root/'release', self.repo)
+        with zipfile.ZipFile(next((self.root/'release').glob('*-source-*.zip'))) as archive:
+            self.assertEqual(set(archive.namelist()), {'pi-agent-test-env-source/'+p for p in expected})
+        stage = docker_ci.stage(self.root/'staged', self.repo)
+        self.assertEqual({p.relative_to(stage).as_posix() for p in stage.rglob('*') if p.is_file()}, expected)
+
+    def test_committed_doc_change_stages_exact_candidate_with_release_manifest_preserved(self):
+        source = self.repo/'skill'
+        manifest = source/'MANIFEST.sha256'
+        released = manifest.read_bytes()
+        with (source/'references/PROJECTS.md').open('ab') as doc:
+            doc.write(b'\nUpdated project documentation.\n')
+        self.commit('Update project documentation')
+        with self.assertRaisesRegex(ValueError, 'Manifest differs from package bytes'):
+            check_package.check(source)
+        with self.assertRaisesRegex(ValueError, 'Stale skill manifest'):
+            build_release.build(self.root/'release', self.repo)
+
+        output = self.root/'candidate'
+        result = build_release.build(output, self.repo, candidate=True)
+        self.assertIs(result['dirty'], False)
+        self.assertIs(result['publishable'], False)
+        stage = docker_ci.stage(self.root/'staged', self.repo)
+        with zipfile.ZipFile(next(output.glob('*-source-*.zip'))) as archive:
+            prefix = 'pi-agent-test-env-source/'
+            staged = {p.relative_to(stage).as_posix(): p for p in stage.rglob('*') if p.is_file()}
+            self.assertEqual(set(archive.namelist()), {prefix + name for name in staged})
+            for name, path in staged.items():
+                self.assertEqual(archive.read(prefix + name), path.read_bytes(), name)
+        check_package.check(stage/'skill')
+        self.assertEqual(manifest.read_bytes(), released)
+        self.assertEqual(self.git('status', '--porcelain'), b'')
+
+    def test_candidate_keeps_status_and_builds_manifest_only_for_archives(self):
+        source = self.repo/'skill'
+        manifest = source/'MANIFEST.sha256'
+        sentinel = b'stale manifest\n'
+        manifest.write_bytes(sentinel)
+        self.commit('Record stale manifest')
+        with self.assertRaisesRegex(ValueError, 'export_skill.py --manifest-only'):
+            build_release.build(self.root/'release', self.repo)
+        (source/'.env').write_text('local only')
+        (self.repo/'tests/test_scratch.py').write_text('local only')
+        asset = source/'references/PROJECTS.md'
+        asset.write_bytes(asset.read_bytes() + b'\n')
+        before = self.git('status', '--porcelain=v1', '-z', '--ignored', '--untracked-files=all')
+        out = self.root/'candidate'
+        result = build_release.build(out, self.repo, candidate=True)
+        self.assertIs(result['dirty'], True)
+        self.assertIs(result['publishable'], False)
+        self.assertEqual(self.git('status', '--porcelain=v1', '-z', '--ignored', '--untracked-files=all'), before)
+        self.assertEqual(manifest.read_bytes(), sentinel)
+        for path in out.glob('*.zip'):
+            with self.subTest(path=path.name), zipfile.ZipFile(path) as archive:
+                names = archive.namelist()
+                self.assertFalse(any(name.endswith(('/.env', '/test_scratch.py')) for name in names))
+                name, = (n for n in names if n.endswith('/MANIFEST.sha256'))
+                rows = check_package.manifest(archive.read(name))
+                self.assertNotIn('.env', rows)
+                self.assertEqual(rows['references/PROJECTS.md'], check_package.sha(asset))
+        with mock.patch.object(verify_release, 'run', return_value={'stderr':'\nRan 2 tests in 0.1s\n\nOK\n'}):
+            verified = verify_release.verify(out, self.root/'audit.json', self.repo)
+        self.assertEqual(verified['status'], 'pass')
+        self.assertIs(verified['publishable'], False)
+
+    def test_dirty_tracked_file_outside_skill_refuses_release(self):
+        (self.repo/'README.md').write_text('dirty')
+        with self.assertRaisesRegex(ValueError, 'Dirty Git checkout'):
+            build_release.build(self.root/'release', self.repo)
+        self.assertFalse((self.root/'release').exists())
 
 
 if __name__=='__main__':unittest.main()
