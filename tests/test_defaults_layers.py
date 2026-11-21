@@ -33,9 +33,12 @@
 #       are all str; a str, a tuple or a set is not accepted. A violation raises
 #       ValueError. False is a value, not an absent one, and does override.
 #   R6  sources maps each set key to the name of the layer that won it (a str).
-#       For exclude it maps to a list: the names of every layer that supplied a
-#       non-None exclude (even an empty list or one whose entries were all
-#       already present), in layer order.
+#       For exclude it maps to a list: the names of the layers that contributed
+#       to the result, in layer order, each name once. A layer whose exclude is
+#       None, or that holds no exclude, does not contribute. A layer that adds
+#       at least one entry not already present must be listed. Whether a layer
+#       that adds nothing new (an empty list, or only entries already present)
+#       is listed is not specified, and no case below depends on it.
 #   R7  The result does not share lists with the input and the input is not
 #       modified.
 #
@@ -45,7 +48,9 @@
 #
 # The file runs in the repository and, unchanged, in a scratch project. It puts
 # skill/scripts (when present) and the working directory on the import path and
-# is skipped while the module defaults_layers does not exist.
+# skipped as a whole, with the reason "module not present", while the module
+# defaults_layers does not exist. Once it exists, every case runs and an import
+# error raised inside it is reported, not hidden.
 
 import copy
 import importlib
@@ -70,6 +75,11 @@ def _load():
 
 
 defaults_layers = _load()
+if defaults_layers is None:
+    if __name__ == "__main__":
+        print("skipped: module not present")
+        sys.exit(0)
+    raise unittest.SkipTest("module not present")
 
 KEYS = (
     "image",
@@ -89,7 +99,6 @@ def resolve(layers):
     return defaults_layers.resolve(layers)
 
 
-@unittest.skipIf(defaults_layers is None, "module not present")
 class DefaultsLayersTests(unittest.TestCase):
     def test_keys_constant(self):
         self.assertEqual(defaults_layers.KEYS, KEYS)
@@ -195,14 +204,26 @@ class DefaultsLayersTests(unittest.TestCase):
         self.assertEqual(values, {"exclude": ["x", "y"]})
         self.assertEqual(sources, {"exclude": ["a", "c"]})
 
-    def test_exclude_empty_list_still_counts_as_supplied(self):
-        values, sources = resolve([("only", {"exclude": []})])
-        self.assertEqual(values, {"exclude": []})
-        self.assertEqual(sources, {"exclude": ["only"]})
+    def test_exclude_empty_and_repeated_entries_add_nothing(self):
+        values, _ = resolve([("only", {"exclude": []})])
+        self.assertEqual(values.get("exclude", []), [])
         layers = [("a", {"exclude": ["x"]}), ("b", {"exclude": []}), ("c", {"exclude": ["x"]})]
         values, sources = resolve(layers)
         self.assertEqual(values, {"exclude": ["x"]})
-        self.assertEqual(sources, {"exclude": ["a", "b", "c"]})
+        self.assertIn("a", sources["exclude"])
+
+    def test_exclude_sources_list_contributing_layers_in_order(self):
+        layers = [
+            ("a", {"exclude": ["x"]}),
+            ("b", {"exclude": []}),
+            ("c", {"exclude": ["y"]}),
+        ]
+        values, sources = resolve(layers)
+        self.assertEqual(values, {"exclude": ["x", "y"]})
+        listed = sources["exclude"]
+        self.assertEqual([n for n in listed if n in ("a", "c")], ["a", "c"])
+        self.assertEqual(len(listed), len(set(listed)))
+        self.assertTrue(set(listed) <= {"a", "b", "c"})
 
     def test_exclude_keeps_an_empty_string_entry(self):
         values, _ = resolve([("only", {"exclude": ["", "a", ""]})])

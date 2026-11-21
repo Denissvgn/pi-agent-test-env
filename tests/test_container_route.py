@@ -42,7 +42,9 @@
 #
 # The file runs in the repository and, unchanged, in a scratch project. It puts
 # skill/scripts (when present) and the working directory on the import path and
-# is skipped while the module container_route does not exist.
+# skipped as a whole, with the reason "module not present", while the module
+# container_route does not exist. Once it exists, every case runs and an import
+# error raised inside it is reported, not hidden.
 
 import importlib
 import sys
@@ -66,6 +68,11 @@ def _load():
 
 
 container_route = _load()
+if container_route is None:
+    if __name__ == "__main__":
+        print("skipped: module not present")
+        sys.exit(0)
+    raise unittest.SkipTest("module not present")
 
 LOOPBACK_URLS = (
     "http://localhost",
@@ -148,7 +155,6 @@ INVALID_URLS = (
 )
 
 
-@unittest.skipIf(container_route is None, "module not present")
 class ClassifyTests(unittest.TestCase):
     def test_loopback_hosts(self):
         for url in LOOPBACK_URLS:
@@ -196,7 +202,6 @@ class ClassifyTests(unittest.TestCase):
                 )
 
 
-@unittest.skipIf(container_route is None, "module not present")
 class HostRouteTests(unittest.TestCase):
     def test_docker_host_is_replaced_by_loopback_address(self):
         cases = (

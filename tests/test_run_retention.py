@@ -46,7 +46,9 @@
 #
 # The file runs in the repository and, unchanged, in a scratch project. It puts
 # skill/scripts (when present) and the working directory on the import path and
-# is skipped while the module run_retention does not exist.
+# skipped as a whole, with the reason "module not present", while the module
+# run_retention does not exist. Once it exists, every case runs and an import
+# error raised inside it is reported, not hidden.
 
 import copy
 import importlib
@@ -72,6 +74,11 @@ def _load():
 
 
 run_retention = _load()
+if run_retention is None:
+    if __name__ == "__main__":
+        print("skipped: module not present")
+        sys.exit(0)
+    raise unittest.SkipTest("module not present")
 
 DAY = 86400
 
@@ -84,7 +91,6 @@ def select(*args, **kwargs):
     return run_retention.select(*args, **kwargs)
 
 
-@unittest.skipIf(run_retention is None, "module not present")
 class RunRetentionTests(unittest.TestCase):
     def test_empty_runs(self):
         self.assertEqual(select([]), [])
