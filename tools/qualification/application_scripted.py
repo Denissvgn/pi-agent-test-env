@@ -17,6 +17,7 @@ import re
 import select
 import signal
 import socket
+from socketserver import TCPServer
 import stat
 import threading
 import time
@@ -389,6 +390,10 @@ class ScriptedServer:
         class Server(ThreadingHTTPServer):
             daemon_threads=False
             def __init__(self,*args):self.slots=threading.BoundedSemaphore(2);super().__init__(*args)
+            def server_bind(self):
+                # The fixture uses a numeric address and has no DNS dependency.
+                TCPServer.server_bind(self)
+                self.server_name, self.server_port = self.server_address
             def process_request(self,request,address):
                 if not self.slots.acquire(False):self.shutdown_request(request);return
                 try:super().process_request(request,address)

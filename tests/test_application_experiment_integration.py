@@ -47,6 +47,8 @@ class ApplicationExperimentIntegrationTests(unittest.TestCase):
             'execution':{'image':self.fixture.runtime['id'],'platform':'linux/arm64','resources':'resources.json'},
             'policies':{'primary_attempt':'first','assistance':'exclude','on_failure':'continue','max_attempts':2}}
         self.path=self.fixture.write('experiment.json',self.definition);self.prepared=self.root/'prepared'
+        # This fully mocked dispatch exercises the reviewed ARM64 application contract.
+        self.enterContext(mock.patch.object(experiments, 'platform', mock.Mock(machine=lambda: 'arm64')))
         patch=mock.patch.dict(os.environ,{'PI_LAB_SECRETS_DIR':str(self.engine.store)});patch.start();self.addCleanup(patch.stop)
         mock.patch.object(resources,'admission_lock',side_effect=lambda *args,**kwargs:contextlib.nullcontext()).start()
         mock.patch.object(lab,'admission_lock',side_effect=lambda *args,**kwargs:contextlib.nullcontext()).start()

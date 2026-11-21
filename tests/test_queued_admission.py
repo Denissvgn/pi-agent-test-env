@@ -102,24 +102,30 @@ class QueuedAdmissionTests(unittest.TestCase):
                 self.assertEqual(signal.getitimer(signal.ITIMER_REAL), (0, 0))
 
     def test_later_outer_deadline_not_reset_by_inner_timeout(self):
-        self.holder()
+        now = 100.0
         events = []
         def outer(_signum, _frame):
-            events.append(time.monotonic())
+            events.append(now)
         signal.signal(signal.SIGALRM, outer)
-        started = time.monotonic()
-        signal.setitimer(signal.ITIMER_REAL, .18)
-        with self.assertRaises(resources.AdmissionError):
-            with resources.admission_lock(self.path, .05):
-                self.fail('busy')
-        remaining, interval = signal.getitimer(signal.ITIMER_REAL)
-        self.assertGreater(remaining, .05)
-        self.assertLess(remaining, .16)
-        self.assertEqual(interval, 0)
+        def delayed_flock(_fd, operation):
+            nonlocal now
+            self.assertEqual(operation, fcntl.LOCK_EX)
+            now += .08
+            signal.getsignal(signal.SIGALRM)(signal.SIGALRM, None)
+        with mock.patch.object(resources, 'time', mock.Mock(monotonic=lambda: now)), \
+             mock.patch.object(signal, 'getitimer', return_value=(.18, 0)), \
+             mock.patch.object(signal, 'setitimer') as arm, \
+             mock.patch.object(resources.fcntl, 'flock', side_effect=delayed_flock), \
+             self.assertRaises(resources.AdmissionError) as caught:
+            resources._queued_flock(-1, .05)
+        self.assertEqual(caught.exception.reason, 'host-admission-busy')
+        self.assertEqual(len(arm.call_args_list), 3)
+        for call, remaining in zip(arm.call_args_list, (.05, 0, .10)):
+            timer, seconds = call.args
+            self.assertEqual(timer, signal.ITIMER_REAL)
+            self.assertAlmostEqual(seconds, remaining)
         self.assert_restored(outer)
-        time.sleep(.2)
-        self.assertEqual(len(events), 1)
-        self.assertLess(events[0]-started, .23)
+        self.assertEqual(events, [])
 
     def test_success_preserves_outer_timer_inside_body(self):
         self.holder(.05)

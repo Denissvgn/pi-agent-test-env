@@ -365,6 +365,13 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(result.returncode,0,result.stderr);self.assertEqual(result.stdout,'');self.assertEqual(result.stderr,'')
         self.assertTrue(json.loads(obs.read_bytes())['stopped']);self.assertNotIn(KEY,' '.join(argv));self.assertNotIn(KEY,obs.read_text())
 
+    def test_numeric_listener_does_not_resolve_host_name(self):
+        with mock.patch.object(socket, 'getfqdn', side_effect=AssertionError('Unexpected reverse DNS')):
+            server = script.ScriptedServer(config(), self.root / 'numeric-listener.json')
+            self.addCleanup(server.stop)
+            self.assertEqual(server.server.server_name, '127.0.0.1')
+            self.assertGreater(server.server.server_port, 0)
+
     def test_private_stdin_bootstrap_accepts_partial_chunks_but_has_absolute_read_deadline(self):
         raw=c.canonical(config())
         with mock.patch.object(script.select,'select',return_value=([0],[],[])),mock.patch.object(script.os,'read',side_effect=[raw[:5],raw[5:],b'']):
