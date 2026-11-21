@@ -262,21 +262,6 @@ class GatewayTests(unittest.TestCase):
                 self.assertEqual(self.model_requests,0)
         finally:release.set()
 
-    def test_address_failures_consume_one_cumulative_connect_budget(self):
-        candidates=[]
-        class Candidate:
-            def __init__(self,*args):self.closed=False;candidates.append(self)
-            def settimeout(self,value):self.timeout=value
-            def connect(self,target):time.sleep(min(.07,self.timeout));raise TimeoutError('synthetic connect timeout')
-            def close(self):self.closed=True
-        answers=[(socket.AF_INET,socket.SOCK_STREAM,6,'',('127.0.0.1',1))]*3
-        with mock.patch.object(socket,'getaddrinfo',return_value=answers),mock.patch.object(socket,'socket',Candidate):
-            started=time.monotonic()
-            with self.assertRaises(TimeoutError):gateway.deadline_connection(('synthetic.invalid',1),started+.12)
-            self.assertLess(time.monotonic()-started,.5)
-        self.assertEqual(len(candidates),2);self.assertTrue(all(c.closed for c in candidates))
-        self.assertLess(candidates[1].timeout,candidates[0].timeout)
-
     def test_real_tls_handshake_gets_only_remaining_setup_budget(self):
         # The plain loopback authority never completes TLS. Use the actual SSL
         # handshake, with delayed DNS, to check cumulative setup enforcement.
@@ -290,3 +275,26 @@ class GatewayTests(unittest.TestCase):
             started=time.monotonic();self.assertEqual(self.request('GET','/v1/models')[0],502)
             self.assertLess(time.monotonic()-started,.8);self.assert_quarantined()
         self.assertEqual(self.model_requests,0)
+
+
+class ControlledConnectBudgetTests(unittest.TestCase):
+    def test_address_failures_consume_one_cumulative_connect_budget(self):
+        answers=[(socket.AF_INET,socket.SOCK_STREAM,6,'',('127.0.0.1',1))]*3
+        for delay,expected in ((0,2),(.06,1)):
+            with self.subTest(scheduling_delay=delay):
+                candidates=[];now=[0.0]
+                class Candidate:
+                    def __init__(self,*args):self.closed=False;candidates.append(self)
+                    def settimeout(self,value):self.timeout=value
+                    def connect(self,target):
+                        now[0]+=min(.07,self.timeout)+delay
+                        raise TimeoutError('synthetic connect timeout')
+                    def close(self):self.closed=True
+                with mock.patch.object(socket,'getaddrinfo',return_value=answers), \
+                     mock.patch.object(socket,'socket',Candidate), \
+                     mock.patch.object(gateway.time,'monotonic',side_effect=lambda:now[0]):
+                    with self.assertRaises(TimeoutError):gateway.deadline_connection(('synthetic.invalid',1),.12)
+                self.assertEqual(len(candidates),expected)
+                self.assertTrue(all(c.closed for c in candidates))
+                self.assertAlmostEqual(candidates[0].timeout,.12)
+                if expected==2:self.assertAlmostEqual(candidates[1].timeout,.05)

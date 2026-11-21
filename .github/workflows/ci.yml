@@ -83,6 +83,9 @@ jobs:
       - run: |
           set -o pipefail
           python3 tools/verify_release.py --archives "$RUNNER_TEMP/archives" --report "$RUNNER_TEMP/release-report.json" --test-timeout-seconds 1800 | tee "$RUNNER_TEMP/release-verifier-stdout.json"
+      - name: Measure synthetic host phases
+        if: always()
+        run: python3 tools/ci/macos_diagnostics.py "$RUNNER_TEMP/macos-diagnostics.json"
       - name: Upload archives and report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -92,6 +95,7 @@ jobs:
             ${{ runner.temp }}/archives/
             ${{ runner.temp }}/release-report.json
             ${{ runner.temp }}/release-verifier-stdout.json
+            ${{ runner.temp }}/macos-diagnostics.json
           if-no-files-found: warn
 
   ci-ok:
