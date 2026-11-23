@@ -9,6 +9,7 @@ import uuid
 
 import stage_control as controls
 from diagnostics import LabError, failure_text
+import lab_env
 import secret_store
 from resources import admission_diagnostic
 from application_credentials import CredentialError, Redactor
@@ -22,6 +23,8 @@ def failure_fields(exc, admission):
         return {'reason': exc.reason or type(exc).__name__, 'remedy': exc.remedy}
     if type(exc) is CredentialError:
         return {'reason': CredentialError.reason}
+    if type(exc) is lab_env.EnvError:
+        return {'reason': exc.reason or type(exc).__name__}
     return {'reason': type(exc).__name__}
 
 

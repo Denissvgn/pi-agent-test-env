@@ -151,6 +151,20 @@ class CommandFailureTests(unittest.TestCase):
             self.assertEqual(saved['infrastructure']['reason'], 'RuntimeError')
             self.assertNotIn('untrusted', result.read_text())
 
+    def test_environment_and_secret_errors_stay_blocked_with_their_reason(self):
+        cases = ((lab.lab_env.EnvError('No session id', 'needs-session', 'missing-session'), 'missing-session'),
+                 (lab.secret_store.SecretError('Secret store is not owner-only'), 'SecretError'))
+        for failure, reason in cases:
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as directory, \
+                    contextlib.ExitStack() as stack:
+                args, result, errors = self.suite_fixture(Path(directory), stack)
+                stack.enter_context(mock.patch.object(lab, 'require_host', side_effect=failure))
+                self.assertEqual(lab.run_suite(args), 2)
+                self.assertTrue(errors.getvalue().startswith(f'BLOCKED [{reason}]'))
+                saved = json.loads(result.read_text())
+                self.assertTrue(saved['sealed'])
+                self.assertEqual(saved['infrastructure']['reason'], reason)
+
 
 if __name__ == '__main__':
     unittest.main()

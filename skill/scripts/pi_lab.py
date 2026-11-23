@@ -2460,6 +2460,11 @@ def main(argv=None):
         return dispatch(args)
 
 
+# Runner-owned and input errors: reported as BLOCKED (exit 2), never as internal faults.
+RUNNER_ERRORS = (LabError, controls.ControlError, lab_env.EnvError, secret_store.SecretError,
+                 workspace_patch.PatchError, ValueError, OSError)
+
+
 def browser_check(args):
     """Independent, credential-free browser admission; no model environment required."""
     if args.profile != 'browser':
@@ -2560,7 +2565,7 @@ def emit_failure(exc, *, phase=None, held_by=''):
         code = fields['reason']
         message = diagnostic.get('message', code) if diagnostic is not None else str(exc)
         guidance = fields.get('remedy')
-        known = diagnostic is not None or isinstance(exc, (LabError, controls.ControlError, ValueError, OSError))
+        known = diagnostic is not None or isinstance(exc, RUNNER_ERRORS)
         if known:
             location = f' phase={phase}' if phase else ''
             label = f'BLOCKED [{code}]{location}'
