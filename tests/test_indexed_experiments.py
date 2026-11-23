@@ -55,7 +55,8 @@ class IndexedFixture(IndexedSetup):
                             plan=indexed_experiments.frozen_plan(root,cell,lab)
                             self.assertIn('fixture_lookup',plan['agents'][0]['tools']);self.assertIn('fixture_lookup',plan['agents'][0]['require_tools'])
                             if resume:experiments.reserve_attempt(root,metadata,cell)
-                            with patch.object(experiments.resources,'admission_lock',lease),patch.object(lab,'require_host',return_value={}),patch.object(lab,'command',side_effect=AssertionError('No native commands')) as commands,patch.object(indexed_parallel.indexed_execution,'capacity',return_value=(metadata['indexed_execution'],{'cpu_millis':1000,'memory_mib':128,'pids_limit':64})),patch.object(lab,'probe_image',side_effect=ProbeBoundary()) as probes:
+                            with patch.object(experiments, 'platform', types.SimpleNamespace(machine=lambda: 'arm64')), \
+                                 patch.object(experiments.resources,'admission_lock',lease),patch.object(lab,'require_host',return_value={}),patch.object(lab,'command',side_effect=AssertionError('No native commands')) as commands,patch.object(indexed_parallel.indexed_execution,'capacity',return_value=(metadata['indexed_execution'],{'cpu_millis':1000,'memory_mib':128,'pids_limit':64})),patch.object(lab,'probe_image',side_effect=ProbeBoundary()) as probes:
                                 with self.assertRaises(ProbeBoundary):experiments.execute(root,lab,'fixture',resume=resume)
                                 self.assertEqual(probes.call_count,1);self.assertEqual(commands.call_count,0)
                             if resume:

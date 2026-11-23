@@ -32,6 +32,8 @@ the supplied recipe, the runner's exact command line and settings, and a model
 endpoint that refuses connections. The same check against the admitted 1.2.0 image
 reproduced the frozen 1.2.0 tool declarations exactly.
 
+The upstream [Pi 1.5.2 JSON specification](https://github.com/earendil-works/pi/blob/b4afdddf44e059c67ccf5097e5317d913521b470/packages/coding-agent/docs/json.md) describes its protocol.
+
 ## Runtime behavior
 
 - Keep `--mode json --print`, explicit provider, model, tools and session
@@ -58,8 +60,9 @@ reproduced the frozen 1.2.0 tool declarations exactly.
 - On SIGTERM, Pi now aborts the active run and waits for it before exiting.
   Extensions receive the aborted events and the aborted turn is written to the
   session file; stdout still receives none of it. A tool that ignores its abort
-  signal delays exit until a second signal. Native cancellation and continuation
-  lanes must confirm that cancelled segments still resume as exact sessions.
+  signal delays exit until a second signal. The 4.10.0 campaign covered cancellation
+  and owner-loss recovery within its recorded scope; continuation remains bound
+  to the exact session.
 - Resuming with a thinking level other than the last recorded one writes a
   `thinking_level_change` session entry. The runner resumes with its frozen
   level, so this does not occur in its runs.
@@ -105,7 +108,7 @@ prepared for 1.2.0 cannot continue on 1.5.2.
 
 ## Qualification scope
 
-Source review and the offline process check establish adapter behavior only. A
-native campaign on exact 1.5.2 images is required before any qualification
-claim. Consult [QUALIFICATION.md](../QUALIFICATION.md) for actual completed
+The 4.10.0 native campaign qualified the stable scope on Pi 1.5.2 on
+11 November 2026. Source review and offline checks alone establish adapter
+behavior only. Consult [QUALIFICATION.md](../QUALIFICATION.md) for actual completed
 evidence and limits.

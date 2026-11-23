@@ -4,8 +4,10 @@
 #     -t pi-agent-ci:py3.12 tools/ci
 # The suite runs offline; no package installation happens at test time.
 ARG PYTHON_IMAGE=python:3.12-slim-bookworm
-ARG NODE_IMAGE=node:24-bookworm-slim
+ARG NODE_IMAGE=node:24-bookworm-slim@sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7719dbb780f929368eb
 FROM ${NODE_IMAGE} AS node
 FROM ${PYTHON_IMAGE}
+ARG PYTHON_IMAGE
+LABEL ci.python-image-reference=${PYTHON_IMAGE}
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 RUN node --version && python3 --version

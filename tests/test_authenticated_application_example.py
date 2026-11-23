@@ -15,6 +15,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from types import SimpleNamespace
 import unittest
@@ -339,20 +340,36 @@ class AuthenticatedExampleTests(unittest.TestCase):
         self.assertEqual(self.server.journal['pages'],[]);self.assertEqual(self.server.journal['publications'],[])
 
     def test_fixture_concurrency_is_bounded_before_slow_header_body_admission(self):
-        self.build();connections=[]
+        self.build()
+        server = self.server.server
+        worker_entered = threading.Semaphore(0)
+        release_workers = threading.Event()
+        finish_request = server.finish_request
+        connections = []
+
+        def before_parse(request, address):
+            worker_entered.release()
+            if release_workers.wait(timeout=15):
+                finish_request(request, address)
+
         try:
-            for _ in range(8):
-                connection=socket.create_connection(('127.0.0.1',self.server.server.server_port),timeout=1)
-                connection.sendall(b'GET /identity HTTP/1.1\r\nHost: fixture\r\nX-Slow: ');connections.append(connection)
-            deadline=time.monotonic()+1
-            while self.server.server.slots._value and time.monotonic()<deadline:time.sleep(0.005)
-            self.assertEqual(self.server.server.slots._value,0)
-            extra=socket.create_connection(('127.0.0.1',self.server.server.server_port),timeout=1)
-            try:self.assertEqual(extra.recv(1),b'')
-            finally:extra.close()
+            with mock.patch.object(server, 'finish_request', side_effect=before_parse):
+                for _ in range(8):
+                    connection = socket.create_connection(('127.0.0.1', server.server_port), timeout=5)
+                    connections.append(connection)
+                    connection.sendall(b'GET /identity HTTP/1.1\r\nHost: fixture\r\nX-Slow: ')
+                    self.assertTrue(worker_entered.acquire(timeout=5))
+                with socket.create_connection(('127.0.0.1', server.server_port), timeout=5) as extra:
+                    try:
+                        self.assertEqual(extra.recv(1), b'')
+                    except ConnectionResetError:
+                        pass
+                self.assertFalse(worker_entered.acquire(blocking=False))
             self.assertEqual(self.server.journal['requests'],[])
         finally:
-            for connection in connections:connection.close()
+            for connection in connections:
+                connection.close()
+            release_workers.set()
 
     def test_fixture_request_cap_never_grows_journal_after_bound(self):
         self.build()

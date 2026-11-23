@@ -6,6 +6,16 @@ copyable plans and profiles belong in `assets/`; runnable examples belong in
 `examples/`. Keep maintainer tests, stored test output, publishing tools and
 planning history outside the skill.
 
+Add a new command as a module with a `register` function instead of editing
+`parser()` and `main()` in `skill/scripts/pi_lab.py`. Create
+`skill/scripts/<name>.py` that exposes `register(subparsers)`; it adds its
+subparsers and calls `set_defaults(handler=function)`, where `handler(args)`
+returns the exit code. Then add the module name as one line, in alphabetical
+order, to `COMMAND_MODULES` in `skill/scripts/command_modules.py`. On a merge
+conflict in that tuple keep both lines. A listed module that cannot be imported
+stops the program at start and names the module. Commands that existed before
+this seam stay in `parser()`.
+
 Runtime changes must retain Python 3.12+ and the standard-library-only host
 policy. Standards validation is development tooling and requires Python 3.11+;
 its pinned source and wheels are bundled in `tools/validation/` for offline use.
@@ -162,7 +172,7 @@ incomplete API evidence and failing/in-progress checks block merging. No timeout
 or admin bypass turns them into a pass. Use `--match-head-commit` for the merge.
 See [the promotion procedure](skill/references/PULL-REQUESTS.md). The
 [opt-in parallel-agent design](docs/design/parallel-agents.md) sets the fixed verification order;
-serial execution remains the default. Experimental schema-2 selection requires
+serial execution remains the default. Opt-in schema-2 selection requires
 its documented cohort, resource and qualification contract. Build release
 artifacts from the final reviewed tree and preserve published tags/assets when
 shipping a corrective patch version.

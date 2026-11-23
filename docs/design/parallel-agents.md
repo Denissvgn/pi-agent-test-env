@@ -1,8 +1,9 @@
 # Opt-in parallel Pi agents
 
-Status: implementation contract. Experimental schema-2 code must pass the gates
-below before promotion; this document alone establishes no qualification. Implement the phases in order; each phase has a verification gate.
-The shipped serial path and exact Pi 0.87.1/1.2.0 contracts remain the baseline.
+Status: historical implementation contract. Opt-in two-trial scheduling shipped
+in 4.4.0; indexed inference followed in 4.5.0. The gates below record the
+original implementation; see [qualification](../../skill/QUALIFICATION.md) for
+its measured scope.
 
 ## Objective and first scope
 
@@ -23,7 +24,7 @@ Use a new experiment-definition version with an explicit concurrency block.
 Schema-1 experiments continue to use the serial executor. Do not upgrade or
 rewrite existing frozen definitions, snapshots, attempts or reports in place.
 
-Proposed settings (names and schema must be finalized in phase 1):
+Initial settings:
 
 | Setting | Serial default | Initial opt-in |
 |---|---|---|
@@ -259,7 +260,7 @@ Parallelism does not grant Pi nested-agent or integration capabilities.
     all finding dispositions, then use the normal authorized promotion procedure.
     Copilot quota/error notices do not establish completed code review.
 
-Do not invent native/model counts or budgets during collection. Phase 9/10 need a
+Do not invent native/model counts or budgets during collection. Native collection needs a
 concrete approved execution intent once resource and server capacity are known.
 Qualification failures stop dependent work; retain failed/unrun cells and require
 explicit authorization for a changed or repeated collection. Old serial native
@@ -267,7 +268,7 @@ receipts cannot establish overlapping-worker behavior.
 
 ## Rollout and completion criteria
 
-Ship serial default first, then an explicitly selected experimental two-trial
+Ship serial default first, then an explicitly selected opt-in two-trial
 mode after all gates pass. Avoid enabling it through auto-detected CPU count or
 saved configuration migration. Roll back by selecting serial mode in a newly
 prepared experiment; do not edit a running/frozen parallel experiment in place.
