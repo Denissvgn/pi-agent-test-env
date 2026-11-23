@@ -1,0 +1,59 @@
+name: Bug report
+description: Report a problem with the tool
+labels: []
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: "Do not paste keys, tokens, model addresses, or other private information."
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      description: The command you ran (remove secrets and private addresses).
+      placeholder: python3 skill/scripts/pi_lab.py doctor
+    validations:
+      required: true
+  - type: input
+    id: reason-code
+    attributes:
+      label: Reason code
+      description: The reason code shown in the result, if any.
+    validations:
+      required: false
+  - type: input
+    id: exit-code
+    attributes:
+      label: Exit code
+      description: The process exit code.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `--version`.
+      placeholder: 4.11.0
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: Operating system and version.
+    validations:
+      required: true
+  - type: input
+    id: docker-version
+    attributes:
+      label: Docker version
+      description: Docker client and engine version, if applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+      description: Describe what you expected and what happened. Remove secrets and private addresses.
+    validations:
+      required: true

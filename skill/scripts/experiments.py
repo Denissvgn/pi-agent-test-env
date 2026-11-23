@@ -360,21 +360,33 @@ def verify(root,lab):
 
 
 def add_parser(sub):
-    run=sub.add_parser('experiment-run',help='Execute the frozen serial or explicitly selected two-trial matrix')
-    run.add_argument('--experiment',required=True);run.add_argument('--session')
-    resume=sub.add_parser('experiment-resume',help='Reconcile abandoned attempts; run pending cells and only explicitly selected fresh retries')
-    resume.add_argument('--experiment',required=True);resume.add_argument('--session');resume.add_argument('--retry-trial',help='Explicit trial UUID; first attempt remains primary')
-    export=sub.add_parser('experiment-export',help='Write deterministic complete planned-cell JSONL inside the experiment')
-    export.add_argument('--experiment',required=True)
-    export.add_argument('--public',action='store_true',help='Indexed-only allowlisted opaque export; excludes private inventory')
-    report=sub.add_parser('experiment-report',help='Write complete JSONL and primary/cohort JSON/Markdown comparisons')
-    report.add_argument('--experiment',required=True)
-    for name in ('validate-experiment','experiment-prepare'):
-        p=sub.add_parser(name,help='Validate schema-1 serial or schema-2 parallel application inputs' if name=='validate-experiment' else 'Freeze all inputs and persist the complete trial matrix')
-        p.add_argument('--definition',required=True);p.add_argument('--endpoint',help='Explicit common endpoint; otherwise saved environment, offline validation only')
-        p.add_argument('--catalog-dir');p.add_argument('--secrets-dir')
-        if name=='experiment-prepare':
-            p.add_argument('--experiment-dir',required=True);p.add_argument('--session')
+    for name, help_text in (
+        ('validate-experiment', 'Validate an experiment definition offline'),
+        ('experiment-prepare', 'Freeze inputs and write the trial matrix'),
+    ):
+        p = sub.add_parser(name, help=help_text)
+        p.add_argument('--definition', required=True, help='Read the experiment definition JSON from this path (required)')
+        p.add_argument('--endpoint', help='Use this common endpoint JSON for direct experiments (default: saved environment)')
+        p.add_argument('--catalog-dir', help='Use this indexed catalog (default: PI_LAB_CATALOG_DIR or per-user catalog)')
+        p.add_argument('--secrets-dir', help='Use this secret store (default: PI_LAB_SECRETS_DIR or per-user store)')
+        if name == 'experiment-prepare':
+            p.add_argument('--experiment-dir', required=True,
+                           help='Write the frozen experiment to this new directory (required)')
+            p.add_argument('--session', help='Use this session for environment confirmation (default: PI_LAB_SESSION)')
+
+    run = sub.add_parser('experiment-run', help='Run the frozen trial matrix')
+    run.add_argument('--experiment', required=True, help='Run the experiment in this directory (required)')
+    run.add_argument('--session', help='Use this session for environment confirmation (default: PI_LAB_SESSION)')
+    resume = sub.add_parser('experiment-resume', help='Reconcile attempts and run pending trials')
+    resume.add_argument('--experiment', required=True, help='Resume the experiment in this directory (required)')
+    resume.add_argument('--session', help='Use this session for environment confirmation (default: PI_LAB_SESSION)')
+    resume.add_argument('--retry-trial', help='Retry this eligible trial UUID and keep its first attempt primary (default: no retry)')
+    export = sub.add_parser('experiment-export', help='Export the trial ledger as JSONL')
+    export.add_argument('--experiment', required=True, help='Export trials from the experiment in this directory (required)')
+    export.add_argument('--public', action='store_true',
+                        help='Export only allowlisted opaque data for an indexed experiment (default: full ledger)')
+    report = sub.add_parser('experiment-report', help='Write trial results and cohort comparisons')
+    report.add_argument('--experiment', required=True, help='Report on the experiment in this directory (required)')
 
 
 def command(args,lab):

@@ -97,6 +97,12 @@ class BaseFixture(unittest.TestCase):
 
 
 class AuthorityAdmissionTests(BaseFixture):
+    def test_numeric_listener_does_not_resolve_host_name(self):
+        with mock.patch.object(socket, 'getfqdn', side_effect=AssertionError('Unexpected reverse DNS')):
+            with service.Server(('127.0.0.1', 0), None) as server:
+                self.assertEqual(server.server_name, '127.0.0.1')
+                self.assertGreater(server.server_port, 0)
+
     def test_ac16_authority_repr_and_worker_independent_contexts_withhold_values(self):
         authority, grant = self.authority()
         public = repr(authority) + repr(grant) + json.dumps(grant.context()) + json.dumps(authority.independent_context())
