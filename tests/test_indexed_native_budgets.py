@@ -196,7 +196,9 @@ class IndexedNativeTests(unittest.TestCase):
                        'activate':lambda values:events.append('activate'),'admit':lambda:None}
             try:yield inference,lambda intent:'owned-network',lambda name:events.append('network-cleanup')
             finally:events.append(('broker-finally',getattr(pool,'dependent_cleanup_confirmed',True)))
+        import pi_lab
         lab=mock.Mock();lab.ROOT=ROOT/'skill';lab.validate_plan.return_value=plan
+        lab.load_plan = pi_lab.load_plan
         with mock.patch.object(indexed,'Catalog'),mock.patch.object(indexed,'resolve',return_value=({'entry':binding},{'entry':'synthetic-original'},{})),\
              mock.patch.object(indexed,'capacity',return_value=(value,{'cpu_millis':1000,'memory_mib':1024,'pids_limit':256})),\
              mock.patch.object(indexed.inference_broker,'owner',broker):

@@ -311,6 +311,12 @@ def discover(base_url: str, api_key_env: str, timeout: float = 10.0, store=None)
 
 # --------------------------------------------------------------------------- health
 
+def model_entries(listing):
+    if not isinstance(listing, dict) or not isinstance(listing.get('data'), list):
+        raise ValueError('/models must return a JSON object with a data array')
+    return listing['data']
+
+
 def health_check(endpoint: dict, store=None, timeout: float = 15.0, chat: bool = True) -> dict:
     """Host-side check of the saved environment. Raises EnvError(state='broken') with a reason code."""
     base_url, name = endpoint.get('host_base_url',endpoint.get('base_url','')), endpoint.get('api_key_env','')
@@ -327,11 +333,12 @@ def health_check(endpoint: dict, store=None, timeout: float = 15.0, chat: bool =
     except Exception as exc:  # noqa: BLE001
         reason, detail = classify_http(exc)
         raise EnvError(f'{base_url}/models: {detail}', 'broken', reason) from None
-    ids = [m.get('id') for m in listing.get('data', []) if isinstance(m, dict)]
+    items = model_entries(listing)
+    ids = [m.get('id') for m in items if isinstance(m, dict)]
     if endpoint.get('model') not in ids:
         raise EnvError(f'Model {endpoint.get("model")} is no longer listed; server offers {ids[:8]}', 'broken',
                        'model-not-found')
-    context=interpret_context(endpoint['model'],listing.get('data',[]),fetch_props(base_url,key,timeout))
+    context=interpret_context(endpoint['model'],items,fetch_props(base_url,key,timeout))
     try:check_context(context,endpoint['context_window'])
     except ValueError as exc:raise EnvError(str(exc),'broken','context-too-small') from None
     detail = {'models_listed': len(ids), 'key_source': source, 'chat': 'skipped','context':context}

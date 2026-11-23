@@ -5,10 +5,27 @@ returned here names what failed and the next action the user or agent can take.
 """
 from __future__ import annotations
 from pathlib import Path
+import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'runtime'))
 import release_contracts  # noqa: E402
+
+
+class LabError(RuntimeError):
+    """A blocker. `reason` is a stable machine-readable code; `remedy` is the next action."""
+    def __init__(self, message: str, reason: str = '', remedy: str = ''):
+        super().__init__(message)
+        self.reason = reason
+        self.remedy = remedy
+
+
+def failure_text(text, redactor):
+    """Remove credentials and endpoint URLs before exposing exception details."""
+    text = text.encode('utf-8', 'backslashreplace').decode()
+    text = redactor.value(text)
+    return re.sub(r'https?://[^\s]+', '<REDACTED>', text, flags=re.IGNORECASE)
+
 
 SANDBOX_HINT = ('If this command runs inside an AI agent\'s command sandbox, the sandbox (not Docker) may be '
                 'denying access: re-run the SAME command with elevated/unsandboxed execution after the user '
