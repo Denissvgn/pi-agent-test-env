@@ -5,6 +5,7 @@ import datetime
 import json
 import re
 import subprocess
+import sys
 
 
 def reviewer_name(name):
@@ -158,7 +159,7 @@ def collect(repo, number, head):
             'review_decision': decision, 'checks': checks, 'statuses': statuses, 'status_summary': status_summary}
 
 
-def evaluate(snapshot, repo, number, head, expected_reviewers):
+def evaluate(snapshot, repo, number, head, expected_reviewers, required_checks=(), review_of_record=None):
     pr = snapshot['pr']; blockers = []
     if pr['head']['sha'] != head:
         blockers.append('PR head differs from the verified head')
@@ -221,6 +222,20 @@ def evaluate(snapshot, repo, number, head, expected_reviewers):
         if (check.get('head_sha') != head or check.get('status') != 'completed'
                 or check.get('conclusion') not in ('success', 'neutral', 'skipped')):
             blockers.append('Incomplete/failing exact-head check: ' + check.get('name', 'unknown'))
+    required = []
+    for name in required_checks:
+        matching = [check for check in snapshot['checks'] if check.get('name') == name and check.get('head_sha') == head]
+        if not matching:
+            blockers.append('Required check is absent on the exact head: ' + name)
+            required.append({'name': name, 'state': 'absent'})
+        elif any(check.get('status') != 'completed' for check in matching):
+            blockers.append('Required check is pending: ' + name)
+            required.append({'name': name, 'state': 'pending'})
+        elif any(check.get('conclusion') != 'success' for check in matching):
+            blockers.append('Required check is not successful: ' + name)
+            required.append({'name': name, 'state': 'failed'})
+        else:
+            required.append({'name': name, 'state': 'success'})
     for status in snapshot['statuses']:
         if status.get('state') != 'success':
             blockers.append('Incomplete/failing commit status: ' + status.get('context', 'unknown'))
@@ -231,6 +246,7 @@ def evaluate(snapshot, repo, number, head, expected_reviewers):
         blockers.append('Combined commit status is failing, pending or incomplete')
     return {'schema': 1, 'document_type': 'pr_review_gate', 'status': 'BLOCKED' if blockers else 'PASS',
             'repo': repo, 'pr': number, 'head': head, 'expected_reviewers': expected_reviewers,
+            'required_checks': required, 'review_of_record': review_of_record,
             'completed_reviews': completed, 'unresolved_threads': unresolved, 'blockers': blockers,
             'commit_status': combined,
             'observed_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -238,10 +254,15 @@ def evaluate(snapshot, repo, number, head, expected_reviewers):
 
 
 def add_arguments(parser):
-    parser.add_argument('--repo', required=True)
-    parser.add_argument('--pr', type=int, required=True)
-    parser.add_argument('--head', required=True, help='Exact verified PR head SHA')
-    parser.add_argument('--expect-reviewer', action='append', help='Required completed reviewer; defaults to Copilot')
+    parser.add_argument('--repo', required=True, help='Select the GitHub repository as owner/repository (required)')
+    parser.add_argument('--pr', type=int, required=True, help='Select the pull request by its positive number (required)')
+    parser.add_argument('--head', required=True, help='Verify this exact 40-character PR head SHA (required)')
+    parser.add_argument('--expect-reviewer', action='append',
+                        help='Require a completed review by this GitHub login. Repeatable (default: no named reviewer).')
+    parser.add_argument('--require-check', action='append', default=[], metavar='NAME',
+                        help='Require this check to succeed on the exact head. Repeatable (default: no named checks).')
+    parser.add_argument('--independent-review', metavar='TEXT',
+                        help='Record who accepted the change and where (default: unset). Required without --expect-reviewer.')
     return parser
 
 
@@ -249,11 +270,22 @@ def command(args):
     if (not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', args.repo)
             or args.pr <= 0 or not re.fullmatch(r'[0-9a-f]{40}', args.head)):
         raise ValueError('Use owner/repository, a positive PR number and an exact 40-character head SHA')
-    expected = args.expect_reviewer or ['Copilot']
+    expected = args.expect_reviewer or []
+    if not expected and not (args.independent_review or '').strip():
+        message = 'Without --expect-reviewer, --independent-review TEXT is required to name the review of record'
+        print('usage: pr_review_gate.py [--expect-reviewer NAME] [--independent-review TEXT]; ' + message, file=sys.stderr)
+        blocked = {'schema': 1, 'document_type': 'pr_review_gate', 'status': 'BLOCKED',
+                   'repo': args.repo, 'pr': args.pr, 'head': args.head,
+                   'blockers': [message], 'error_type': 'ValueError'}
+        print(json.dumps(blocked, indent=2))
+        return 2
+    if any(not name.strip() for name in args.require_check):
+        raise ValueError('Required check names must be nonempty')
     if any(not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9-]*(?:\[bot\])?', name) for name in expected):
         raise ValueError('Expected reviewers must be nonempty GitHub login names')
     try:
-        result = evaluate(collect(args.repo, args.pr, args.head), args.repo, args.pr, args.head, expected)
+        result = evaluate(collect(args.repo, args.pr, args.head), args.repo, args.pr, args.head, expected,
+                          required_checks=args.require_check, review_of_record=args.independent_review)
     except (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError, subprocess.TimeoutExpired) as exc:
         result = {'schema': 1, 'document_type': 'pr_review_gate', 'status': 'BLOCKED',
                   'repo': args.repo, 'pr': args.pr, 'head': args.head,

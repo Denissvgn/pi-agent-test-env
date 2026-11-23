@@ -6,12 +6,91 @@ Never change the user's selected builder. Never fall back to unconstrained
 from __future__ import annotations
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
 import uuid
 from resources import memory_bytes
 import ownership_registry
+
+DOCKER_DIR = Path(__file__).resolve().parents[1] / 'docker'
+PINS_FILE = DOCKER_DIR / 'pins.json'
+BUNDLED_DOCKERFILE = DOCKER_DIR / 'Dockerfile'
+PIN_FIELDS = ('base_image', 'buildkit_image')
+PINNED_REFERENCE = re.compile(r'[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9_][A-Za-z0-9._-]*)?@(sha256:[0-9a-f]{64})')
+
+
+def load_pins(path=None):
+    """The digest-pinned base and BuildKit references, the only place either is written."""
+    path = path or PINS_FILE
+    try:
+        data = json.loads(Path(path).read_text())
+    except (OSError, ValueError) as exc:
+        raise ValueError(f'Cannot read the image pins {path}: {exc}') from exc
+    if not isinstance(data, dict) or set(data) != {'schema', *PIN_FIELDS} or data['schema'] != 1:
+        raise ValueError('The image pins must be schema 1 with exactly ' + ' and '.join(PIN_FIELDS))
+    for field in PIN_FIELDS:
+        if not isinstance(data[field], str) or PINNED_REFERENCE.fullmatch(data[field]) is None:
+            raise ValueError(f'The image pin {field} must be name@sha256:digest')
+    return {field: data[field] for field in PIN_FIELDS}
+
+
+def digest_of(reference):
+    """The sha256 digest a pinned reference names, or None for a reference without one."""
+    match = re.search(r'@(sha256:[0-9a-f]{64})$', reference or '')
+    return match.group(1) if match else None
+
+
+def dockerfile_references(text):
+    """Image references of the FROM instructions, exactly as written (stage names are not images)."""
+    references = []
+    lines = iter(text.splitlines())
+    for line in lines:
+        statement = line.strip()
+        while statement.endswith('\\'):
+            statement = statement[:-1].rstrip() + ' ' + next(lines, '').strip()
+        words = statement.split()
+        if not words or words[0].startswith('#') or words[0].upper() != 'FROM':
+            continue
+        arguments = [word for word in words[1:] if not word.startswith('--')]
+        if arguments:
+            references.append(arguments[0])
+    return references
+
+
+BASE_ARGUMENT_USE = re.compile(r'\$\{?BASE_IMAGE(?![A-Za-z0-9_])')
+
+
+def resolve_base(args, dockerfile):
+    """The base the build starts from, and where that knowledge comes from.
+
+    The bundled Dockerfile starts from the pinned reference unless the caller names
+    another. A project's own Dockerfile chooses its own FROM lines: its base image is
+    never known here (`image` is None, `source` is `dockerfile`) and `references` lists
+    its FROM references as written. A `--base-image` given with such a file is still
+    forwarded as the BASE_IMAGE build argument, for files that consume it, but it is
+    only a supplied `argument`; `argument_in_from` says whether a FROM line uses it.
+    """
+    explicit = getattr(args, 'base_image', None) or None
+    if Path(dockerfile).resolve() == BUNDLED_DOCKERFILE.resolve():
+        if explicit:
+            return {'image': explicit, 'source': 'argument', 'references': None,
+                    'argument': explicit, 'argument_in_from': None}
+        return {'image': load_pins()['base_image'], 'source': 'pins', 'references': None,
+                'argument': None, 'argument_in_from': None}
+    references = dockerfile_references(Path(dockerfile).read_text(errors='replace'))
+    return {'image': None, 'source': 'dockerfile', 'references': references, 'argument': explicit,
+            'argument_in_from': any(BASE_ARGUMENT_USE.search(item) for item in references) if explicit else None}
+
+
+def base_build_argument(base):
+    """The BASE_IMAGE value forwarded to docker, or None when the build passes none."""
+    return base['image'] or base['argument']
+
+
+def buildkit_reference(args):
+    return getattr(args, 'buildkit_image', None) or load_pins()['buildkit_image']
 
 
 def builder_options(name, limits, config_path, image, platform=None):
@@ -40,15 +119,19 @@ def limited_build(args, dockerfile, context, command):
     """command is the host runner's checked subprocess helper; injected for tests."""
     command(['docker', 'buildx', 'version'])
     limits = args.resource_report['effective']['build']
-    command(['docker','pull','--platform',args.platform,args.buildkit_image],timeout=300)
-    buildkit=json.loads(command(['docker','image','inspect',args.buildkit_image]).stdout)[0]
+    base=resolve_base(args,dockerfile)
+    buildkit_image=buildkit_reference(args)
+    command(['docker','pull','--platform',args.platform,buildkit_image],timeout=300)
+    buildkit=json.loads(command(['docker','image','inspect',buildkit_image]).stdout)[0]
     if buildkit.get('Os')+'/'+buildkit.get('Architecture')!=args.platform:
         raise ValueError('BuildKit image architecture differs from selected native platform; refusing bootstrap')
     name = 'pi-agentic-build-' + uuid.uuid4().hex[:12]
     registry=ownership_registry.CURRENT.get();registered=None
     if registry is not None:registered=registry.builder_intent(name,buildkit['Id'])
     created = False
-    receipt = {'builder_name': name, 'limits': limits,'buildkit_image_id':buildkit['Id'],'platform':args.platform}
+    receipt = {'builder_name': name, 'limits': limits,'buildkit_image_id':buildkit['Id'],'platform':args.platform,
+               'buildkit':{'image':buildkit_image,'digest':digest_of(buildkit_image),
+                           'id':buildkit['Id'],'repo_digests':buildkit.get('RepoDigests') or []}}
     try:
         with tempfile.TemporaryDirectory(prefix='pi-buildkit-') as folder:
             config = Path(folder) / 'buildkitd.toml'
@@ -65,7 +148,7 @@ def limited_build(args, dockerfile, context, command):
                 registered['container_id']=runtime['Id'];registered['status']='running';registry.write(registered)
             argv = ['docker', 'buildx', 'build', '--builder', name, '--load',
                     '--platform', args.platform, '-t', args.image,
-                    '--build-arg', 'BASE_IMAGE=' + args.base_image,
+                    *(['--build-arg', 'BASE_IMAGE=' + base_build_argument(base)] if base_build_argument(base) else []),
                     '--build-arg', 'PI_VERSION=' + args.pi_version,
                     '--build-arg', 'WITH_BROWSER=' + ('1' if args.profile == 'browser' else '0'),
                     '--build-arg', 'EXTRA_APT_PACKAGES=' + ' '.join(args.apt_package),

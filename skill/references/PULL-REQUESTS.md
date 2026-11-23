@@ -37,11 +37,18 @@ Before merging:
 ```bash
 python3 "$SKILL_DIR/scripts/pr_review_gate.py" \
   --repo OWNER/REPOSITORY --pr PR_NUMBER --head VERIFIED_HEAD_SHA \
-  --require-check ci-ok > /tmp/pr-review-gate.json
+  --expect-reviewer REVIEWER_LOGIN --require-check CHECK_NAME > /tmp/pr-review-gate.json
+python3 "$SKILL_DIR/scripts/pr_review_gate.py" \
+  --repo OWNER/REPOSITORY --pr PR_NUMBER --head VERIFIED_HEAD_SHA \
+  --independent-review "REVIEWER AND LOCATION" --require-check CHECK_NAME > /tmp/pr-review-gate-independent.json
 ```
 
-In this repository the merge needs the gate to pass with `--require-check ci-ok`
-and the review of record. The gate requires an open non-draft PR, clean server
+The first form requires named reviewers to finish on the exact head
+(`--expect-reviewer` is repeatable); the second records the independent review of
+record. Without `--expect-reviewer` the gate refuses to run unless
+`--independent-review` names that review. In this repository the merge needs the
+second form to pass with `--require-check ci-ok`. A failed check blocks the gate
+even when the workflow's aggregate check tolerates it. The gate requires an open non-draft PR, clean server
 merge state, no pending reviews, no undismissed requests for changes, zero
 unresolved threads and successful/completed commit checks/statuses. A COMMENTED
 review does not clear an earlier request for changes. Read every submission body
@@ -74,11 +81,10 @@ Changing repository settings, such as required checks or branch protection,
 needs a person.
 
 A pull request adds one changelog fragment under `changes/` and never edits
-`CHANGELOG.md`; the package manifest is regenerated only when a release is
-prepared. Its worktree package check is therefore structural
-(`tools/check_package.py --source skill --no-manifest`, which requires the
-matching tooling); the published and release-preparation integrity checks
-remain strict. New commands are added as modules, not by editing the parser. A native
+`CHANGELOG.md`. A pull request that changes package files regenerates
+`MANIFEST.sha256` (`scripts/export_skill.py --manifest-only`), because this
+repository's CI checks it strictly; on a conflict, regenerate it from the merged
+tree. New commands are added as modules, not by editing the parser. A native
 qualification campaign binds `skill/scripts`, `skill/runtime`, `skill/assets`,
 `skill/docker`, `skill/examples` and `tools/qualification` into its source
 identity; after the code freeze, until the campaign is finished, only

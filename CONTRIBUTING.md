@@ -6,6 +6,16 @@ copyable plans and profiles belong in `assets/`; runnable examples belong in
 `examples/`. Keep maintainer tests, stored test output, publishing tools and
 planning history outside the skill.
 
+Add a new command as a module with a `register` function instead of editing
+`parser()` and `main()` in `skill/scripts/pi_lab.py`. Create
+`skill/scripts/<name>.py` that exposes `register(subparsers)`; it adds its
+subparsers and calls `set_defaults(handler=function)`, where `handler(args)`
+returns the exit code. Then add the module name as one line, in alphabetical
+order, to `COMMAND_MODULES` in `skill/scripts/command_modules.py`. On a merge
+conflict in that tuple keep both lines. A listed module that cannot be imported
+stops the program at start and names the module. Commands that existed before
+this seam stay in `parser()`.
+
 Runtime changes must retain Python 3.12+ and the standard-library-only host
 policy. Standards validation is development tooling and requires Python 3.11+;
 its pinned source and wheels are bundled in `tools/validation/` for offline use.
@@ -18,20 +28,16 @@ Run from the repository root:
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 python3 tools/validation/validate_standard.py --self-test
-python3 tools/check_package.py --source skill --no-manifest
+python3 tools/check_package.py --source skill
 python3 tools/check_examples.py --source skill
 ```
 
-In a pull request worktree the package check is structural:
-`--no-manifest` checks the package layout, metadata and links but not
-`skill/MANIFEST.sha256`, which is regenerated only when a release is prepared
-(see [Changelog and manifest](#changelog-and-manifest)). **Requires the matching
-tooling:** `--no-manifest` is not yet in `tools/check_package.py`; it arrives
-with the CI change that adds it. Until then the check accepts only the strict
-form. The published and release-preparation integrity checks remain strict:
-`python3 tools/check_package.py --source skill` without `--no-manifest`, and the
-release build and verifier below, require a complete manifest that matches the
-package bytes.
+The strict package check also compares `skill/MANIFEST.sha256` with the package
+bytes. CI's Linux jobs run it through the container runner below, so a pull
+request that changes files under `skill/` regenerates the manifest (see
+[Changelog fragments and version bumps](#changelog-fragments-and-version-bumps)).
+`--no-manifest`, which CI's static job runs, checks the package layout,
+metadata and links but not the manifest.
 
 `tools/check_examples.py` is the read-only examples check: it checks the
 packaged documentation commands, parser, schemas and JavaScript syntax without
@@ -58,8 +64,7 @@ python3 tools/docker_ci.py --image pi-agent-ci:py3.12 --report /tmp/pi-ci-py3.12
 
 Repeat with the newest supported Python as well. The runner does not supply the
 synthetic read-only providers that the isolated owner-consumer tests use
-(`PI_SYNTHETIC_READER_PROVIDER`) or the operation SDK container fixture
-(`tools/qualification/operation_sdk_fixture.py`); those tests skip without them.
+(`PI_SYNTHETIC_READER_PROVIDER`), so those tests skip without it.
 
 ## Adopting a new Pi release
 
@@ -104,17 +109,17 @@ record the result in a `PI-<release>.md` reference. Then:
 4. Append the line that `python3 tests/test_release_registry.py --freeze <release>`
    prints to `REVIEWED_IDENTITIES`. Never edit an earlier line: receipts bind
    those identities.
-5. Add the new release identity to `PARALLEL_RELEASE_CONTRACTS` in
-   `tools/qualification/application_sdk_admission.py`.
-6. Update the documentation and add a changelog fragment. The package manifest
-   is regenerated when the release is prepared, not in this pull request.
+5. Update the documentation and add a changelog fragment. The manifest is
+   regenerated when the release is prepared, as described below.
 
-The maintainer suite fails until steps 1–5 are complete. A stable claim still
+The maintainer suite fails until steps 1–4 are complete. A stable claim still
 needs a native campaign on exact images (**needs Docker** and a person; see
 below). With three reviewed releases, select releases for the indexed campaign
 with `--release`: qualifying all of them at once exceeds its launch ceiling.
 
 ## Native qualification campaigns
+
+Completed application campaign tools and their tests remain available in tag `v4.10.0`.
 
 Offline checks never qualify live execution. A release that claims native
 qualification needs a fresh campaign on its exact code. **Needs Docker:** every
@@ -189,7 +194,7 @@ merge.
 - New commands are added as modules, not by editing the parser in
   `skill/scripts/pi_lab.py`.
 - A pull request adds one changelog fragment and never edits
-  `skill/CHANGELOG.md`; see [Changelog and manifest](#changelog-and-manifest).
+  `skill/CHANGELOG.md`; see [Changelog fragments and version bumps](#changelog-fragments-and-version-bumps).
 - After a code freeze, until its campaign is finished, only documentation
   outside the campaign identity paths merges; see
   [Native qualification campaigns](#native-qualification-campaigns).
@@ -229,11 +234,14 @@ Run the read-only review gate immediately before the merge:
 
 ```bash
 python3 skill/scripts/pr_review_gate.py --repo Denissvgn/pi-agent-test-env \
-  --pr PR_NUMBER --head VERIFIED_HEAD_SHA --require-check ci-ok
+  --pr PR_NUMBER --head VERIFIED_HEAD_SHA --require-check ci-ok \
+  --independent-review "REVIEWER AND WHERE THEY ACCEPTED THE CHANGE"
 ```
 
-Stale heads, pending reviews, unresolved threads, requests for changes,
-incomplete API evidence and failing or in-progress checks block the merge. No
+`--independent-review` names the review of record; the gate refuses to run
+without it unless `--expect-reviewer` names a required reviewer. Stale heads, pending reviews, unresolved threads, requests for changes,
+incomplete API evidence and failing or in-progress checks block the merge,
+including a failed advisory Linux job that `ci-ok` tolerates. No
 timeout or admin bypass turns them into a pass. Merge with a merge commit pinned
 to the verified head, and keep the branch:
 
@@ -248,16 +256,44 @@ describes the gate's evidence.
 **Needs a person:** changing repository settings, such as required checks or
 branch protection, is done by a person.
 
-## Changelog and manifest
+## Changelog fragments and version bumps
 
-A pull request adds one fragment under `changes/` that describes its change, and
-never edits `skill/CHANGELOG.md`, so concurrent pull requests do not conflict
-over the changelog. The package manifest, `skill/MANIFEST.sha256`, is
-regenerated only when a release is prepared; that is also when the fragments
-become the release's `skill/CHANGELOG.md` entry. A pull request therefore does
-not change the manifest, and its package check uses `--no-manifest` (requires
-the matching tooling; see [Checks](#checks)); the published and
-release-preparation integrity checks remain strict.
+A change that belongs in the changelog adds one fragment, `changes/<short-name>.md`
+(see [changes/README.md](changes/README.md)). Its first line is `kind:` followed by
+`added`, `changed`, `fixed`, `removed`, `security` or `upgrade-note`; the rest of the
+file is the text as it should read. Pull requests do not edit `skill/CHANGELOG.md`,
+so concurrent pull requests do not conflict over the changelog.
+Check fragments with `python3 tools/assemble_changelog.py --check`; it writes nothing.
+
+Release preparation runs these commands in order from the repository root, after
+the release's code is final:
+
+```bash
+python3 tools/bump_version.py X.Y.Z
+python3 tools/assemble_changelog.py --version X.Y.Z
+python3 skill/scripts/export_skill.py --manifest-only
+python3 tools/bump_version.py --check
+python3 tools/check_package.py --source skill
+```
+
+`bump_version.py` takes the version from `skill/skill.json` as the reference. It
+refuses when the listed places disagree, and it rewrites only the live places it
+lists. Dated campaign results and records of earlier releases keep the version they
+were recorded under. `assemble_changelog.py` inserts the new top entry above the
+existing entries, groups the fragments by kind, puts `upgrade-note` text under
+"Upgrading from <previous version>" and deletes the fragments. `--manifest-only`
+writes `skill/MANIFEST.sha256` and nothing else. Run it after the changelog is
+assembled, because the manifest covers `skill/CHANGELOG.md`.
+
+A pull request that changes files under `skill/` regenerates
+`skill/MANIFEST.sha256`, because CI's Linux jobs check it strictly:
+
+```bash
+python3 skill/scripts/export_skill.py --manifest-only
+```
+
+On a merge conflict in the manifest, regenerate it from the merged tree instead
+of merging its lines.
 
 ## Release
 
@@ -266,8 +302,9 @@ verification order; serial execution remains the default. Experimental schema-2
 selection requires its documented cohort, resource and qualification contract.
 
 Build release artifacts from the final reviewed tree and preserve published
-tags and assets when shipping a corrective patch version. The build regenerates
-`skill/MANIFEST.sha256` from the tree it packages:
+tags and assets when shipping a corrective patch version. A publishable build
+refuses a stale `skill/MANIFEST.sha256`; a `--candidate` build computes the
+manifest from the tree it packages:
 
 ```bash
 python3 tools/build_release.py --output-dir /tmp/pi-agent-release

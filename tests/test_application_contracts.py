@@ -600,8 +600,8 @@ class LegacyCompatibilityTests(unittest.TestCase):
                 self.assertNotIn('max_tool_calls', normalized['agents'][0])
                 self.assertNotIn('completion', normalized)
 
-    def test_ac03_copied_historical_experiment_matrix_and_result_bytes_are_frozen(self):
-        for name, expected in BASELINE['archived_bytes'].items():
+    def test_historical_experiment_matrix_and_result_fixture_bytes_are_pinned(self):
+        for name, expected in BASELINE['fixture_bytes'].items():
             with self.subTest(name=name):
                 self.assertEqual(hashlib.sha256((FIXTURES / name).read_bytes()).hexdigest(), expected)
         experiment = experiments.read_json(FIXTURES / 'historical-experiment.json')

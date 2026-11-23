@@ -243,5 +243,32 @@ class ReviewGateTests(unittest.TestCase):
         self.assertEqual(code, 2); self.assertNotIn('private diagnostic', output.getvalue())
         self.assertEqual(json.loads(output.getvalue())['status'], 'BLOCKED')
 
+    def test_required_check_must_be_present_completed_and_successful(self):
+        success = {'name': 'ci-ok', 'head_sha': HEAD, 'status': 'completed', 'conclusion': 'success'}
+        def run(checks):
+            state = snapshot(); state['checks'] = checks
+            return gate.evaluate(state, 'owner/repository', 3, HEAD, [], required_checks=['ci-ok'],
+                                 review_of_record='synthetic maintainer review record')
+        passed = run([success])
+        self.assertEqual(passed['status'], 'PASS')
+        self.assertEqual(passed['review_of_record'], 'synthetic maintainer review record')
+        self.assertEqual(passed['required_checks'], [{'name': 'ci-ok', 'state': 'success'}])
+        absent = run([])
+        self.assertEqual(absent['status'], 'BLOCKED')
+        self.assertIn('Required check is absent on the exact head: ci-ok', absent['blockers'])
+        pending = run([{**success, 'status': 'in_progress', 'conclusion': None}])
+        self.assertEqual(pending['status'], 'BLOCKED')
+        self.assertIn('Required check is pending: ci-ok', pending['blockers'])
+
+    def test_without_expected_reviewer_independent_review_is_required(self):
+        error = io.StringIO()
+        output = io.StringIO()
+        with contextlib.redirect_stderr(error), contextlib.redirect_stdout(output):
+            code = gate.main(['--repo', 'owner/repository', '--pr', '3', '--head', HEAD])
+        self.assertEqual(code, 2)
+        self.assertEqual(json.loads(output.getvalue())['status'], 'BLOCKED')
+        self.assertIn('usage:', error.getvalue())
+        self.assertIn('--independent-review', error.getvalue())
+
 
 if __name__ == '__main__': unittest.main()

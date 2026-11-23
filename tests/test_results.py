@@ -319,7 +319,8 @@ class SegmentTests(unittest.TestCase):
             self.assertEqual(calls[1]['prior_turns'],2);self.assertEqual(calls[1]['prior_reported_tokens'],5)
             budget=lab.controls.read(run/'stages'/first['stage_id']/'budget.json')
             self.assertEqual(budget['revision'],1);self.assertEqual(budget['effective_limits']['timeout_seconds'],7)
-            self.assertEqual(budget['deadline_host_monotonic']-budget['started_host_monotonic'],7)
+            # Check the stored deadline without rounding a second time through subtraction.
+            self.assertEqual(budget['deadline_host_monotonic'], budget['started_host_monotonic'] + 7)
             self.assertEqual(first['evidence']['unsuccessful_messages'],['aborted'])
 
     def test_unrequested_abort_wrong_model_and_unrelated_session_cannot_recover(self):

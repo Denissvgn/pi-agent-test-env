@@ -35,6 +35,14 @@ def plan():
 
 
 class AdmissionTests(unittest.TestCase):
+    def test_legacy_store_reference_bounds(self):
+        for name in ('A', '_', 'A' * 64):
+            with self.subTest(name=name):
+                self.assertEqual(credentials.validate({'PI_APP_ALIAS': name}), {'PI_APP_ALIAS': name})
+        for name in ('A' * 65, 'lower', '9START', 'A/B', 'A-B', 'A\nB', 'ÁCTOR'):
+            with self.subTest(name=name), self.assertRaises(credentials.CredentialError):
+                credentials.validate({'PI_APP_ALIAS': name})
+
     def test_snapshot_scan_exceptions_discard_owned_copy_before_dispatch(self):
         for error in (OSError('unreadable entry'),RecursionError('inspection depth')):
             with self.subTest(error=type(error).__name__),tempfile.TemporaryDirectory() as td,contextlib.ExitStack() as stack:

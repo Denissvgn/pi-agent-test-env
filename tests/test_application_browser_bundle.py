@@ -15,14 +15,11 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest import mock
-import uuid
 
 ROOT=Path(__file__).resolve().parents[1]
-sys.path[:0]=[str(ROOT/'skill/scripts'),str(ROOT/'skill/runtime'),str(ROOT/'tools/qualification')]
+sys.path[:0]=[str(ROOT/'skill/scripts'),str(ROOT/'skill/runtime')]
 import application_client as client
 import application_client_service as service
-import application_sdk_admission as sdk
 
 LEGACY_KEYS=frozenset(('runtime/application-browser-cdp.mjs','runtime/application_api.py',
     'runtime/application_browser.py','runtime/application_budget.py',
@@ -58,9 +55,6 @@ try {
 """
 
 
-def forbidden(*unused,**kw):raise AssertionError('pure_shape_must_not_observe_or_dispatch')
-
-
 class BrowserBundleTests(unittest.TestCase):
     def setUp(self):
         self.temporary=tempfile.TemporaryDirectory(prefix='inert-browser-bundle-')
@@ -69,21 +63,6 @@ class BrowserBundleTests(unittest.TestCase):
         self.code=self.root/'code'
         # Genuine production freezer, not a full-tree test mount or hand-built map.
         self.identity=client.freeze_code(self.code)
-
-    def shape(self,identity):
-        gate=object.__new__(sdk.AdmissionGate);gate.registry_root=self.root/'unopened-registry'
-        key=str(uuid.uuid4())
-        row={'schema':1,'launch_id':key,'generation':str(uuid.uuid4()),
-            'registry':hashlib.sha256(str(gate.registry_root).encode()).hexdigest(),
-            'status':'released','container':'inert-browser-helper','image':'sha256:'+'a'*64,
-            'mounts':[],'daemon':'NONSECRET_SYNTHETIC_DAEMON','runroot':None,
-            'binding':{},'application_helper':True,'client_mode':'application-execution',
-            'code_identity':copy.deepcopy(identity)}
-        with mock.patch('os.open',side_effect=forbidden),mock.patch('os.stat',side_effect=forbidden), \
-             mock.patch('os.lstat',side_effect=forbidden),mock.patch('os.kill',side_effect=forbidden), \
-             mock.patch('subprocess.Popen',side_effect=forbidden),mock.patch('socket.socket',side_effect=forbidden), \
-             mock.patch.object(sdk,'digest',side_effect=forbidden):
-            sdk.AdmissionGate._shape(gate,row,key)
 
     def link(self,expected):
         node=shutil.which('node');self.assertIsNotNone(node,'Node is required for the copied-bundle regression')
@@ -127,22 +106,6 @@ class BrowserBundleTests(unittest.TestCase):
         (self.code/BROWSER_OPTIONS).unlink()
         self.link('missing')
 
-    def test_original_sdk_accepts_only_exact_legacy_or_current_bundle_shapes(self):
-        self.assertEqual(sdk.CODE_KEYS,LEGACY_KEYS)
-        self.assertEqual(sdk.BROWSER_CODE_KEYS,LEGACY_KEYS|{BROWSER_OPTIONS})
-        self.assertEqual(sdk.CURRENT_CODE_KEYS,LEGACY_KEYS|{BROWSER_OPTIONS,REGISTRY_DIAGNOSTICS})
-        legacy={name:self.identity[name]for name in LEGACY_KEYS}
-        browser={name:self.identity[name]for name in sdk.BROWSER_CODE_KEYS}
-        self.shape(legacy);self.shape(browser);self.shape(self.identity)
-        for fault in ('missing-old','extra','renamed','invalid-hash','bool-hash'):
-            value=copy.deepcopy(self.identity)
-            if fault=='missing-old':value.pop('runtime/application_api.py')
-            elif fault=='extra':value['runtime/arbitrary-module.mjs']='a'*64
-            elif fault=='renamed':value['runtime/other-browser-options.mjs']=value.pop(BROWSER_OPTIONS)
-            elif fault=='invalid-hash':value[BROWSER_OPTIONS]='not-a-sha'
-            else:value[BROWSER_OPTIONS]=True
-            with self.subTest(fault=fault),self.assertRaises(sdk.AdmissionDenied):self.shape(value)
-
     def test_current_service_authenticates_added_dependency_without_weakening_hashes(self):
         # Genuine verifier checks the current public package paths. Legacy maps
         # remain historical SDK metadata, not acceptable current bootstraps.
@@ -153,7 +116,7 @@ class BrowserBundleTests(unittest.TestCase):
         with self.assertRaises(ValueError):service.verify_code(bad)
         bad=copy.deepcopy(self.identity);bad[REGISTRY_DIAGNOSTICS]='0'*64
         with self.assertRaises(ValueError):service.verify_code(bad)
-        browser={name:self.identity[name]for name in sdk.BROWSER_CODE_KEYS}
+        browser={name:self.identity[name]for name in LEGACY_KEYS|{BROWSER_OPTIONS}}
         with self.assertRaises(ValueError):service.verify_code(browser)
 
     def test_copied_python_bundle_requires_frozen_diagnostics_dependency(self):

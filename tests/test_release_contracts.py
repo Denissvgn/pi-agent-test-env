@@ -115,6 +115,10 @@ class AdmissionTests(unittest.TestCase):
                 if argv == ['node', '--version']: return 'v24.21.0'
                 if argv == ['pi', '--help']:
                     return ' '.join(contracts.COMMON_FLAGS) + (' --no-mcp' if include_mcp else '')
+                if argv[0] == 'dpkg-query':
+                    # The installed-package observation is unrelated to the CLI flags under
+                    # test; supply a well-formed one rather than the generic stub text.
+                    return 'ii \tbash\t5.2\tarm64\nrc \told\t1\tarm64'
                 return 'synthetic version'
             with mock.patch.object(worker.shutil, 'which', return_value='/synthetic'), \
                  mock.patch.object(worker, 'execute', side_effect=execute), \

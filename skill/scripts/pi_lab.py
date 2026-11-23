@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Host-side orchestration for real Pi agents. Python >=3.10, local Docker daemon.
+"""Host-side orchestration for real Pi agents. Python 3.12+, local Docker daemon.
 
 The parent has Docker access; children do not. Results live outside the child mount.
 See SKILL.md and references/SECURITY.md before use.
@@ -8,7 +8,9 @@ from __future__ import annotations
 import argparse
 import copy
 import datetime as dt
+import errno
 import fnmatch
+from functools import partial
 import hashlib
 import json
 import math
@@ -24,13 +26,14 @@ import sys
 import tempfile
 import threading
 import time
+import traceback
 from typing import Any
 from urllib.parse import urlsplit
 import uuid
 
 from evidence import analyze
 from resources import configure, requested_policy, thread_environment, admission_lock, admission_diagnostic, AdmissionError, TMP_MOUNT
-from builder import limited_build
+from builder import limited_build, resolve_base, buildkit_reference, digest_of
 import secret_store
 import application_credentials
 import ownership_registry
@@ -50,7 +53,7 @@ from usage_contract import combine as combine_usage, summarize as summarize_usag
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'runtime'))
 import pi_contract
 import release_contracts
-from diagnostics import classify_docker_error, first_line, remedy
+from diagnostics import LabError, classify_docker_error, failure_text, first_line, remedy
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / 'runtime'
@@ -62,14 +65,6 @@ EXCLUDES = {'.git', '.pi', '.agents', '.pi-runtime', '.pi-lab', 'node_modules',
 SECRET_PATTERNS = ['.env', '.env.*', '*.pem', '*.key', 'id_rsa*', 'id_ed25519*']
 ACTIVE: set[str] = set()
 EXIT_NEEDS_SECRET = 3
-
-
-class LabError(RuntimeError):
-    """A blocker. `reason` is a stable machine-readable code; `remedy` is the next action."""
-    def __init__(self, message: str, reason: str = '', remedy: str = ''):
-        super().__init__(message)
-        self.reason = reason
-        self.remedy = remedy
 
 
 def now() -> str:
@@ -160,8 +155,9 @@ def require_host(args) -> dict:
             'native_platform': args.native_platform, 'selected_platform': args.platform, 'resources': limits}
 
 
-def checked_path(path: Path) -> Path:
-    result = path.expanduser().resolve()
+def checked_path(path: Path, *, follow_final=True) -> Path:
+    path = path.expanduser()
+    result = path.resolve() if follow_final else path.parent.resolve() / path.name
     if any(c in str(result) for c in ',\n\r'):
         raise LabError('Docker bind source paths containing commas or newlines are not supported')
     return result
@@ -488,6 +484,11 @@ def probe_image(args, image: str) -> dict:
             info['capabilities'] = json.loads((top / 'logs/stdout.jsonl').read_text())
         except ValueError as exc:
             raise LabError('Image probe did not produce valid JSON') from exc
+        try:
+            release_contracts.require_validator_report(info['capabilities'].get('validators')
+                                                       if isinstance(info['capabilities'], dict) else None)
+        except ValueError as exc:
+            raise LabError(str(exc), 'image-incompatible', remedy('image-incompatible')) from exc
         args.chromium_path = info['capabilities'].get('chromium_path', '/usr/bin/chromium')
     return info
 
@@ -501,6 +502,10 @@ def admit_image(image, expected=None):
     except ValueError as exc:
         raise LabError(str(exc), 'unsupported-pi-release',
                        f'Select and qualify an exact reviewed Pi {release_contracts.describe()} image; no fallback.') from exc
+    try:
+        release_contracts.validate_validators(image.get('capabilities', {}).get('validators'), selected['release'])
+    except ValueError as exc:
+        raise LabError(str(exc), 'image-incompatible', remedy('image-incompatible')) from exc
     return selected
 
 
@@ -518,7 +523,8 @@ def ensure_image(args) -> dict:
                 receipt['release_contract'] = admit_image(receipt, args.pi_version or None)
                 if candidate != args.image:
                     command(['docker', 'image', 'tag', receipt['id'], args.image])
-                receipt.update(action='reused', alias=args.image, host=host)
+                receipt.update(action='reused', alias=args.image, host=host,
+                               package_list_sha256=receipt['capabilities'].get('package_list_sha256'))
                 if args.receipt:
                     save(checked_path(Path(args.receipt)), receipt)
                 return receipt
@@ -535,12 +541,24 @@ def ensure_image(args) -> dict:
     context = checked_path(Path(args.build_context)) if args.build_context else (dockerfile.parent if args.dockerfile else ROOT / 'docker')
     if not dockerfile.is_file() or not context.is_dir() or context in (Path('/'), Path.home()):
         raise LabError('Use an existing reviewed Dockerfile and a dedicated environment-only build context, not / or home')
+    try:
+        base = resolve_base(args, dockerfile)
+        buildkit_image = buildkit_reference(args)
+    except (OSError, ValueError) as exc:
+        raise LabError(str(exc)) from exc
     build_receipt = limited_build(args, dockerfile, context, command)
     receipt = probe_image(args, args.image)
     receipt['release_contract'] = admit_image(receipt, args.pi_version)
+    # The receipt names the base the build really used: the pinned or explicit
+    # reference, or, for a project's own Dockerfile, its FROM lines as written.
     receipt.update(action='built', host=host, prior_candidates=attempted,
                    requested_pi_version=args.pi_version,
-                   base_image=args.base_image, build=build_receipt)
+                   base_image=base['image'], base_source=base['source'], base_references=base['references'],
+                   base_digest=digest_of(base['image']),
+                   base_argument=base['argument'], base_argument_in_from=base['argument_in_from'],
+                   buildkit=build_receipt.get('buildkit') or {'image': buildkit_image, 'digest': digest_of(buildkit_image)},
+                   package_list_sha256=receipt['capabilities'].get('package_list_sha256'),
+                   build=build_receipt)
     if args.receipt:
         save(checked_path(Path(args.receipt)), receipt)
     return receipt
@@ -702,6 +720,30 @@ def safe_relative(value: str) -> str:
     return p.as_posix()
 
 
+def load_plan(filename, *, max_chars=1024 * 1024):
+    """Read a regular UTF-8 plan without following a final symlink."""
+    path = checked_path(Path(filename), follow_final=False)
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise LabError('Plan path is a symlink; pass the regular plan file') from None
+        raise
+    with os.fdopen(fd, encoding='utf-8') as source:
+        if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+            raise LabError('Plan must be a regular file')
+        body = source.read() if max_chars is None else source.read(max_chars + 1)
+    if max_chars is not None and len(body) > max_chars:
+        raise LabError('Plan exceeds the size limit')
+    value = json.loads(body)
+    if not isinstance(value, dict):
+        raise LabError('Plan must be a JSON object')
+    if value.get('document_type') in ('application_plan_source', 'application_execution_plan'):
+        import application_contracts
+        value = application_contracts.loads(body)
+    return path, value
+
+
 def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=False, *, dependency_reader=None) -> dict:
     agent_profile=agent_profile or agent_profiles.builtin()
     if not isinstance(value, dict):
@@ -727,6 +769,8 @@ def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=
         raise LabError('A plan needs real agent stages AND independent checks; prose alone cannot pass')
     if len(value['agents']) > 8 or len(value['checks']) > 20 or len(value.get('setup', [])) > 20:
         raise LabError('Plan exceeds bounded agent/check count')
+    if 'name' in value and not isinstance(value['name'], str):
+        raise LabError('Plan name must be a string')
     result = {'schema': 1, 'name': value.get('name', 'agent-tests'), 'agents': [],
               'setup': [], 'checks': [], 'protected_paths': [], 'required_paths': []}
     for name in value.get('required_paths', []):
@@ -751,6 +795,8 @@ def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=
             raise LabError('Each agent needs exactly one of prompt or prompt_file')
         if 'prompt_file' in t:
             selected = t.pop('prompt_file')
+            if not isinstance(selected, str):
+                raise LabError('Prompt file must be a string path')
             if dependency_reader is None:
                 source = (base / selected).resolve()
                 t['prompt'] = source.read_text()
@@ -764,7 +810,7 @@ def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=
         if not isinstance(t['prompt'], str) or not t['prompt'].strip() or len(t['prompt'].encode()) > 128 * 1024:
             raise LabError('Agent prompt must be nonempty and at most 128 KiB')
         t.setdefault('name', f'agent-{i+1}')
-        if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,50}', t['name']) or t['name'] in names:
+        if not isinstance(t['name'], str) or not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,50}', t['name']) or t['name'] in names:
             raise LabError('Agent names must be unique lowercase slugs')
         names.add(t['name'])
         t['cwd'] = working_directory(t.get('cwd', '.'))
@@ -809,7 +855,7 @@ def validate_plan(value: dict, base: Path, agent_profile=None,external_bindings=
             if not isinstance(argv, list) or not argv or not all(isinstance(x, str) and x and '\x00' not in x for x in argv):
                 raise LabError('Check argv must be a nonempty string array; not a shell string')
             t.setdefault('name', f'{section}-{i+1}')
-            if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,50}', t['name']):
+            if not isinstance(t['name'], str) or not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,50}', t['name']):
                 raise LabError('Check names must be lowercase slugs')
             t['cwd'] = working_directory(t.get('cwd', '.'))
             t.setdefault('timeout_seconds', 300)
@@ -904,7 +950,15 @@ def snapshot(src: Path, dst: Path, additional: list[str], limit_mb: int, score_c
     dst.mkdir()
     def walk(folder: Path, target: Path):
         nonlocal total
-        for child in sorted(folder.iterdir()):
+        try:
+            children = sorted(folder.iterdir())
+        except OSError:
+            if not score_copy:
+                raise
+            # A directory the agent made unreadable cannot stop its checks from running.
+            skipped.append(folder.relative_to(src).as_posix() + ' [unreadable]')
+            return
+        for child in children:
             rel = child.relative_to(src).as_posix()
             excluded=is_excluded(child.name,additional)
             if score_copy and child.name in {'node_modules','.venv','venv','__pycache__'}:excluded=False
@@ -925,38 +979,140 @@ def snapshot(src: Path, dst: Path, additional: list[str], limit_mb: int, score_c
                 total += child.stat().st_size
                 if total > limit_mb * 1024 * 1024:
                     raise LabError(f'Project copy exceeds {limit_mb} MiB; add --exclude or stage a smaller checkout')
-                shutil.copy2(child, target / child.name)  # New inode, not a hard link.
+                try:
+                    shutil.copy2(child, target / child.name)  # New inode, not a hard link.
+                except PermissionError:
+                    if not score_copy:
+                        raise
+                    skipped.append(rel + ' [unreadable]')
             else:
                 skipped.append(rel + ' [special file]')
     walk(src, dst)
     return {'copied_bytes': total, 'skipped': skipped}
 
 
-def tree_hashes(root: Path, include_ignored: bool = False) -> dict[str, str]:
+OMITTED_LIMIT = 500
+_KINDS = ((stat.S_ISLNK, 'symlink'), (stat.S_ISREG, 'file'), (stat.S_ISDIR, 'directory'), (stat.S_ISFIFO, 'fifo'),
+          (stat.S_ISSOCK, 'socket'), (stat.S_ISBLK, 'block-device'), (stat.S_ISCHR, 'char-device'))
+
+
+def entry_kind(path: Path) -> str:
+    try:
+        mode = path.lstat().st_mode
+    except OSError:
+        return 'unknown'
+    return next((name for test, name in _KINDS if test(mode)), 'unknown')
+
+
+def tree_hashes(root: Path, include_ignored: bool = False, omitted: list | None = None) -> dict[str, str]:
+    """Hash regular files and record links, by path relative to `root`.
+
+    The returned values never depend on `omitted`. When a list is given, the paths that the
+    hashes leave out are appended to it as {'path', 'rule', 'kind'} and an unreadable path no
+    longer raises: the topmost excluded name (its contents are not walked), a path that is
+    neither a regular file, a directory nor a link, and a path that could not be read."""
     result = {}
     if not root.exists():
         return result
+    def note(rel, rule, kind):
+        if omitted is not None:
+            omitted.append({'path': rel, 'rule': rule, 'kind': kind})
     def entry(p, rel):
         if p.is_symlink():
             result[rel] = 'symlink:' + os.readlink(p)
         elif p.is_file():
-            with p.open('rb') as f:
-                h = hashlib.file_digest(f, 'sha256') if hasattr(hashlib, 'file_digest') else None
-                if h is None:
-                    h = hashlib.sha256()
-                    for b in iter(lambda: f.read(1024 * 1024), b''):
-                        h.update(b)
-            result[rel] = f'{stat.S_IMODE(p.stat().st_mode):04o}:' + h.hexdigest()
+            try:
+                with p.open('rb') as f:
+                    h = hashlib.file_digest(f, 'sha256') if hasattr(hashlib, 'file_digest') else None
+                    if h is None:
+                        h = hashlib.sha256()
+                        for b in iter(lambda: f.read(1024 * 1024), b''):
+                            h.update(b)
+                result[rel] = f'{stat.S_IMODE(p.stat().st_mode):04o}:' + h.hexdigest()
+            except OSError as exc:
+                if omitted is None:
+                    raise
+                note(rel, 'unreadable:' + type(exc).__name__, 'file')
+        elif omitted is not None and not p.is_dir():
+            kind = entry_kind(p)
+            if kind != 'unknown':
+                note(rel, 'special-file', kind)
+    def unlistable(exc):
+        try:
+            note(Path(exc.filename).relative_to(root).as_posix(), 'unreadable:' + type(exc).__name__, 'directory')
+        except (TypeError, ValueError):
+            pass
     if root.is_file() or root.is_symlink():
         entry(root, '.')
         return result
-    for base, dirs, files in os.walk(root, followlinks=False):
+    for base, dirs, files in os.walk(root, followlinks=False, onerror=unlistable if omitted is not None else None):
+        if not include_ignored:
+            for name in sorted(n for n in (*dirs, *files) if n in EXCLUDES):
+                p = Path(base) / name
+                note(p.relative_to(root).as_posix(), 'excluded-name:' + name, entry_kind(p))
         dirs[:] = sorted(d for d in dirs if include_ignored or d not in EXCLUDES)
         for name in list(dirs) + sorted(files):
             p = Path(base) / name
             if include_ignored or name not in EXCLUDES:
                 entry(p, p.relative_to(root).as_posix())
     return result
+
+
+def _shape(value):
+    return 'link' if value.startswith('symlink:') else 'file'
+
+
+def change_record(before: dict, after: dict, omitted_before: list, omitted_after: list, workspace: Path,
+                  in_place: bool, started_ns: int) -> dict:
+    """Counts of the entries of changes.json and the paths that record cannot name.
+
+    A path that replaced a directory or that a directory replaced is one `type_changed` entry,
+    like a file that became a link; the paths below the directory count as added or deleted.
+    `links` counts the entries whose before or after value is a link and overlaps the others."""
+    counts = dict.fromkeys(('added', 'modified', 'deleted', 'mode_only', 'type_changed', 'links'), 0)
+    def directories(rows):
+        return {'/'.join(parts[:i]) for parts in (name.split('/')[:-1] for name in rows) for i in range(1, len(parts) + 1)}
+    before_dirs, after_dirs = directories(before), directories(after)
+    for path in before.keys() | after.keys():
+        was, now = before.get(path), after.get(path)
+        if was == now:
+            continue
+        counts['links'] += any(v is not None and _shape(v) == 'link' for v in (was, now))
+        if was is None:
+            counts['type_changed' if path in before_dirs else 'added'] += 1
+        elif now is None:
+            counts['type_changed' if path in after_dirs else 'deleted'] += 1
+        elif _shape(was) != _shape(now):
+            counts['type_changed'] += 1
+        elif _shape(was) == 'file' and was.split(':', 1)[1] == now.split(':', 1)[1]:
+            counts['mode_only'] += 1
+        else:
+            counts['modified'] += 1
+    known = {row['path'] for row in omitted_before}
+    def listed(row):
+        if row['path'] not in known:
+            return True
+        if not in_place:
+            return False
+        try:
+            return (workspace / row['path']).lstat().st_mtime_ns >= started_ns
+        except OSError:
+            return False
+    rows = sorted((row for row in omitted_after if listed(row)), key=lambda row: row['path'])
+    record = {'schema': 1, **counts, 'omitted': rows[:OMITTED_LIMIT]}
+    if len(rows) > OMITTED_LIMIT:
+        record['omitted_total'] = len(rows)
+    return record
+
+
+def change_line(record: dict) -> str:
+    counts = ' '.join(f'{name}={record[name]}' for name in
+                      ('added', 'modified', 'deleted', 'mode_only', 'type_changed', 'links'))
+    line = 'Changes: ' + counts
+    if record['omitted']:
+        first = ', '.join(f'{row["path"]} ({row["rule"]})' for row in record['omitted'][:3])
+        line += f'; omitted {record.get("omitted_total", len(record["omitted"]))}: {first}'
+    return line
 
 
 def protected_hashes(workspace: Path, paths: list[str]) -> dict:
@@ -1157,6 +1313,7 @@ def _suite_admission(args, existing_identity):
     return existing_admission_lock(args.lock_file,existing_identity,args.lock_wait_seconds)
 
 
+@secret_store.diagnostic_scope()
 def run_suite(args, smoke=False, initial_record=None, *, existing_lease_identity=None):
     """Run under ordinary admission or an explicitly bound existing native lease.
 
@@ -1175,6 +1332,7 @@ def run_suite(args, smoke=False, initial_record=None, *, existing_lease_identity
         report=outcomes.fallback(initial,'evidence_destination','evidence_destination_unavailable')
         print(json.dumps(report),file=sys.stderr)
         return 2
+    internal_error = False
     args._attempt_root=attempt.root
     args._attempt_identity={k:attempt.record[k] for k in ('run_id','attempt_id')}
     import resources;resources.describe_holder(run_id=attempt.record['run_id'])
@@ -1196,6 +1354,7 @@ def run_suite(args, smoke=False, initial_record=None, *, existing_lease_identity
             raise AdmissionError('resource-policy-invalid')
         lease=private.admission(args,attempt) if private is not None else _suite_admission(args,existing_lease_identity)
         with lease as registry:
+            attempt.publish_latest(args)
             if registry is not None:
                 registry.runroot=attempt.root
                 registry.binding={k:attempt.record[k] for k in ('run_id','attempt_id','trial_id') if k in attempt.record}
@@ -1230,16 +1389,18 @@ def run_suite(args, smoke=False, initial_record=None, *, existing_lease_identity
                 attempt.record['scoring'].update(status='skipped',reason='post_cancellation_scoring_unavailable')
     except Exception as exc:
         _observe_last_process(attempt)
+        secret_store.remember_secrets(getattr(args, '_application_values', ()))
         attempt.fail(exc)
         held_by=_busy_holder(attempt.record['infrastructure'],exc)
-        if held_by:print(held_by,file=sys.stderr)
+        code = emit_failure(exc, phase=attempt.record['infrastructure']['phase'], held_by=held_by)
+        internal_error = code == 70
     try:report=attempt.finalize()
     except (OSError,ValueError,controls.ControlError):
         report=outcomes.fallback(attempt.record,'finalization','evidence_finalization_failed')
         print(json.dumps(report),file=sys.stderr)
         return 2
     print(json.dumps(report,indent=2,ensure_ascii=False))
-    return report['exit_code']
+    return 70 if internal_error else report['exit_code']
 
 
 def _observe_last_process(attempt):
@@ -1290,13 +1451,14 @@ def _execute_suite(args,attempt,smoke=False):
     summary['endpoint']['routes']={name:{'url':endpoint.get(name,endpoint['base_url']),'digest':hashlib.sha256(endpoint.get(name,endpoint['base_url']).encode()).hexdigest()} for name in ('base_url','host_base_url')}
     summary['infrastructure']['phase']='secret'
     secret = endpoint_secret(endpoint, args)
+    secret_store.remember_secrets([secret])
     # Admit every reference before image probes, setup or any worker dispatch.
     project = checked_path(Path(args.project)) if args.project else None
     admitted_plan = None
     stage_credentials = {}
     if not smoke and project is not None and args.plan:
-        planpath = checked_path(Path(args.plan))
-        admitted_plan = validate_plan(json.loads(planpath.read_text()), planpath.parent, profile,external_bindings=bool(indexed and getattr(args,'_indexed_bindings',None)))
+        planpath, raw = getattr(args, '_loaded_plan', None) or load_plan(args.plan)
+        admitted_plan = validate_plan(raw, planpath.parent, profile,external_bindings=bool(indexed and getattr(args,'_indexed_bindings',None)))
         overrides = budget_overrides(args, admitted_plan)
         if overrides: summary['budget_overrides'] = overrides
         secret_store_outside(project, args)
@@ -1309,6 +1471,7 @@ def _execute_suite(args,attempt,smoke=False):
             forbidden_roots=[ROOT, getattr(args, '_experiment_root', None)])
     redaction_secrets = [value for assigned in stage_credentials.values() for value in assigned.values()]
     if indexed:redaction_secrets+=indexed.redaction
+    secret_store.remember_secrets(redaction_secrets)
     summary['infrastructure']['phase']='host'
     summary['host'] = require_host(args)
     summary['network']=egress.admit(sys.modules[__name__],args,endpoint,admitted_plan)
@@ -1394,7 +1557,9 @@ def _execute_suite(args,attempt,smoke=False):
                 scorer_receipts[index]=scoring.freeze(check['scorer'],parent/str(index))
                 save(parent/(str(index)+'.json'),scorer_receipts[index])
         summary['workspace'] = str(workspace)
-        before = tree_hashes(workspace)
+        started_ns = time.time_ns()
+        omitted_before = []
+        before = tree_hashes(workspace, omitted=omitted_before)
         save(runroot / 'files-before.json', before)
         summary['provenance'].update(snapshot_sha256=provenance.digest(before),
             source_sha256=provenance.digest(tree_hashes(project)) if project else None,
@@ -1489,11 +1654,15 @@ def _execute_suite(args,attempt,smoke=False):
         score_artifacts(args,attempt,plan,image,workspace,scorer_receipts,redaction_secrets=redaction_secrets)
         safe=all(row['process'].get('cleanup_confirmed') is True for row in summary['agents'])
         if safe:
-            after = tree_hashes(workspace)
+            omitted_after = []
+            after = tree_hashes(workspace, omitted=omitted_after)
             save(runroot / 'files-after.json', after)
             changed = {p: {'before': before.get(p), 'after': after.get(p)}
                        for p in sorted(before.keys() | after.keys()) if before.get(p) != after.get(p)}
             save(runroot / 'changes.json', changed)
+            summary['changes'] = change_record(before, after, omitted_before, omitted_after, workspace,
+                                               bool(getattr(args, 'in_place', False)), started_ns)
+            print(change_line(summary['changes']), file=sys.stderr)
         summary['assistance']=controls.assistance(runroot)
         # Terminal status is derived only by the sealed outcome finalizer.
         summary['scope'] = 'Only the supplied plan and checks; not proof of general model or product correctness.'
@@ -1540,6 +1709,19 @@ def score_artifacts(args,attempt,plan,image,workspace,receipts,post_cancel=False
         copy_root=runroot/('score-subject-'+str(index))
         snapshot(frozen,copy_root,[],args.max_project_mb,score_copy=True)
         protected_before=protected_hashes(copy_root,plan['protected_paths'])
+        subject=copy_root/check.get('cwd','.')
+        if not subject.resolve().is_relative_to(copy_root.resolve()) or not subject.resolve().is_dir():
+            # The agent removed or replaced the directory the check runs in: record the check as failed
+            # and run the others. Nothing was started, so there is nothing to clean up.
+            (runroot/label).mkdir(exist_ok=True)
+            result=scoring.blank(check.get('scorer'),receipts.get(index))
+            result.update(reason='check-target-missing',command_sha256=hashlib.sha256(json.dumps(check['argv']).encode()).hexdigest(),
+                          post_cancellation=post_cancel)
+            process={'exit_code':2,'cleanup_confirmed':True,'not_started':'check-target-missing'}
+            save(runroot/label/'score.json',result);results.append(result)
+            summary['checks'].append({'name':check['name'],'logs':label,'process':process,'scorer':result})
+            summary['scoring']['results']=list(results);attempt.persist()
+            continue
         try:
             process=run_stage(args,image['id'],runroot,copy_root,label,['check'],task=check,
                               network=args.network if check['network']=='inherit' else 'none',
@@ -1908,8 +2090,8 @@ def host_endpoint_check(endpoint: dict, key: str, timeout: float = 10.0) -> tupl
         reason = 'endpoint-auth-failed' if exc.code in (401, 403) else 'endpoint-unreachable'
         return 'fail', f'HTTP {exc.code} from /models', reason
     except (URLError, OSError, ValueError) as exc:
-        return 'fail', f'Cannot reach host route {base}: {getattr(exc, "reason", exc)}', 'endpoint-unreachable'
-    ids = [m.get('id') for m in listing.get('data', []) if isinstance(m, dict)]
+        return 'fail', f'Cannot reach host route {base}: {exc}', 'endpoint-unreachable'
+    ids = [m.get('id') for m in lab_env.model_entries(listing) if isinstance(m, dict)]
     if endpoint['model'] not in ids:
         return 'fail', f'Model {endpoint["model"]} not listed; server offers {ids[:5]}', 'model-not-found'
     return 'ok', f'{endpoint["model"]} is listed by the server', ''
@@ -1918,14 +2100,18 @@ def host_endpoint_check(endpoint: dict, key: str, timeout: float = 10.0) -> tupl
 def _host_lock_check(args) -> dict:
     """Report the lease in effect as free or held, without entering it or creating it."""
     import resources
-    lease = Path(args.lock_file).expanduser().absolute()
     selected = os.environ.get('PI_LAB_LOCK_FILE')
-    if selected is not None and Path(selected).expanduser().absolute() == lease:
-        selected_by, origin = 'PI_LAB_LOCK_FILE', 'selected by PI_LAB_LOCK_FILE'
-    elif lease == Path(host_lock_file()).absolute():
-        selected_by, origin = 'default', 'shared host lease; PI_LAB_LOCK_FILE did not select it'
-    else:
-        selected_by, origin = '--lock-file', 'selected by --lock-file; PI_LAB_LOCK_FILE did not select it'
+    try:
+        lease = Path(args.lock_file).expanduser().absolute()
+        if selected is not None and Path(selected).expanduser().absolute() == lease:
+            selected_by, origin = 'PI_LAB_LOCK_FILE', 'selected by PI_LAB_LOCK_FILE'
+        elif not getattr(args, 'lock_file_explicit', False) and lease == Path(host_lock_file()).absolute():
+            selected_by, origin = 'default', 'shared host lease; PI_LAB_LOCK_FILE did not select it'
+        else:
+            selected_by, origin = '--lock-file', 'selected by --lock-file; PI_LAB_LOCK_FILE did not select it'
+    except (RuntimeError, OSError):
+        return {'check': 'host-lock', 'status': 'warn', 'state': 'unknown', 'path': None, 'selected_by': 'default',
+                'detail': 'No home directory is available to locate the shared host lease; pass --lock-file'}
     observed = resources.lease_state(lease)
     item = {'check': 'host-lock', 'status': 'ok', 'detail': f'free: {lease} ({origin})'}
     if observed['state'] == 'held':
@@ -1983,7 +2169,8 @@ def cmd_doctor(args) -> int:
             item['remedy'] = remedy(reason, **fields)
         checks.append(item)
 
-    add('python', 'ok' if sys.version_info >= (3, 10) else 'fail', platform.python_version())
+    python_status, python_detail = python_floor_check()
+    add('python', python_status, python_detail, 'python-version' if python_status == 'fail' else '')
     docker_ok = False
     try:
         info = docker_info()
@@ -2010,10 +2197,22 @@ def cmd_doctor(args) -> int:
     else:
         add('image', 'skip', 'Docker unavailable')
 
-    endpoint_path = args.endpoint or (str(lab_env.endpoint_path()) if lab_env.endpoint_path().exists() else None)
+    saved_endpoint_path = None
+    home_unavailable = False
+    if args.endpoint:
+        endpoint_path = args.endpoint
+    else:
+        try:
+            saved_endpoint_path = lab_env.endpoint_path()
+            endpoint_path = str(saved_endpoint_path) if saved_endpoint_path.exists() else None
+        except (RuntimeError, OSError):
+            endpoint_path = None
+            home_unavailable = True
     if not args.endpoint:
         session = args.session or os.environ.get('PI_LAB_SESSION')
-        if not lab_env.endpoint_path().exists():
+        if home_unavailable:
+            add('environment', 'warn', 'No home directory is available to inspect a saved model environment')
+        elif not saved_endpoint_path.exists():
             add('environment', 'fail', 'No saved model environment', 'environment-missing')
         elif not session:
             add('environment', 'warn', 'Saved environment found; pass --session ID to check confirmation')
@@ -2087,6 +2286,13 @@ def cmd_doctor(args) -> int:
     return 2 if blockers else 0
 
 
+def python_floor_check(version=None, version_text=None):
+    """Return the doctor result for the supported host Python floor."""
+    version = sys.version_info if version is None else version
+    return ('ok' if version >= (3, 12) else 'fail',
+            platform.python_version() if version_text is None else version_text)
+
+
 def cmd_secrets(args) -> int:
     store = getattr(args, 'secrets_dir', None)
     try:
@@ -2119,8 +2325,12 @@ def cmd_secrets(args) -> int:
 
 
 def default_runs_dir() -> str:
-    new_dir = Path.home() / '.local/state/pi-agent-test-env/runs'
-    old_dir = Path.home() / '.local/state/pi-agentic-development/runs'
+    try:
+        home = Path.home()
+    except (RuntimeError, OSError):
+        return '~/.local/state/pi-agent-test-env/runs'
+    new_dir = home / '.local/state/pi-agent-test-env/runs'
+    old_dir = home / '.local/state/pi-agentic-development/runs'
     if not new_dir.exists() and old_dir.exists():
         return str(old_dir)
     return str(new_dir)
@@ -2144,190 +2354,313 @@ def default_lock_file() -> str:
     """
     explicit = os.environ.get('PI_LAB_LOCK_FILE')
     if explicit is None:
-        return host_lock_file()
+        try:
+            return host_lock_file()
+        except (RuntimeError, OSError):
+            # Keep parser construction usable for commands with an explicit lease.
+            return '~/.local/state/pi-agent-test-env/operation.lock'
     if not explicit or '\0' in explicit or not os.path.isabs(explicit):
         raise SystemExit('PI_LAB_LOCK_FILE must be an absolute lease path')
     return explicit
 
 
 def parser():
-    p = argparse.ArgumentParser(description=__doc__)
-    sub = p.add_subparsers(dest='op', required=True)
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=partial(argparse.HelpFormatter, max_help_position=32))
+    p.add_argument('--version', action=_VersionAction, help='Show the skill version and exit')
+    sub = p.add_subparsers(dest='op', required=True, metavar='COMMAND')
+    lab_env.add_parser(sub)
+
+    doc = sub.add_parser('doctor', help='Check prerequisites and report remedies')
+    doc.add_argument('--image', default=DEFAULT_IMAGE, help='Inspect this Docker image (default: %(default)s)')
+    doc.add_argument('--endpoint', help='Check this endpoint JSON (default: saved environment, if present)')
+    doc.add_argument('--session', help='Check confirmation for this session (default: PI_LAB_SESSION, if set)')
+    doc.add_argument('--project', help='Scan this project for key-like files (default: skip the scan)')
+    doc.add_argument('--secrets-dir', help='Use this secret store (default: PI_LAB_SECRETS_DIR or per-user store)')
+    doc.add_argument('--skip-network', action='store_true', help='Skip the host model-list probe (default: probe when a key is available)')
+    doc.add_argument('--probe-image', action='store_true', help='Probe container capabilities with Docker (default: inspect image metadata only)')
+    doc.add_argument('--egress-proof', action='store_true',
+                     help='Also run a standalone endpoint-only containment proof with Docker (default: skip it)')
+    class LockFileAction(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string=None):
+            setattr(namespace, self.dest, values)
+            setattr(namespace, 'lock_file_explicit', True)
+    doc.add_argument('--lock-file', default=default_lock_file(), action=LockFileAction,
+                     help='Select the host lease (default: PI_LAB_LOCK_FILE or shared per-user lease)')
+    doc.add_argument('--lock-wait-seconds', type=int, default=0,
+                     help='Wait this many seconds for the lease (default: %(default)s, fail if busy)')
+    doc.add_argument('--platform', choices=['linux/arm64', 'linux/amd64'],
+                     help='Select the container platform (default: native Docker platform)')
+    doc.add_argument('--profile', choices=['core', 'browser'], default='core',
+                     help='Select the capabilities to probe (default: %(default)s)')
+    doc.add_argument('--browser-sandbox-policy', choices=browser_security.POLICIES, default='docker-default',
+                     help='Select the browser sandbox policy (default: %(default)s)')
+    doc.add_argument('--environment', help='Probe extra capabilities from reviewed environment JSON (default: baseline only)')
+    doc.add_argument('--resources', help='Load resource limits from JSON (default: built-in resource policy)')
+    doc.add_argument('--memory', help='Override the runtime memory cap (default: resource policy)')
+    doc.add_argument('--cpus', type=float, help='Override the runtime CPU-equivalent ceiling (default: resource policy)')
+    doc.add_argument('--pids-limit', type=int, help='Override the runtime task and thread cap (default: resource policy)')
+    doc.add_argument('--jobs', type=int, help='Override the build/test thread limit within the CPU budget (default: resource policy)')
+    doc.add_argument('--allow-browser-no-sandbox', action='store_true',
+                     help='Permit unsandboxed Chromium for trusted local pages (default: require sandboxing)')
+    doc.add_argument('--software-webgl', action='store_true',
+                     help='Enable unsafe SwiftShader rendering for trusted tests (default: disabled)')
+    doc.add_argument('--uid', type=int, default=os.getuid() if hasattr(os, 'getuid') else 1000,
+                     help='Set the container user ID (default: host UID, or 1000 if unavailable)')
+    doc.add_argument('--gid', type=int, default=os.getgid() if hasattr(os, 'getgid') else 1000,
+                     help='Set the container group ID (default: host GID, or 1000 if unavailable)')
+    doc.add_argument('--inference-env', help='Check this named indexed environment (default: use the endpoint or saved environment)')
+    doc.add_argument('--catalog-dir', help='Use this indexed catalog (default: PI_LAB_CATALOG_DIR or per-user catalog)')
+
+    def add_runtime_parser(name, help_text):
+        q = sub.add_parser(name, help=help_text)
+        q.add_argument('--image', default=DEFAULT_IMAGE, required=name == 'browser-check',
+                       help='Check this Docker image (required)' if name == 'browser-check'
+                       else 'Select the Docker image (default: %(default)s)')
+        q.add_argument('--profile', choices=['core', 'browser'], default='browser' if name == 'browser-check' else 'core',
+                       help='Select the required image capabilities (default: %(default)s)')
+        q.add_argument('--browser-sandbox-policy', choices=browser_security.POLICIES, default='docker-default',
+                       help='Select the browser sandbox policy (default: %(default)s). '
+                            'chromium-userns retains Chromium namespace and seccomp sandboxing.')
+        q.add_argument('--environment', help='Probe extra capabilities from reviewed environment JSON (default: baseline only)')
+        q.add_argument('--host-gateway', action='store_true',
+                       help='Map host.docker.internal to host-gateway on Linux (default: no extra host mapping)')
+        q.add_argument('--platform', choices=['linux/arm64', 'linux/amd64'],
+                       help='Select the container platform (default: native Docker platform)')
+        q.add_argument('--uid', type=int, default=os.getuid() if hasattr(os, 'getuid') else 1000,
+                       help='Set the container user ID (default: host UID, or 1000 if unavailable)')
+        q.add_argument('--gid', type=int, default=os.getgid() if hasattr(os, 'getgid') else 1000,
+                       help='Set the container group ID (default: host GID, or 1000 if unavailable)')
+        q.add_argument('--resources', help='Load resource limits from JSON (default: 2 CPUs, 4 GiB, 256 PIDs, and 2 jobs '
+                                          'for runtime. CPU and memory are capped at half the Docker allocation by default.)')
+        q.add_argument('--memory', help='Override the runtime memory cap, e.g. 4g, with swap disabled (default: resource policy)')
+        q.add_argument('--cpus', type=float, help='Override the runtime CPU-equivalent ceiling (default: resource policy)')
+        q.add_argument('--pids-limit', type=int, help='Override the runtime task and thread cap (default: resource policy)')
+        q.add_argument('--jobs', type=int, help='Override the build/test thread limit within the CPU budget (default: resource policy)')
+        q.add_argument('--lock-file', default=default_lock_file(),
+                       help='Select the host lease (default: PI_LAB_LOCK_FILE or shared per-user lease)')
+        q.add_argument('--lock-wait-seconds', type=int, default=0,
+                       help='Wait this many seconds for the lease (default: %(default)s, fail if busy)')
+        q.add_argument('--allow-browser-no-sandbox', action='store_true',
+                       help='Permit unsandboxed Chromium for trusted local pages (default: require sandboxing)'
+                       if name != 'browser-check'
+                       else 'Request unsandboxed Chromium, which browser-check rejects (default: require sandboxing)')
+        q.add_argument('--software-webgl', action='store_true',
+                       help='Enable unsafe SwiftShader rendering for trusted tests (default: disabled)')
+        if name == 'browser-check':
+            q.add_argument('--results-dir', default=default_runs_dir(),
+                           help='Write browser evidence here (default: per-user runs directory)')
+        if name == 'ensure-image':
+            q.add_argument('--policy', choices=['auto', 'reuse', 'build'], default='auto',
+                           help='Choose reuse or build (default: %(default)s, try reuse before building)')
+            q.add_argument('--reuse', action='append', default=[], metavar='TRUSTED_IMAGE',
+                           help='Try an additional trusted image when reusing. Repeatable (default: no additional images).')
+            q.add_argument('--pi-version', default=DEFAULT_VERSION,
+                           help='Pin an exact reviewed Pi release (default: no pin for reuse). Builds require a pin.')
+            q.add_argument('--base-image',
+                           help='Select the base image of the bundled Dockerfile (default: the digest-pinned reference in docker/pins.json)')
+            q.add_argument('--apt-package', action='append', default=[],
+                           help='Install an extra APT package in the image. Repeatable (default: no extra packages).')
+            q.add_argument('--receipt', help='Write the image admission receipt to this path (default: no receipt file)')
+            q.add_argument('--dockerfile', help='Build from this reviewed Dockerfile (default: bundled Dockerfile). '
+                                                'It must honor PI_VERSION and supply the baseline tools.')
+            q.add_argument('--build-context', help='Use this dedicated environment-only build context (default: Dockerfile directory)')
+            q.add_argument('--build-cpus', type=float, help='Override the BuildKit CPU ceiling (default: resource policy)')
+            q.add_argument('--build-memory', help='Override the BuildKit memory cap with swap disabled (default: resource policy)')
+            q.add_argument('--build-parallelism', type=int,
+                           help='Override the maximum number of parallel BuildKit steps (default: resource policy)')
+            q.add_argument('--build-timeout', type=int,
+                           help='Override the build wall-time limit in seconds (default: resource policy)')
+            q.add_argument('--buildkit-image',
+                           help='Use this trusted BuildKit image (default: the digest-pinned reference in docker/pins.json)')
+        if name in ('run', 'smoke', 'preflight'):
+            q.add_argument('--inference-env',
+                           help='Use this confirmed indexed environment (default: bindings from a schema-2 plan, '
+                                'or direct inference for a schema-1 plan)' if name == 'run'
+                           else 'Use this confirmed indexed environment (default: explicit endpoint or saved environment)')
+            q.add_argument('--catalog-dir', help='Use this indexed catalog (default: PI_LAB_CATALOG_DIR or per-user catalog)')
+            q.add_argument('--endpoint', help='Use this endpoint JSON for direct inference (default: saved, session-confirmed environment)')
+            q.add_argument('--session', help='Use this session for environment confirmation (default: PI_LAB_SESSION)')
+            q.add_argument('--network', default='bridge',
+                           help='Select container networking (default: %(default)s). Use none, endpoint-only '
+                                'via the model relay, or an existing Docker network.')
+            q.add_argument('--allow-host-network', action='store_true',
+                           help='Permit host or container:<id> networking (default: refuse both)')
+            q.add_argument('--results-dir', default=default_runs_dir(),
+                           help='Write run evidence here (default: per-user runs directory)')
+            q.add_argument('--secrets-dir', help='Use this secret store (default: PI_LAB_SECRETS_DIR or per-user store)')
+            q.add_argument('--prompt-secret', action='store_true',
+                           help='Prompt in the terminal for a missing inference key (default: fail without prompting)')
+        if name in ('run', 'smoke'):
+            q.add_argument('--agent-profile', help='Use this reviewed integration profile (default: empty built-in profile)')
+            q.add_argument('--event-contract', choices=['settled', 'process-exit'], default='settled',
+                           help='Select the completion contract (default: %(default)s, requires agent_settled). '
+                                'Every reviewed Pi release rejects process-exit.')
+            q.add_argument('--project',
+                           help='Use this project directory (default: unset). Required with --plan or --compiled-plan.'
+                           if name == 'run' else 'Check this optional project path (default: unset). Smoke uses a fresh workspace.')
+            q.add_argument('--plan', help='Run this plan JSON (default: unset). Required with --project for an ordinary run.'
+                           if name == 'run' else 'Accept a plan path for CLI compatibility (default: unset). Smoke uses its built-in plan.')
+            if name == 'run':
+                q.add_argument('--compiled-plan',
+                               help='Run this frozen application plan.json (default: unset). Use --project with an isolated workspace.')
+                q.add_argument('--max-turns', type=int,
+                               help='Set every agent stage turn ceiling to 1–100 (default: keep plan values)')
+                q.add_argument('--max-total-tokens', type=int,
+                               help='Set every agent stage token ceiling to 1–10000000 (default: keep plan values)')
+                q.add_argument('--agent-timeout-seconds', type=int,
+                               help='Set every agent stage timeout to 1–3600 seconds (default: keep plan values)')
+            q.add_argument('--in-place', action='store_true',
+                           help='Run against the original project files (default: use an isolated copy)'
+                           if name == 'run' else 'Request an in-place workspace (default: off). Smoke always makes a fresh workspace.')
+            q.add_argument('--exclude', action='append', default=[],
+                           help='Exclude an additional name glob from the project snapshot. Repeatable (default: built-in exclusions only).'
+                           if name == 'run' else 'Accept an extra project exclusion glob (default: none). Smoke takes no project snapshot.')
+            q.add_argument('--max-project-mb', type=int, default=2048,
+                           help='Limit workspace snapshots to this many MiB (default: %(default)s)')
+            q.add_argument('--allow-setup-network', action='store_true',
+                           help='Allow plan setup steps to request networking (default: deny setup networking)')
+            q.add_argument('--allow-check-network', action='store_true',
+                           help='Allow plan check steps to request networking (default: deny check networking)')
+            q.add_argument('--score-after-cancel', action='store_true',
+                           help='Authorize eligible independent scoring after cancellation (default: skip scoring after cancellation)')
+
+    for name, help_text in (
+        ('ensure-image', 'Reuse or build an admitted Docker image'),
+        ('preflight', 'Check model access from the test container'),
+        ('smoke', 'Verify agent tool use with a built-in test'),
+        ('run', 'Run a plan and record its results'),
+    ):
+        add_runtime_parser(name, help_text)
+
+    status_cmd = sub.add_parser('status', help='Inspect run status and stage activity')
+    status_cmd.add_argument('--run', help='Inspect this run directory (default: latest run in --results-dir)')
+    status_cmd.add_argument('--results-dir', default=default_runs_dir(),
+                            help='Look up runs here (default: per-user runs directory)')
+    status_cmd.add_argument('--stage', help='Inspect the stage UUID or unique label (default: active stage, if any)')
+
+    validate = sub.add_parser('validate-plan', help='Validate a plan offline')
+    validate.add_argument('--plan', required=True, help='Read the plan JSON from this path (required)')
+    validate.add_argument('--external-inference-bindings', action='store_true',
+                          help='Allow experiment-owned schema-2 inference maps (default: validate the plan on its own)')
+    validate.add_argument('--agent-profile',
+                          help='Validate against this reviewed tool contract without loading tools (default: built-in profile)')
+
+    extend_cmd = sub.add_parser('extend-budget', help='Extend an active stage budget')
+    extend_cmd.add_argument('--run', help='Select this run directory (default: latest run in --results-dir)')
+    extend_cmd.add_argument('--results-dir', default=default_runs_dir(),
+                            help='Look up runs here (default: per-user runs directory)')
+    extend_cmd.add_argument('--stage', help='Select a stage UUID or unique label (default: active stage)')
+    extend_cmd.add_argument('--revision', type=int, help='Require this parent stage revision (default: no revision check)')
+    extend_cmd.add_argument('--turns', help='Add turns, e.g. +10, or set a new ceiling (default: keep the turn ceiling)')
+    extend_cmd.add_argument('--timeout', help='Add seconds, e.g. +300, or set a new ceiling (default: keep the timeout)')
+    extend_cmd.add_argument('--tokens', help='Add tokens or set a new ceiling (default: keep the token ceiling)')
+    extend_cmd.add_argument('--tool-calls',
+                            help='Increase a declared native call ceiling, keeping reserves and phase fixed (default: keep the ceiling)')
+    extend_cmd.add_argument('--budget-revision', type=int,
+                            help='Require this supervisor budget revision (default: no explicit expectation)')
+    extend_cmd.add_argument('--wait-seconds', type=float, default=0,
+                            help='Wait up to 10 seconds for the supervisor to apply the update (default: %(default)s, return immediately)')
+
+    steer_cmd = sub.add_parser('steer', help='Queue guidance for the next session segment')
+    steer_cmd.add_argument('--run', help='Select this run directory (default: latest run in --results-dir)')
+    steer_cmd.add_argument('--results-dir', default=default_runs_dir(),
+                           help='Look up runs here (default: per-user runs directory)')
+    steer_cmd.add_argument('--stage', help='Select a stage UUID or unique label (default: active stage)')
+    steer_cmd.add_argument('--revision', type=int, help='Require this parent stage revision (default: no revision check)')
+    steer_cmd.add_argument('--message', required=True, help='Inject this guidance into the next session segment (required)')
+    steer_cmd.add_argument('--interrupt', action='store_true',
+                           help='Request interruption and authorized linked continuation (default: queue without interrupting)')
+
+    patch_cmd = sub.add_parser('patch-session', help='Patch a prepared stage before it starts')
+    patch_cmd.add_argument('--run', help='Select this run directory (default: latest run in --results-dir)')
+    patch_cmd.add_argument('--results-dir', default=default_runs_dir(),
+                           help='Look up runs here (default: per-user runs directory)')
+    patch_cmd.add_argument('--stage', help='Select a stage UUID or unique label (default: active stage selection)')
+    patch_cmd.add_argument('--revision', type=int, help='Require this parent stage revision (default: no revision check)')
+    patch_cmd.add_argument('--file', required=True, help='Apply this host file to the workspace (required)')
+    patch_cmd.add_argument('--target', help='Write to this workspace path (default: relative --file path or its basename)')
+    patch_cmd.add_argument('--message', help='Request a steering message, which patch-session rejects (default: unset)')
+    patch_cmd.add_argument('--interrupt', action='store_true',
+                           help='Request interruption, which patch-session rejects (default: disabled)')
+
+    sec_cmd = sub.add_parser('secrets', help='Manage keys in the host secret store')
+    sec_sub = sec_cmd.add_subparsers(dest='secrets_op', required=True, metavar='COMMAND')
+    sec_set = sec_sub.add_parser('set', help='Store a key')
+    sec_set.add_argument('name', nargs='?', default='PI_API_KEY', help='Name the key to store (default: %(default)s)')
+    sec_set.add_argument('--stdin', action='store_true',
+                         help='Read the key from standard input (default: hidden terminal prompt unless --from-file is set)')
+    sec_set.add_argument('--from-file', help='Read the key from a local file (default: hidden terminal prompt unless --stdin is set)')
+    sec_set.add_argument('--secrets-dir', help='Use this secret store (default: PI_LAB_SECRETS_DIR or per-user store)')
+    sec_clear = sec_sub.add_parser('clear', help='Remove a stored key')
+    sec_clear.add_argument('name', nargs='?', default='PI_API_KEY', help='Name the key to remove (default: %(default)s)')
+    sec_clear.add_argument('--secrets-dir', help='Use this secret store (default: PI_LAB_SECRETS_DIR or per-user store)')
+    sec_status = sec_sub.add_parser('status', help='Show key fingerprints and sources')
+    sec_status.add_argument('names', nargs='*', help='Check these keys (default: endpoint key or PI_API_KEY)')
+    sec_status.add_argument('--endpoint', help='Read the default key name from this endpoint JSON (default: saved endpoint)')
+    sec_status.add_argument('--secrets-dir', help='Use this secret store (default: PI_LAB_SECRETS_DIR or per-user store)')
+
+    experiments.add_parser(sub)
+
+    profile = sub.add_parser('validate-agent-profile', help='Validate a reviewed agent profile')
+    profile.add_argument('--agent-profile', required=True, help='Read the agent profile JSON from this path (required)')
+    add_runtime_parser('browser-check', 'Verify browser sandboxing and DOM access')
+    pr_review_gate.add_arguments(sub.add_parser('pr-review-gate', help='Check GitHub PR review and check readiness'))
+
+    compile_app = sub.add_parser('compile-application-plan', help='Freeze an application plan (experimental)')
+    compile_app.add_argument('--spec', required=True, help='Read the application source specification from this path (required)')
+    compile_app.add_argument('--output-dir', required=True, help='Write the compiled plan and inputs to this new directory (required)')
+    compile_app.add_argument('--runtime-receipt', required=True, help='Bind the runtime using this admission receipt (required)')
+    selector = compile_app.add_mutually_exclusive_group(required=True)
+    selector.add_argument('--endpoint', help='Bind this endpoint JSON (default: unset). Choose it or --inference-env.')
+    selector.add_argument('--inference-env', help='Bind this indexed environment (default: unset). Choose it or --endpoint.')
+    compile_app.add_argument('--catalog-dir', help='Use this indexed catalog (default: PI_LAB_CATALOG_DIR or per-user catalog)')
+
     import registry_maintenance
     registry_maintenance.add_arguments(sub, default_lock_file())
     import application_owner_cleanup
     application_owner_cleanup.add_arguments(sub, default_lock_file())
     import run_cleanup
     run_cleanup.add_arguments(sub, default_lock_file(), default_runs_dir())
-    pr_review_gate.add_arguments(sub.add_parser('pr-review-gate', help='Read-only parent GitHub review readiness; no Docker/model execution'))
-    experiments.add_parser(sub)
-    profile=sub.add_parser('validate-agent-profile');profile.add_argument('--agent-profile',required=True)
-    validate = sub.add_parser('validate-plan')
-    validate.add_argument('--plan', required=True)
-    validate.add_argument('--external-inference-bindings',action='store_true',help='Offline schema-2 plan validation for experiment-owned maps')
-    validate.add_argument('--agent-profile',help='Explicit reviewed custom-tool contract; validation does not load it')
-    compile_app=sub.add_parser('compile-application-plan',help='Offline compile and freeze the final application representation')
-    compile_app.add_argument('--spec',required=True)
-    compile_app.add_argument('--output-dir',required=True)
-    compile_app.add_argument('--runtime-receipt',required=True)
-    selector=compile_app.add_mutually_exclusive_group(required=True)
-    selector.add_argument('--endpoint')
-    selector.add_argument('--inference-env')
-    compile_app.add_argument('--catalog-dir')
-
-    status_cmd = sub.add_parser('status', help='Inspect live or completed run status, heartbeat, and tool execution')
-    status_cmd.add_argument('--run', help='Path to specific run directory (defaults to latest run in results-dir)')
-    status_cmd.add_argument('--results-dir', default=default_runs_dir())
-    status_cmd.add_argument('--stage', help='Stage UUID or unique label')
-
-    extend_cmd = sub.add_parser('extend-budget', help='Dynamically extend turn, timeout, or token budgets for an active run')
-    extend_cmd.add_argument('--run', help='Path to run directory (defaults to latest in results-dir)')
-    extend_cmd.add_argument('--results-dir', default=default_runs_dir())
-    extend_cmd.add_argument('--stage', help='Specific stage name (defaults to active stage)')
-    extend_cmd.add_argument('--revision', type=int, help='Expected parent stage revision')
-    extend_cmd.add_argument('--turns', help='Additional turns (e.g. +10) or new turn ceiling')
-    extend_cmd.add_argument('--timeout', help='Additional timeout seconds (e.g. +300) or new timeout ceiling')
-    extend_cmd.add_argument('--tokens', help='Additional token budget or new token ceiling')
-    extend_cmd.add_argument('--tool-calls', help='Explicit increase to a previously declared native call ceiling; reserves and phase stay fixed')
-    extend_cmd.add_argument('--budget-revision', type=int, help='Expected supervisor budget revision')
-    extend_cmd.add_argument('--wait-seconds', type=float, default=0, help='Wait up to 10 seconds for supervisor application')
-
-    steer_cmd = sub.add_parser('steer', help='Queue guidance for the next exact-session segment; optional parent interrupt')
-    steer_cmd.add_argument('--run', help='Path to run directory (defaults to latest in results-dir)')
-    steer_cmd.add_argument('--results-dir', default=default_runs_dir())
-    steer_cmd.add_argument('--stage', help='Specific stage name (defaults to active stage)')
-    steer_cmd.add_argument('--revision', type=int, help='Expected parent stage revision')
-    steer_cmd.add_argument('--message', required=True, help='Steering prompt / directive to inject into the agent session')
-    steer_cmd.add_argument('--interrupt', action='store_true', help='Request supervisor interruption and authorized linked continuation')
-
-    patch_cmd = sub.add_parser('patch-session', help='Patch a prepared pending stage; active or uncertain writers are rejected')
-    patch_cmd.add_argument('--run', help='Path to specific run directory (defaults to latest in results-dir)')
-    patch_cmd.add_argument('--results-dir', default=default_runs_dir())
-    patch_cmd.add_argument('--stage', help='Specific stage name (defaults to active stage)')
-    patch_cmd.add_argument('--revision', type=int, help='Expected parent stage revision')
-    patch_cmd.add_argument('--file', required=True, help='Path to source file on host to apply as patch')
-    patch_cmd.add_argument('--target', help='Target path within workspace (defaults to relative path of --file or basename)')
-    patch_cmd.add_argument('--message', help='Unsupported for pending-stage patching; explicitly rejected')
-    patch_cmd.add_argument('--interrupt', action='store_true', help='Unsupported for pending-stage patching; explicitly rejected')
-
-    sec_cmd = sub.add_parser('secrets', help='Manage inference/application keys in the host-side owner-only secret store')
-    sec_sub = sec_cmd.add_subparsers(dest='secrets_op', required=True)
-    sec_set = sec_sub.add_parser('set', help='Store a key with hidden terminal input (or --stdin / --from-file)')
-    sec_set.add_argument('name', nargs='?', default='PI_API_KEY', help='Named host-store entry (default inference key: PI_API_KEY)')
-    sec_set.add_argument('--stdin', action='store_true', help='Read secret from stdin (e.g. piped from password manager)')
-    sec_set.add_argument('--from-file', help='Read secret from an existing local file')
-    sec_set.add_argument('--secrets-dir', help='Override secrets store directory')
-    sec_clear = sec_sub.add_parser('clear', help='Remove a stored key')
-    sec_clear.add_argument('name', nargs='?', default='PI_API_KEY', help='Named host-store entry (default inference key: PI_API_KEY)')
-    sec_clear.add_argument('--secrets-dir')
-    sec_status = sec_sub.add_parser('status', help='Show fingerprint and source (never the secret itself)')
-    sec_status.add_argument('names', nargs='*', help='Key names (defaults to key named in endpoint file, or PI_API_KEY)')
-    sec_status.add_argument('--endpoint')
-    sec_status.add_argument('--secrets-dir')
-
-    lab_env.add_parser(sub)
-
-    doc = sub.add_parser('doctor', help='Check every prerequisite and report all blockers at once with concrete remedies')
-    doc.add_argument('--image', default=DEFAULT_IMAGE)
-    doc.add_argument('--endpoint', help='Endpoint JSON (defaults to the saved environment)')
-    doc.add_argument('--session', help='Agent session id, to report the confirmation state')
-    doc.add_argument('--project', help='Project directory to check for leaked secrets')
-    doc.add_argument('--secrets-dir', help='Override secrets store directory')
-    doc.add_argument('--skip-network', action='store_true', help='Skip host /models network probe')
-    doc.add_argument('--probe-image', action='store_true', help='Run full container capability probe (requires Docker)')
-    doc.add_argument('--egress-proof', action='store_true',
-                     help='Run the endpoint-only containment proof alone, with no endpoint and no key (requires Docker)')
-    doc.add_argument('--lock-file', default=default_lock_file())
-    doc.add_argument('--lock-wait-seconds', type=int, default=0)
-    doc.add_argument('--platform', choices=['linux/arm64', 'linux/amd64'])
-    doc.add_argument('--profile', choices=['core', 'browser'], default='core')
-    doc.add_argument('--browser-sandbox-policy', choices=browser_security.POLICIES, default='docker-default')
-    doc.add_argument('--environment')
-    doc.add_argument('--resources')
-    doc.add_argument('--memory')
-    doc.add_argument('--cpus', type=float)
-    doc.add_argument('--pids-limit', type=int)
-    doc.add_argument('--jobs', type=int)
-    doc.add_argument('--allow-browser-no-sandbox', action='store_true')
-    doc.add_argument('--software-webgl', action='store_true')
-    doc.add_argument('--uid', type=int, default=os.getuid() if hasattr(os, 'getuid') else 1000)
-    doc.add_argument('--gid', type=int, default=os.getgid() if hasattr(os, 'getgid') else 1000)
-    doc.add_argument('--inference-env');doc.add_argument('--catalog-dir')
-
-    for name in ('ensure-image', 'preflight', 'smoke', 'run', 'browser-check'):
-        q = sub.add_parser(name)
-        q.add_argument('--image', default=DEFAULT_IMAGE, required=name=='browser-check')
-        q.add_argument('--profile', choices=['core', 'browser'], default='browser' if name=='browser-check' else 'core')
-        q.add_argument('--browser-sandbox-policy', choices=browser_security.POLICIES, default='docker-default',
-                       help='Explicit browser container policy; chromium-userns retains Chromium namespace/seccomp sandboxing')
-        q.add_argument('--environment', help='Reviewed JSON file with additional image commands/version probes')
-        q.add_argument('--host-gateway', action='store_true', help='Map host.docker.internal to host-gateway for local Linux Docker')
-        q.add_argument('--platform', choices=['linux/arm64', 'linux/amd64'])
-        q.add_argument('--uid', type=int, default=os.getuid() if hasattr(os, 'getuid') else 1000)
-        q.add_argument('--gid', type=int, default=os.getgid() if hasattr(os, 'getgid') else 1000)
-        q.add_argument('--resources', help='Resource policy JSON; defaults: 2 CPUs, 4 GiB, 256 PIDs, 2 jobs; auto-capped to half of Docker allocation')
-        q.add_argument('--memory', help='Override runtime hard memory cap, e.g. 4g; swap is disabled')
-        q.add_argument('--cpus', type=float, help='Override runtime CPU-equivalent ceiling (not CPU percent)')
-        q.add_argument('--pids-limit', type=int, help='Runtime maximum number of tasks/threads')
-        q.add_argument('--jobs', type=int, help='Advisory build/test thread limit, within the CPU budget')
-        q.add_argument('--lock-file', default=default_lock_file())
-        q.add_argument('--lock-wait-seconds', type=int, default=0, help='Wait for a cooperating run; default fails busy rather than stacking containers')
-        q.add_argument('--allow-browser-no-sandbox', action='store_true',
-                       help='Explicit opt-in for trusted local pages only; never auto-enabled')
-        q.add_argument('--software-webgl', action='store_true',
-                       help='Explicit opt-in to unsafe SwiftShader software rendering for trusted tests')
-        if name == 'browser-check':
-            q.add_argument('--results-dir', default=default_runs_dir())
-        if name == 'ensure-image':
-            q.add_argument('--policy', choices=['auto', 'reuse', 'build'], default='auto')
-            q.add_argument('--reuse', action='append', default=[], metavar='TRUSTED_IMAGE')
-            q.add_argument('--pi-version', default=DEFAULT_VERSION)
-            q.add_argument('--base-image', default='node:24-bookworm-slim')
-            q.add_argument('--apt-package', action='append', default=[])
-            q.add_argument('--receipt')
-            q.add_argument('--dockerfile', help='Reviewed custom environment Dockerfile; must honor PI_VERSION and supply baseline tools')
-            q.add_argument('--build-context', help='Dedicated trusted environment-only build context; defaults to Dockerfile directory')
-            q.add_argument('--build-cpus', type=float, help='CPU ceiling for the dedicated BuildKit container')
-            q.add_argument('--build-memory', help='Memory ceiling for BuildKit; swap disabled')
-            q.add_argument('--build-parallelism', type=int, help='Maximum parallel BuildKit steps')
-            q.add_argument('--build-timeout', type=int, help='Image-build wall-time budget in seconds')
-            q.add_argument('--buildkit-image', default='moby/buildkit:buildx-stable-1', help='Trusted BuildKit image; use a digest for reproducibility')
-        if name in ('run', 'smoke', 'preflight'):
-            q.add_argument('--inference-env',help='Explicit confirmed named indexed inference environment')
-            q.add_argument('--catalog-dir',help='Owner-private indexed catalog override')
-            q.add_argument('--endpoint', help='Explicit endpoint JSON; default is the saved, session-confirmed environment')
-            q.add_argument('--session', help='Agent session id (or PI_LAB_SESSION) for the saved-environment gate')
-            q.add_argument('--network', default='bridge',
-                           help='none, bridge (default), endpoint-only (agent and preflight containers reach only the '
-                                'model endpoint, through a relay) or an existing user-defined Docker network')
-            q.add_argument('--allow-host-network', action='store_true',
-                           help='Explicit opt-in for --network host or container:<id>; refused otherwise')
-            q.add_argument('--results-dir', default=default_runs_dir())
-            q.add_argument('--secrets-dir', help='Override secrets store directory')
-            q.add_argument('--prompt-secret', action='store_true', help='Prompt interactively on terminal if the inference key is missing')
-        if name in ('run', 'smoke'):
-            q.add_argument('--agent-profile',help='Explicit reviewed integration profile; defaults to empty built-in baseline')
-            q.add_argument('--event-contract', choices=['settled', 'process-exit'], default='settled',
-                           help='Default requires agent_settled; process-exit is explicit legacy Pi JSON one-shot compatibility')
-            q.add_argument('--project')
-            q.add_argument('--plan')
-            if name=='run':q.add_argument('--compiled-plan',help='Exact frozen application plan.json; competing selectors are rejected')
-            if name=='run':
-                q.add_argument('--max-turns', type=int, help='Replace max_turns of every agent stage of the plan (1..100)')
-                q.add_argument('--max-total-tokens', type=int, help='Replace max_total_tokens of every agent stage of the plan (1..10000000)')
-                q.add_argument('--agent-timeout-seconds', type=int, help='Replace timeout_seconds of every agent stage of the plan (1..3600)')
-            q.add_argument('--in-place', action='store_true')
-            q.add_argument('--exclude', action='append', default=[])
-            q.add_argument('--max-project-mb', type=int, default=2048)
-            q.add_argument('--allow-setup-network', action='store_true')
-            q.add_argument('--allow-check-network', action='store_true')
-            q.add_argument('--score-after-cancel', action='store_true', help='Explicitly authorize independent scoring after cancellation before any scorer starts')
+    register_command_modules(sub)
     return p
+
+
+class _VersionAction(argparse.Action):
+    """Print the skill version from skill.json and exit; read only when requested."""
+
+    def __init__(self, option_strings, dest=argparse.SUPPRESS, default=argparse.SUPPRESS, help=None):
+        super().__init__(option_strings, dest=dest, default=default, nargs=0, help=help)
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        metadata = json.loads((ROOT / 'skill.json').read_text(encoding='utf-8'))
+        print(f"pi-agent-test-env {metadata['version']}")
+        parser.exit()
+
+
+def register_command_modules(sub):
+    """Let every module named in COMMAND_MODULES add its own subcommands.
+
+    A module that cannot be imported, or that has no register function, stops the
+    program with its name; a command is never dropped silently.
+    """
+    import importlib
+    import command_modules
+    for name in command_modules.COMMAND_MODULES:
+        try:
+            module = importlib.import_module(name)
+            register = module.register
+        except Exception as exc:
+            raise SystemExit(f'command module {name!r} cannot be loaded: {exc}') from exc
+        register(sub)
 
 
 def main(argv=None):
     args = parser().parse_args(argv)
     args._explicit_options={value.split('=',1)[0] for value in (sys.argv[1:] if argv is None else argv) if value.startswith('--')}
+    handler = getattr(args, 'handler', None)
+    if handler is not None:
+        return handler(args)
     import resources;resources.describe_holder(op=args.op)
     if args.op in ('run','smoke','preflight'):egress.validate_request(sys.modules[__name__],args)
     if args.op in ('registry-inspect', 'registry-recover'):
@@ -2351,11 +2684,9 @@ def main(argv=None):
     if args.op=='validate-agent-profile':
         profile=agent_profiles.load(args.agent_profile);print(json.dumps({'valid':True,'profile_id':profile['id'],'sha256':agent_profiles.identity(profile)}));return 0
     if args.op == 'validate-plan':
-        path = checked_path(Path(args.plan))
+        path, raw = load_plan(args.plan, max_chars=None)
         import application_contracts
-        raw=json.loads(path.read_text())
-        if type(raw) is dict and raw.get('document_type') in ('application_plan_source','application_execution_plan'):
-            raw=application_contracts.loads(path.read_bytes())
+        if raw.get('document_type') in ('application_plan_source','application_execution_plan'):
             if args.agent_profile or args.external_inference_bindings:raise LabError('Application inputs bind profiles and inference explicitly')
             final=raw['document_type']=='application_execution_plan'
             plan=(application_contracts.validate_ir(raw) if final else application_contracts.validate_source(raw))
@@ -2364,7 +2695,7 @@ def main(argv=None):
                 'plan_sha256':plan.get('plan_sha256'),'runtime_qualified':False},indent=2))
             return 0
         profile=agent_profiles.load(args.agent_profile) if args.agent_profile else agent_profiles.builtin()
-        plan = validate_plan(json.loads(path.read_text()), path.parent,profile,external_bindings=args.external_inference_bindings)
+        plan = validate_plan(raw, path.parent,profile,external_bindings=args.external_inference_bindings)
         print(json.dumps({'valid': True, 'name': plan['name'], 'agents': len(plan['agents']),
                           'checks': len(plan['checks']), 'setup': len(plan['setup'])}, indent=2))
         return 0
@@ -2387,7 +2718,8 @@ def main(argv=None):
         return lab_env.run(args, lambda path: load_endpoint(checked_path(path)))
     if args.op in ('run','smoke'):
         if args.op=='run' and args.plan:
-            raw=controls.read(args.plan)
+            args._loaded_plan = load_plan(args.plan)
+            _, raw = args._loaded_plan
             if raw.get('schema')==2:args._indexed_plan_selection=not bool(getattr(args,'inference_env',None))
         return run_suite(args,smoke=args.op=='smoke')
     if args.op=='preflight' and getattr(args,'inference_env',None):
@@ -2396,6 +2728,11 @@ def main(argv=None):
     requested_policy(args)  # Validate budgets before any Docker action.
     with admission_lock(args.lock_file, args.lock_wait_seconds):
         return dispatch(args)
+
+
+# Runner-owned and input errors: reported as BLOCKED (exit 2), never as internal faults.
+RUNNER_ERRORS = (LabError, controls.ControlError, lab_env.EnvError, secret_store.SecretError,
+                 workspace_patch.PatchError, ValueError, OSError)
 
 
 def browser_check(args):
@@ -2445,7 +2782,7 @@ def browser_check(args):
         report['reason'] = 'cancelled'
         raise
     except (OSError, ValueError, LabError, controls.ControlError) as exc:
-        report['reason'] = getattr(exc, 'reason', '') or 'browser-admission-failed'
+        report['reason'] = (exc.reason if isinstance(exc, LabError) else '') or 'browser-admission-failed'
         report['error_type'] = type(exc).__name__
     finally:
         save(root / 'browser-admission.json', report)
@@ -2478,32 +2815,59 @@ def _busy_holder(infrastructure, exc):
     return resources.holder_text(holder) if holder is not None else ''
 
 
-def cli_failure(exc):
+def emit_failure(exc, *, phase=None, held_by=''):
+    """Print a redacted command failure and return its process exit code."""
+    redactor = application_credentials.Redactor(secret_store.diagnostic_secrets())
+
+    def sanitize(text):
+        return failure_text(text, redactor)
+
     diagnostic = admission_diagnostic(exc)
-    if diagnostic is not None:
-        infrastructure = {**diagnostic,'error_digest':hashlib.sha256(str(exc).encode()).hexdigest()}
+    if diagnostic is not None and phase is None:
+        infrastructure = {**diagnostic, 'error_digest': outcomes.error_digest(exc)}
         held_by = _busy_holder(infrastructure, exc)
-        print(json.dumps({'schema':1,'document_type':'admission_failure','status':'BLOCKED','exit_code':2,
-                          'infrastructure':infrastructure}),
-              file=sys.stderr)
-        if held_by:
-            print(held_by, file=sys.stderr)
-        return 2
-    reason = getattr(exc, 'reason', '')
-    tag = f' [{reason}]' if reason else ''
-    print(f'BLOCKED{tag}: {exc}', file=sys.stderr)
-    remedy_text = getattr(exc, 'remedy', '')
-    if remedy_text:
-        print(f'Remedy: {remedy_text}', file=sys.stderr)
-    return EXIT_NEEDS_SECRET if reason == 'missing-secret' else 2
+        failure = {'schema': 1, 'document_type': 'admission_failure', 'status': 'BLOCKED',
+                   'exit_code': 2, 'infrastructure': infrastructure}
+        print(json.dumps(redactor.value(failure)), file=sys.stderr)
+        exit_code = 2
+    else:
+        fields = outcomes.failure_fields(exc, diagnostic)
+        code = fields['reason']
+        message = diagnostic.get('message', code) if diagnostic is not None else str(exc)
+        guidance = fields.get('remedy')
+        known = diagnostic is not None or isinstance(exc, RUNNER_ERRORS)
+        if known:
+            location = f' phase={phase}' if phase else ''
+            label = f'BLOCKED [{code}]{location}'
+            exit_code = EXIT_NEEDS_SECRET if code == 'missing-secret' else 2
+        else:
+            label = f'INTERNAL [{code}]'
+            exit_code = 70
+        print(' '.join(sanitize(f'{label}: {message}').splitlines()), file=sys.stderr)
+        if guidance:
+            print('Remedy: ' + ' '.join(sanitize(guidance).splitlines()), file=sys.stderr)
+    if held_by:
+        print(sanitize(held_by), file=sys.stderr)
+    if os.environ.get('PI_LAB_DEBUG') == '1':
+        print(sanitize(''.join(traceback.format_exception(exc))), end='', file=sys.stderr)
+    return exit_code
+
+
+def cli_failure(exc):
+    return emit_failure(exc)
+
+
+@secret_store.diagnostic_scope()
+def cli(argv=None):
+    try:
+        return main(argv)
+    except KeyboardInterrupt:
+        print('INTERRUPTED', file=sys.stderr)
+        return 130
+    except Exception as exc:
+        return cli_failure(exc)
 
 
 if __name__ == '__main__':
     signal.signal(signal.SIGTERM, _interrupt)
-    try:
-        sys.exit(main())
-    except KeyboardInterrupt:
-        print('INTERRUPTED', file=sys.stderr)
-        sys.exit(130)
-    except (LabError, controls.ControlError, ValueError, OSError) as exc:
-        sys.exit(cli_failure(exc))
+    sys.exit(cli())
