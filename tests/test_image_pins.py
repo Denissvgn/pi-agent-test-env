@@ -90,6 +90,14 @@ class PinTests(unittest.TestCase):
             for value in pins.values():
                 self.assertNotIn(digest_of(value), text, name)
 
+    def test_the_release_campaign_qualifies_the_pinned_images(self):
+        sys.path.insert(0, str(ROOT.parent / 'tools' / 'qualification'))
+        import pi_release
+        pins = builder.load_pins()
+        self.assertEqual((pi_release.BASE, pi_release.BUILDKIT), (pins['base_image'], pins['buildkit_image']))
+        for path in (ROOT.parent / 'tools').rglob('*.py'):
+            self.assertIsNone(re.search(r'(?:node|buildkit)@sha256:', path.read_text()), path)
+
 
 def digest_of(reference):
     return reference.rsplit('@', 1)[1]
