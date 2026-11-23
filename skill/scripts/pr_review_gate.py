@@ -254,12 +254,15 @@ def evaluate(snapshot, repo, number, head, expected_reviewers, required_checks=(
 
 
 def add_arguments(parser):
-    parser.add_argument('--repo', required=True)
-    parser.add_argument('--pr', type=int, required=True)
-    parser.add_argument('--head', required=True, help='Exact verified PR head SHA')
-    parser.add_argument('--expect-reviewer', action='append', help='Completed reviewer to require; repeatable, no default')
-    parser.add_argument('--require-check', action='append', default=[], metavar='NAME', help='Check run that must be present, completed and successful on the exact head; repeatable')
-    parser.add_argument('--independent-review', metavar='TEXT', help='Who accepted the change and where; required without --expect-reviewer and recorded as review_of_record')
+    parser.add_argument('--repo', required=True, help='Select the GitHub repository as owner/repository (required)')
+    parser.add_argument('--pr', type=int, required=True, help='Select the pull request by its positive number (required)')
+    parser.add_argument('--head', required=True, help='Verify this exact 40-character PR head SHA (required)')
+    parser.add_argument('--expect-reviewer', action='append',
+                        help='Require a completed review by this GitHub login. Repeatable (default: no named reviewer).')
+    parser.add_argument('--require-check', action='append', default=[], metavar='NAME',
+                        help='Require this check to succeed on the exact head. Repeatable (default: no named checks).')
+    parser.add_argument('--independent-review', metavar='TEXT',
+                        help='Record who accepted the change and where (default: unset). Required without --expect-reviewer.')
     return parser
 
 

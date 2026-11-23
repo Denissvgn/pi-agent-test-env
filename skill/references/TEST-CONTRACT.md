@@ -110,7 +110,8 @@ BLOCKED/INTERRUPTED=2. Process-level timeouts are recorded as 124.
 Typical run output includes `summary.json`, `plan.json`, controls, snapshot
 workspace, per-stage commands/process results, per-agent events/evidence/final
 text, before/after file hashes, `protected-before.json`, `protected-after.json`,
-and `changes.json`. Requested/effective resource policies and image capabilities
+and `changes.json` (with the paths it cannot name, see the change record in
+[EVALUATION-CONTRACT.md](EVALUATION-CONTRACT.md#change-record)). Requested/effective resource policies and image capabilities
 are in the host/image receipt. Observed OOM/HostConfig values are in process logs
 when inspection succeeds. Missing observations are not filled with fake values.
 
