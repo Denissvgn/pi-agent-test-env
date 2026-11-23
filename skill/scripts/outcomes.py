@@ -43,7 +43,7 @@ def initial():
             'scoring':{'status':'not_started','reason':None,'results':[]},
             'task_result':{'status':'unknown','score':None,'test_counts':None},
             'assistance':{'status':'autonomous','intervention_ids':[]},
-            'protected_inputs':{'status':'unknown'},'agents':[],'checks':[],'sealed':False}
+            'protected_inputs':{'status':'unknown'},'changes':None,'agents':[],'checks':[],'sealed':False}
 
 
 def status(record):
