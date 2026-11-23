@@ -33,6 +33,7 @@ import secret_store
 import provenance
 import experiments
 import application_credentials
+import resources
 
 import builder
 
@@ -739,6 +740,9 @@ def main():
 
 
 if __name__ == '__main__':
+    resources.install_interrupt_handlers()
     try: main()
+    except KeyboardInterrupt:
+        print('INTERRUPTED', file=sys.stderr); sys.exit(130)
     except (ValueError, RuntimeError, TimeoutError, OSError) as exc:
         print('QUALIFICATION_BLOCKED: '+str(exc), file=sys.stderr); sys.exit(2)

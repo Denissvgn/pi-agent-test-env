@@ -175,7 +175,12 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
             worker_launch_attempted=False;segment_result=None
             control=Path(desc['control'])/'segments'/segment_id
             control.mkdir(parents=True,mode=0o700 if task.get('application_execution') else 0o777)
-            state=activate(runroot,desc,segment_id,logs)
+            if records:
+                # A follow-on launch: the host supervisor owns the stage budget
+                # and its deadline, so a stopped lock holder may not stall it.
+                # LockBusy launches nothing and takes the recovery path below.
+                with controls.bounded_locks():state=activate(runroot,desc,segment_id,logs)
+            else:state=activate(runroot,desc,segment_id,logs)
             runtime=lab.state_dir(runroot/'children',segment_id,args.uid)
             segment_task=copy.deepcopy(task)
             segment_task.update(session_id=session_id,prior_turns=turns,prior_reported_tokens=tokens,prior_usage_known=known,
@@ -303,11 +308,20 @@ def execute(lab,args,image,runroot,workspace,label,task,endpoint,secret,desc,acc
         result={**(current or records[-1]['process']),'segments':records,'recovery_error':type(exc).__name__,
                 'evidence':{'agent_invocation_verified':False,'completion_verified':False,
                             'invocation_status':'invalid','errors':['Continuation preparation failed'],'final_text':''}}
+        if isinstance(exc,controls.LockBusy):lab.note_control_lock_busy(result)
         lab.save(root/'process.json',result)
         return result
     finally:
         try:
-            if controls.budget_path(runroot,desc).exists():controls.process_budget_requests(runroot,desc,closing=True,native_control=native)
+            if controls.budget_path(runroot,desc).exists():
+                try:
+                    with controls.bounded_locks():
+                        controls.process_budget_requests(runroot,desc,closing=True,native_control=native)
+                except controls.LockBusy:
+                    # As the supervisor's own closing step: a stopped lock
+                    # holder must not hold the stage past its deadline.
+                    controls.settle_budget_without_lock(runroot,desc,closing=True,native_control=native)
+                    if 'result' in locals():lab.note_control_lock_busy(result)
         finally:
             if native is not None:
                 physical=all(row['process'].get('cleanup_confirmed') is True for row in records)

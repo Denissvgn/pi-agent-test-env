@@ -23,6 +23,7 @@ from application_evidence import open_directory,read_file
 from application_client import OwnedHelper,Grant,_binding,API_RESOURCES,BROWSER_RESOURCES
 from application_execution_authority import ReviewedAuthority
 from native_budget_execution import Coordinator as NativeCoordinator,_private_context,_purge_context
+import resources
 import native_budget_controls as budgets
 import ownership_registry
 from parallel_allocator import Allocator,LIVE
@@ -116,7 +117,8 @@ def helper_control(helper,body):
             try:sock.shutdown(socket.SHUT_RDWR)
             except OSError:pass
         connection.close()
-    timer=threading.Timer(5,expire);timer.daemon=True;timer.start()
+    # Interrupts stay with the main thread, even inside its deferred sections.
+    timer=threading.Timer(5,expire);timer.daemon=True;resources.start_without_interrupts(timer)
     try:
         connection.request('POST','/control',wire,{'Authorization':'Bearer '+helper.authority._control_token,'Content-Type':'application/json'})
         response=connection.getresponse();raw=response.read(256*1024+1)

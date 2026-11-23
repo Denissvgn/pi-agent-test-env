@@ -1,5 +1,6 @@
 """Parent-owned schema-2 stage routing. Child observations never select paths."""
 from contextlib import contextmanager
+import contextvars
 import datetime as dt
 import fcntl
 import hashlib
@@ -7,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import time
 import uuid
 import registry_diagnostics
 
@@ -16,6 +18,48 @@ NATIVE_LIMIT_MAX = {'max_tool_calls':500, 'reporting_reserve_calls':20, 'reporti
 
 class ControlError(RuntimeError):
     pass
+
+
+class LockBusy(ControlError):
+    """A bounded control-plane lock stayed held, for example by a stopped helper."""
+    reason = 'control_lock_busy'
+
+
+# A supervisor must keep enforcing its deadline even when a steer, extend-budget
+# or patch process is stopped while it holds a control-plane lock. Inside
+# bounded_locks() every control lock is tried without blocking and retried for
+# at most this long; then LockBusy is raised and the caller skips the work.
+LOCK_WAIT_SECONDS = 2
+_LOCK_RETRY_SECONDS = 0.02
+_lock_wait = contextvars.ContextVar('control_lock_wait', default=None)
+# (resolved run root, descriptor) of the intervention history held by history_lock().
+_history_held = contextvars.ContextVar('control_history_held', default=None)
+
+
+@contextmanager
+def bounded_locks(seconds=LOCK_WAIT_SECONDS):
+    token = _lock_wait.set(seconds)
+    try:
+        yield
+    finally:
+        _lock_wait.reset(token)
+
+
+def _flock(fd, operation):
+    wait = _lock_wait.get()
+    if wait is None:
+        fcntl.flock(fd, operation)
+        return
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            fcntl.flock(fd, operation | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            pass
+        if time.monotonic() >= deadline:
+            raise LockBusy('control_lock_busy')
+        time.sleep(_LOCK_RETRY_SECONDS)
 
 def now():
     return dt.datetime.now(dt.timezone.utc).isoformat()
@@ -64,7 +108,7 @@ def lock(runroot, stage_id=None):
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode) or os.fstat(fd).st_nlink != 1:
             raise ControlError('Unsafe control lock')
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        _flock(fd, fcntl.LOCK_EX)
         yield
     finally:
         os.close(fd)
@@ -194,7 +238,17 @@ def process_budget_requests(runroot,desc,closing=False,native_control=None):
             raise ControlError('Native budget update unconfirmed; further authority is blocked')
         requests=Path(runroot)/'stages'/desc['stage_id']/'budget-requests'
         responses=requests.parent/'budget-updates';responses.mkdir(exist_ok=True)
-        for path in sorted(requests.glob('*.json'),key=lambda p:(read(p).get('created_at',''),p.name)):
+        pending=[]
+        for path in requests.glob('*.json'):
+            try:
+                request=read(path)
+                if not isinstance(request,dict):raise ControlError('Budget request is not an object')
+            except (OSError,ValueError,ControlError) as exc:
+                _reject_unreadable(requests,responses,desc,path,exc)
+                continue
+            created=request.get('created_at')
+            pending.append((created if isinstance(created,str) else '',path.name,path,request))
+        for _created,_name,path,request in sorted(pending,key=lambda item:item[:2]):
             if (responses/path.name).exists():
                 previous=read(responses/path.name)
                 if 'max_tool_calls' in budget['original_limits'] and previous.get('status') == 'applying':
@@ -204,7 +258,7 @@ def process_budget_requests(runroot,desc,closing=False,native_control=None):
                         'reason':'native_budget_update_unconfirmed','helper_applied':'unknown'})
                     raise ControlError('Interrupted native budget update; no retry permitted')
                 continue
-            request=read(path);reason=None
+            reason=None
             try:
                 if request.get('schema')!=2 or request.get('kind')!='extend_budget' or request.get('id')!=path.stem:
                     raise ControlError('Malformed budget command')
@@ -229,40 +283,98 @@ def process_budget_requests(runroot,desc,closing=False,native_control=None):
             response={'schema':2,'id':request.get('id'),'stage_id':desc['stage_id'],
                       'status':'rejected' if reason else 'applied','reason':reason,
                       'before':dict(budget['effective_limits']),'updated_at':now()}
-            if not reason and not requested(runroot,request):reason='Missing parent intervention request'
-            response['reason']=reason;response['status']='rejected' if reason else 'applied'
-            if reason:
-                if request.get('intervention_id'):audit(runroot,request,'rejected',reason_code='budget_rejected')
-            if not reason:
+            # The history lock is taken before the first event and held until the
+            # response and its last event exist. A busy history (LockBusy under
+            # bounded_locks) therefore leaves this request untouched and it is
+            # processed whole on a later pass: never an applied response whose
+            # applied event a retry would skip.
+            native=False
+            with history_lock(runroot):
+                if not reason and not requested(runroot,request):reason='Missing parent intervention request'
+                response['reason']=reason;response['status']='rejected' if reason else 'applied'
+                if reason:
+                    if request.get('intervention_id'):audit(runroot,request,'rejected',reason_code='budget_rejected')
+                    atomic(responses/path.name,response)
+                    continue
                 audit(runroot,request,'accepted',before=response['before'],after=request['limits'])
-                if set(values) & set(NATIVE_LIMIT_MAX):
+                native=bool(set(values) & set(NATIVE_LIMIT_MAX))
+                if native:
                     # Only a retained, explicitly requested parent command may
                     # grow helper authority. Failure is uncertain: stop the
                     # supervisor instead of applying/retrying a local-only cap.
                     atomic(responses/path.name,{**response,'status':'applying','helper_applied':'unverified'})
-                    try:
-                        budget['native_tool_budget']=native_control.extend(
-                            command_id=request['id'], max_tool_calls=values['max_tool_calls'],
-                            remaining_seconds=max(0,budget['started_host_monotonic']+values['timeout_seconds']-time.monotonic()))
-                    except Exception:
-                        budget['native_budget_error']='accounting_unavailable'
-                        atomic(budget_path(runroot,desc),budget)
-                        atomic(responses/path.name,{**response,'status':'rejected',
-                            'reason':'native_budget_update_unconfirmed','helper_applied':'unknown'})
-                        raise ControlError('Native budget update unconfirmed; no retry permitted') from None
-                budget['effective_limits']=values;budget['revision']+=1
-                budget['deadline_host_monotonic']=budget['started_host_monotonic']+values['timeout_seconds']
-                atomic(budget_path(runroot,desc),budget)
-                publish_budget(runroot,desc,budget,request['id'])
-                response.update(budget_revision=budget['revision'],after=dict(values),host_applied=True,
-                                worker_applied='unverified')
-            atomic(responses/path.name,response)
-            if not reason:audit(runroot,request,'applied',before=response['before'],after=values,budget_revision=budget['revision'],host_applied=True)
+                else:
+                    _commit_budget_update(runroot,desc,budget,request,values,response,responses/path.name)
+            if native:
+                # The helper extension is answered by a process that reads this
+                # history itself (the parallel engine), so it runs unlocked.
+                try:
+                    budget['native_tool_budget']=native_control.extend(
+                        command_id=request['id'], max_tool_calls=values['max_tool_calls'],
+                        remaining_seconds=max(0,budget['started_host_monotonic']+values['timeout_seconds']-time.monotonic()))
+                except Exception:
+                    _native_unconfirmed(runroot,desc,budget,response,responses/path.name)
+                try:
+                    with history_lock(runroot):
+                        _commit_budget_update(runroot,desc,budget,request,values,response,responses/path.name)
+                except LockBusy:
+                    # The host record of an applied extension cannot be completed:
+                    # the existing fail-closed outcome of an unconfirmed update.
+                    _native_unconfirmed(runroot,desc,budget,response,responses/path.name)
         if closing:
             budget['phase']='stopped';atomic(budget_path(runroot,desc),budget)
         if native_control is not None:
             budget['native_tool_budget']=native_control.status(force=closing)
             atomic(budget_path(runroot,desc),budget)
+    return budget
+
+
+def _commit_budget_update(runroot,desc,budget,request,values,response,target):
+    """Apply an accepted request: budget, view, response, then its applied event.
+
+    Called under the stage lock and history_lock(), so the published applied
+    response and its applied event exist together or not at all.
+    """
+    budget['effective_limits']=values;budget['revision']+=1
+    budget['deadline_host_monotonic']=budget['started_host_monotonic']+values['timeout_seconds']
+    atomic(budget_path(runroot,desc),budget)
+    publish_budget(runroot,desc,budget,request['id'])
+    response.update(budget_revision=budget['revision'],after=dict(values),host_applied=True,
+                    worker_applied='unverified')
+    atomic(target,response)
+    audit(runroot,request,'applied',before=response['before'],after=values,budget_revision=budget['revision'],host_applied=True)
+
+
+def _native_unconfirmed(runroot,desc,budget,response,target):
+    budget['native_budget_error']='accounting_unavailable'
+    atomic(budget_path(runroot,desc),budget)
+    atomic(target,{**response,'status':'rejected',
+        'reason':'native_budget_update_unconfirmed','helper_applied':'unknown'})
+    raise ControlError('Native budget update unconfirmed; no retry permitted') from None
+
+
+def _reject_unreadable(requests,responses,desc,path,exc):
+    """Move an unreadable request aside with its reason; the stage carries on."""
+    rejected=requests/'rejected';rejected.mkdir(exist_ok=True)
+    reason='Unreadable budget request: '+type(exc).__name__
+    os.replace(path,rejected/path.name)
+    record={'schema':2,'id':path.stem,'stage_id':desc['stage_id'],'status':'rejected',
+            'reason':reason,'updated_at':now()}
+    atomic(rejected/(path.stem+'.reason.json'),record)
+    if not (responses/path.name).exists():atomic(responses/path.name,record)
+
+
+def settle_budget_without_lock(runroot,desc,closing=False,native_control=None):
+    """Fallback when the stage lock stays busy: process no request, only settle.
+
+    The supervisor is the only writer of budget.json (control commands only
+    read it), so it may close the budget without the stage lock. A request that
+    is still queued stays unanswered; a closed budget refuses it as late.
+    """
+    budget=read(budget_path(runroot,desc))
+    if closing:budget['phase']='stopped'
+    if native_control is not None:budget['native_tool_budget']=native_control.status(force=closing)
+    if closing or native_control is not None:atomic(budget_path(runroot,desc),budget)
     return budget
 
 
@@ -278,41 +390,84 @@ def _history_fd(fd):
     return [json.loads(line) for line in data.splitlines() if line.strip()]
 
 
+def _held_history(runroot):
+    held=_history_held.get()
+    return held[1] if held is not None and held[0]==str(Path(runroot).resolve()) else None
+
+
+@contextmanager
+def history_lock(runroot):
+    """Hold the intervention history exclusively across a multi-event commit.
+
+    audit() and history() in this context use the held descriptor, so a commit
+    that must append several events (accepted, then applied) takes the lock
+    once, before it publishes anything. Under bounded_locks() a busy history
+    raises LockBusy here, while nothing of the commit exists yet. Nesting is
+    reentrant. The lock is per open file, so it is never held across a call
+    that another process answers by reading the history itself.
+    """
+    key=str(Path(runroot).resolve())
+    held=_history_held.get()
+    if held is not None and held[0]==key:
+        yield
+        return
+    fd=os.open(Path(runroot)/'interventions.jsonl',os.O_RDWR|os.O_APPEND|os.O_CREAT|os.O_NOFOLLOW,0o600)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode) or os.fstat(fd).st_nlink!=1:raise ControlError('Unsafe intervention history')
+        _flock(fd,fcntl.LOCK_EX)
+        token=_history_held.set((key,fd))
+        try:
+            yield
+        finally:
+            _history_held.reset(token)
+    finally:
+        os.close(fd)
+
+
 def history(runroot):
+    held=_held_history(runroot)
+    if held is not None:return _history_fd(held)
     path=Path(runroot)/'interventions.jsonl'
     if not path.exists():return []
     fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):raise ControlError('Unsafe intervention history')
-        fcntl.flock(fd,fcntl.LOCK_SH)
+        _flock(fd,fcntl.LOCK_SH)
         return _history_fd(fd)
     finally:os.close(fd)
 
 
 def audit(runroot,context,status,**details):
     """Append and fsync parent events. Only sanitized identifiers/hashes/numbers."""
+    held=_held_history(runroot)
+    if held is not None:return _append_event(held,runroot,context,status,details)
     path=Path(runroot)/'interventions.jsonl'
     fd=os.open(path,os.O_RDWR|os.O_APPEND|os.O_CREAT|os.O_NOFOLLOW,0o600)
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode) or os.fstat(fd).st_nlink!=1:raise ControlError('Unsafe intervention history')
-        fcntl.flock(fd,fcntl.LOCK_EX)
-        records=_history_fd(fd)
-        if len(records)>=10000:raise ControlError('Intervention event limit exceeded')
-        event={k:context.get(k) for k in ('intervention_id','id','run_id','attempt_id','stage_id','segment_id','kind','payload_digest','expected_stage_revision','expected_budget_revision')}
-        event.update(schema=2,sequence=len(records)+1,status=status,timestamp=now(),
-                     authorization_source='parent_cli',**details)
-        encoded=(json.dumps(event,ensure_ascii=False)+'\n').encode()
-        view=memoryview(encoded)
-        while view:
-            written=os.write(fd,view)
-            if written<=0:raise ControlError('Intervention append failed')
-            view=view[written:]
-        os.fsync(fd)
-        directory_fd=os.open(Path(runroot),os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
-        try:os.fsync(directory_fd)
-        finally:os.close(directory_fd)
-        return event
+        _flock(fd,fcntl.LOCK_EX)
+        return _append_event(fd,runroot,context,status,details)
     finally:os.close(fd)
+
+
+def _append_event(fd,runroot,context,status,details):
+    """Append one event on an exclusively locked history descriptor."""
+    records=_history_fd(fd)
+    if len(records)>=10000:raise ControlError('Intervention event limit exceeded')
+    event={k:context.get(k) for k in ('intervention_id','id','run_id','attempt_id','stage_id','segment_id','kind','payload_digest','expected_stage_revision','expected_budget_revision')}
+    event.update(schema=2,sequence=len(records)+1,status=status,timestamp=now(),
+                 authorization_source='parent_cli',**details)
+    encoded=(json.dumps(event,ensure_ascii=False)+'\n').encode()
+    view=memoryview(encoded)
+    while view:
+        written=os.write(fd,view)
+        if written<=0:raise ControlError('Intervention append failed')
+        view=view[written:]
+    os.fsync(fd)
+    directory_fd=os.open(Path(runroot),os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    try:os.fsync(directory_fd)
+    finally:os.close(directory_fd)
+    return event
 
 
 def requested(runroot,record):

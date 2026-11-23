@@ -33,6 +33,7 @@ import uuid
 
 from evidence import analyze
 from resources import configure, requested_policy, thread_environment, admission_lock, admission_diagnostic, AdmissionError, TMP_MOUNT
+import resources
 from builder import limited_build, resolve_base, buildkit_reference, digest_of
 import secret_store
 import application_credentials
@@ -258,6 +259,13 @@ DOCKER_CLEANUP_COMMAND_SECONDS = 30
 DOCKER_CLEANUP_WINDOW_SECONDS = 60
 
 
+def note_control_lock_busy(result):
+    """Name a busy control-plane lock once in the process record."""
+    # A new list: a recovery receipt may share it with an earlier segment record.
+    warnings=result.get('control_warnings') or []
+    if 'control_lock_busy' not in warnings:result['control_warnings']=[*warnings,'control_lock_busy']
+
+
 def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
                secret: str = '', max_bytes: int = 64 * 1024 * 1024, stage=None, keep_budget=False, resume_budget=False,
                application_secrets=None, redaction_secrets=(), native_control=None) -> dict:
@@ -319,9 +327,15 @@ def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
             return command(argv,timeout=min(limit,cleanup_time()),required=False)
         except (LabError,OSError) as exc:
             return argparse.Namespace(returncode=1,stdout='',stderr=str(exc))
+    # Every way out of the body below makes the guard protect the cleanup
+    # before control reaches it, so no interrupt can skip it (CleanupGuard).
+    guard=resources.CleanupGuard()
+    cancelled=False
     try:
+        guard.open()
         if stage:
-            budget=controls.read(controls.budget_path(stage[0],stage[1])) if resume_budget else controls.start_budget(stage[0],stage[1],start,grace,native_control=native_control)
+            with controls.bounded_locks():
+                budget=controls.read(controls.budget_path(stage[0],stage[1])) if resume_budget else controls.start_budget(stage[0],stage[1],start,grace,native_control=native_control)
             if resume_budget:controls.publish_budget(stage[0],stage[1],budget)
         p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, start_new_session=True)
         if native_control is not None:native_control.mark_running()
@@ -329,36 +343,44 @@ def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
         threads = [threading.Thread(target=drain, args=(p.stdout, logdir / 'stdout.jsonl'), daemon=True),
                    threading.Thread(target=drain, args=(p.stderr, logdir / 'stderr.log'), daemon=True)]
         for t in threads:
-            t.start()
+            resources.start_without_interrupts(t)
         while p.poll() is None:
             if registry is not None:registry.check_cancel()
-            if stage:
-                controls.capture_observations(stage[0],stage[1])
-                budget=controls.process_budget_requests(stage[0],stage[1],native_control=native_control)
-                state=controls.resolve(stage[0],stage[1]['stage_id'])[1]
-                for directive in segments.pending(stage[0],stage[1],state.get('segment_id'),set(result.get('interrupts_applied',[]))):
-                    if directive.get('interrupt'):
-                        sent=docker_command(['docker','kill','--signal=SIGUSR1',name],DOCKER_SIGNAL_SECONDS) if argv[:2]==['docker','run'] else None
-                        if sent is None:
-                            try:p.send_signal(signal.SIGUSR1)
-                            except ProcessLookupError:sent=argparse.Namespace(returncode=1)
-                        if sent is None or sent.returncode==0:
-                            result.setdefault('interrupts_applied',[]).append(directive['id'])
-                            controls.audit(stage[0],directive,'applied',action='interrupt_signal',host_applied=True)
+            # Limits first: no control-plane work may delay their enforcement.
             expired = time.monotonic() >= budget['deadline_host_monotonic'] if budget else time.monotonic()-start > timeout
             if expired or over.is_set():
                 result['timed_out'] = not over.is_set()
                 result['log_limit_exceeded'] = over.is_set()
                 cleanup_deadline=time.monotonic()+grace
-                if argv[:2] == ['docker','run']:
-                    docker_command(['docker','rm','-f',name])
-                else:
-                    os.killpg(p.pid,signal.SIGTERM)
-                try:
-                    p.wait(timeout=cleanup_time())
-                except subprocess.TimeoutExpired:
-                    os.killpg(p.pid,signal.SIGKILL)
+                with resources.deferred_interrupts():
+                    if argv[:2] == ['docker','run']:
+                        docker_command(['docker','rm','-f',name])
+                    else:
+                        os.killpg(p.pid,signal.SIGTERM)
+                    try:
+                        p.wait(timeout=cleanup_time())
+                    except subprocess.TimeoutExpired:
+                        os.killpg(p.pid,signal.SIGKILL)
                 break
+            if stage:
+                try:
+                    with controls.bounded_locks():
+                        controls.capture_observations(stage[0],stage[1])
+                        budget=controls.process_budget_requests(stage[0],stage[1],native_control=native_control)
+                        state=controls.resolve(stage[0],stage[1]['stage_id'])[1]
+                        for directive in segments.pending(stage[0],stage[1],state.get('segment_id'),set(result.get('interrupts_applied',[]))):
+                            if directive.get('interrupt'):
+                                sent=docker_command(['docker','kill','--signal=SIGUSR1',name],DOCKER_SIGNAL_SECONDS) if argv[:2]==['docker','run'] else None
+                                if sent is None:
+                                    try:p.send_signal(signal.SIGUSR1)
+                                    except ProcessLookupError:sent=argparse.Namespace(returncode=1)
+                                if sent is None or sent.returncode==0:
+                                    result.setdefault('interrupts_applied',[]).append(directive['id'])
+                                    controls.audit(stage[0],directive,'applied',action='interrupt_signal',host_applied=True)
+                except controls.LockBusy:
+                    # A helper holds the lock (it may be stopped): skip this
+                    # iteration's control processing and evaluate limits again.
+                    note_control_lock_busy(result)
             time.sleep(0.1)
         code = p.wait()
         if cleanup_deadline is None:cleanup_deadline=time.monotonic()+grace
@@ -370,62 +392,75 @@ def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
         if any(t.is_alive() for t in threads) or capture_errors:
             result['exit_code'] = 2
             result['capture_errors'] = capture_errors or ['Log reader did not finish']
-    except KeyboardInterrupt:
-        result['exit_code'] = 130
-        result['cancelled']=True
+        guard.protect()
+    except BaseException as exc:
+        cancelled=isinstance(exc,KeyboardInterrupt)
+        guard.protect()
         raise
     finally:
-        if cleanup_deadline is None:cleanup_deadline=time.monotonic()+grace
-        if stage and budget is not None:
-            try:
-                final_budget=controls.process_budget_requests(stage[0],stage[1],closing=not keep_budget,native_control=native_control)
-                result['original_limits']=final_budget['original_limits']
-                result['effective_limits']=final_budget['effective_limits']
-                result['budget_revision']=final_budget['revision']
-                result['cleanup_grace_seconds']=final_budget['cleanup_grace_seconds']
-                if 'native_tool_budget' in final_budget:result['native_tool_budget']=final_budget['native_tool_budget']
-            except (OSError,ValueError,controls.ControlError) as exc:
-                result['budget_error']=str(exc);result['exit_code']=2
-        if argv[:2] == ['docker', 'run']:
-            cleanup_deadline=max(cleanup_deadline,time.monotonic()+DOCKER_CLEANUP_WINDOW_SECONDS)
-            inspect = docker_command(['docker', 'inspect', name])
-            if inspect.returncode == 0:
+        # Every step below has a time bound: Docker calls carry timeouts and the
+        # control locks are bounded. Interrupts that arrive meanwhile, such as a
+        # second Ctrl-C, are held and delivered once process.json is written.
+        with guard, resources.deferred_interrupts():
+            if cancelled or guard.interrupted:
+                result['exit_code'] = 130
+                result['cancelled']=True
+            if cleanup_deadline is None:cleanup_deadline=time.monotonic()+grace
+            if stage and budget is not None:
                 try:
-                    data = json.loads(inspect.stdout)[0]
-                    result['container_state'] = {k: data.get('State', {}).get(k) for k in ('ExitCode', 'OOMKilled', 'Error')}
-                    result['applied_limits'] = {k: data.get('HostConfig', {}).get(k) for k in ('NanoCpus', 'CpuPeriod', 'CpuQuota', 'Memory', 'MemorySwap', 'PidsLimit')}
-                    if result['container_state'].get('OOMKilled'):
-                        result['exit_code'] = result.get('exit_code') or 137
-                except (ValueError, KeyError, IndexError) as exc:
-                    result['inspection_warning'] = str(exc)
-            else:
-                result['inspection_warning'] = inspect.stderr.strip()
-        cleanup = docker_command(['docker', 'rm', '-f', name]) if argv[:2]==['docker','run'] else argparse.Namespace(returncode=0,stderr='')
-        # Timeout cleanup may already have removed it. A Docker connection failure is not "not found".
-        if cleanup.returncode and 'No such container' not in cleanup.stderr:
-            result['cleanup_warning'] = cleanup.stderr.strip()
-        result['cleanup_confirmed'] = cleanup.returncode == 0 or 'No such container' in cleanup.stderr
-        if launch is not None:
-            result['cleanup_confirmed']=registry.confirm_absent(launch)
-            result['ownership_launch_id']=launch['launch_id']
-        if p is not None:
-            if argv[:2] != ['docker','run']:
-                try:os.killpg(p.pid,signal.SIGKILL)
-                except ProcessLookupError:pass
-            elif p.poll() is None:p.kill()
-            p.wait()
-        ACTIVE.discard(name)
-        trigger='timeout' if result['timed_out'] else ('log_limit' if result['log_limit_exceeded'] else ('completed' if result['exit_code']==0 else 'process_error'))
-        if result.get('container_state',{}).get('OOMKilled'):trigger='oom'
-        if result.get('interrupts_applied') and trigger=='process_error':trigger='interrupted'
-        if result.get('cancelled'):trigger='cancelled'
-        result['termination_reason']=trigger
-        if not result.get('cleanup_confirmed'):
-            result['termination_trigger']=trigger;result['termination_reason']='cleanup_error';result['exit_code']=2
-        result['elapsed_seconds'] = round(time.monotonic() - start, 3)
-        sanitized = redactor.value(result)
-        result.clear(); result.update(sanitized)
-        save(logdir / 'process.json', result)
+                    try:
+                        with controls.bounded_locks():
+                            final_budget=controls.process_budget_requests(stage[0],stage[1],closing=not keep_budget,native_control=native_control)
+                    except controls.LockBusy:
+                        note_control_lock_busy(result)
+                        final_budget=controls.settle_budget_without_lock(stage[0],stage[1],closing=not keep_budget,native_control=native_control)
+                    result['original_limits']=final_budget['original_limits']
+                    result['effective_limits']=final_budget['effective_limits']
+                    result['budget_revision']=final_budget['revision']
+                    result['cleanup_grace_seconds']=final_budget['cleanup_grace_seconds']
+                    if 'native_tool_budget' in final_budget:result['native_tool_budget']=final_budget['native_tool_budget']
+                except (OSError,ValueError,controls.ControlError) as exc:
+                    result['budget_error']=str(exc);result['exit_code']=2
+            if argv[:2] == ['docker', 'run']:
+                cleanup_deadline=max(cleanup_deadline,time.monotonic()+DOCKER_CLEANUP_WINDOW_SECONDS)
+                inspect = docker_command(['docker', 'inspect', name])
+                if inspect.returncode == 0:
+                    try:
+                        data = json.loads(inspect.stdout)[0]
+                        result['container_state'] = {k: data.get('State', {}).get(k) for k in ('ExitCode', 'OOMKilled', 'Error')}
+                        result['applied_limits'] = {k: data.get('HostConfig', {}).get(k) for k in ('NanoCpus', 'CpuPeriod', 'CpuQuota', 'Memory', 'MemorySwap', 'PidsLimit')}
+                        if result['container_state'].get('OOMKilled'):
+                            result['exit_code'] = result.get('exit_code') or 137
+                    except (ValueError, KeyError, IndexError) as exc:
+                        result['inspection_warning'] = str(exc)
+                else:
+                    result['inspection_warning'] = inspect.stderr.strip()
+            cleanup = docker_command(['docker', 'rm', '-f', name]) if argv[:2]==['docker','run'] else argparse.Namespace(returncode=0,stderr='')
+            # Timeout cleanup may already have removed it. A Docker connection failure is not "not found".
+            if cleanup.returncode and 'No such container' not in cleanup.stderr:
+                result['cleanup_warning'] = cleanup.stderr.strip()
+            result['cleanup_confirmed'] = cleanup.returncode == 0 or 'No such container' in cleanup.stderr
+            if launch is not None:
+                result['cleanup_confirmed']=registry.confirm_absent(launch)
+                result['ownership_launch_id']=launch['launch_id']
+            if p is not None:
+                if argv[:2] != ['docker','run']:
+                    try:os.killpg(p.pid,signal.SIGKILL)
+                    except ProcessLookupError:pass
+                elif p.poll() is None:p.kill()
+                p.wait()
+            ACTIVE.discard(name)
+            trigger='timeout' if result['timed_out'] else ('log_limit' if result['log_limit_exceeded'] else ('completed' if result['exit_code']==0 else 'process_error'))
+            if result.get('container_state',{}).get('OOMKilled'):trigger='oom'
+            if result.get('interrupts_applied') and trigger=='process_error':trigger='interrupted'
+            if result.get('cancelled'):trigger='cancelled'
+            result['termination_reason']=trigger
+            if not result.get('cleanup_confirmed'):
+                result['termination_trigger']=trigger;result['termination_reason']='cleanup_error';result['exit_code']=2
+            result['elapsed_seconds'] = round(time.monotonic() - start, 3)
+            sanitized = redactor.value(result)
+            result.clear(); result.update(sanitized)
+            save(logdir / 'process.json', result)
     return result
 
 
@@ -1152,6 +1187,42 @@ def trusted_runtime(runroot):
     return target
 
 
+class StageLifecycle:
+    """The closing lifecycle transitions of one stage, each under a bounded stage lock.
+
+    A steer, extend-budget or patch command that is stopped while it holds the
+    stage lock must not keep the caller past its deadline. The first transition
+    that cannot take the lock within the bound ends the sequence: no later
+    status is written, since each needs its predecessor and state.json is never
+    written without the lock. The stage keeps its last committed status, the
+    state a lost controller leaves, which every consumer already treats as not
+    finalized and not clean; state.json stays the authority on how far it got.
+    record() reports it with the existing receipt fields only: the
+    `control_lock_busy` control warning and, unless another supervisor fault is
+    already recorded, the existing `recovery_error` fault. The process and
+    cleanup evidence is kept as written.
+    """
+    def __init__(self, runroot, desc):
+        self.runroot, self.desc, self.blocked = runroot, desc, None
+
+    def advance(self, status, **fields):
+        if self.blocked is not None:
+            return
+        try:
+            with controls.bounded_locks():
+                controls.transition(self.runroot, self.desc, status, **fields)
+        except controls.LockBusy:
+            self.blocked = status
+
+    def record(self, result):
+        note_control_lock_busy(result)
+        # Same format as the existing recovery receipt: the exception type name.
+        # Never replace a fault already recorded, so its classification stands.
+        if not any(result.get(name) for name in outcomes.SUPERVISOR_FAULTS):
+            result['recovery_error'] = controls.LockBusy.__name__
+        result['exit_code'] = result.get('exit_code') or 2
+
+
 def run_stage(args, image: str, runroot: Path, workspace: Path, label: str,
               operation: list[str], task=None, endpoint=None, secret='', access='rw', network=None, timeout=120, scorer_assets=None,
               application_secrets=None, redaction_secrets=()):
@@ -1219,10 +1290,13 @@ def run_stage(args, image: str, runroot: Path, workspace: Path, label: str,
             coordinator=native_sink['coordinator']
             if settlement_failure_recorded(coordinator):
                 result['application_settlement_failure']=settlement_diagnostic(coordinator=coordinator)
-        try:controls.capture_observations(runroot,desc)
-        except (OSError,ValueError,controls.ControlError):
+        try:
+            with controls.bounded_locks():controls.capture_observations(runroot,desc)
+        except (OSError,ValueError,controls.ControlError) as exc:
+            if isinstance(exc,controls.LockBusy):note_control_lock_busy(result)
             result['observation_error']=True;result['exit_code']=2
-        controls.transition(runroot, desc, 'stopping')
+        lifecycle=StageLifecycle(runroot,desc)
+        lifecycle.advance('stopping')
         if application_secrets or indexed_sensitive or native_sensitive:
             if indexed_sensitive:redaction_secrets=[*redaction_secrets,*args._indexed_session.redaction]
             if native_sink and native_sink.get('coordinator') is not None:
@@ -1247,9 +1321,12 @@ def run_stage(args, image: str, runroot: Path, workspace: Path, label: str,
             result['application_completion']=completion['projection']
             result['application_completion_result']=completion['result']
             save(runroot / label / 'process.json',result)
-        controls.transition(runroot, desc, 'stopped', exit_code=result.get('exit_code'),
-                            cleanup_confirmed=result.get('cleanup_confirmed', False))
-        controls.transition(runroot, desc, 'finalized')
+        lifecycle.advance('stopped', exit_code=result.get('exit_code'),
+                          cleanup_confirmed=result.get('cleanup_confirmed', False))
+        lifecycle.advance('finalized')
+        if lifecycle.blocked is not None:
+            lifecycle.record(result)
+            save(runroot / label / 'process.json', result)
 
 
 def endpoint_secret(endpoint: dict, args) -> str:
@@ -2801,10 +2878,6 @@ def dispatch(args):
     return run_suite(args, smoke=args.op == 'smoke')
 
 
-def _interrupt(signum, frame):
-    raise KeyboardInterrupt
-
-
 def _busy_holder(infrastructure, exc):
     """Name the lease holder in a host-admission-busy failure; returns its text line or ''."""
     import resources
@@ -2869,5 +2942,7 @@ def cli(argv=None):
 
 
 if __name__ == '__main__':
-    signal.signal(signal.SIGTERM, _interrupt)
+    # SIGINT works even when inherited as ignored; SIGTERM, SIGHUP (closed
+    # terminal, lost SSH session) and SIGQUIT take the same cleanup path.
+    resources.install_interrupt_handlers()
     sys.exit(cli())

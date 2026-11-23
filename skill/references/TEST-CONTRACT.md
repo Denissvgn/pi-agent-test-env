@@ -41,6 +41,9 @@ Setup and check stages accept `name`, `cwd`, `argv`, `timeout_seconds`, and
 `["bash", "-lc", "..."]` is possible but invokes a shell; do not interpolate
 untrusted prompt text into it. `network` is `none` or `inherit`, with the latter
 also requiring command-line parent consent. Commands are limited to 3,600 seconds.
+Besides the host deadline, the container worker times a check itself: at its
+`timeout_seconds` it kills the check's process group, exits with 124 and writes a
+`PI_LAB_LIMIT` record to stderr.
 The `.pi-lab` directory is reserved for runtime state.
 
 `validate-plan` validates structure only; `run` additionally checks required paths
