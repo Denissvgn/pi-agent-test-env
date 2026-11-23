@@ -5,16 +5,34 @@ returned here names what failed and the next action the user or agent can take.
 """
 from __future__ import annotations
 from pathlib import Path
+import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'runtime'))
 import release_contracts  # noqa: E402
+
+
+class LabError(RuntimeError):
+    """A blocker. `reason` is a stable machine-readable code; `remedy` is the next action."""
+    def __init__(self, message: str, reason: str = '', remedy: str = ''):
+        super().__init__(message)
+        self.reason = reason
+        self.remedy = remedy
+
+
+def failure_text(text, redactor):
+    """Remove credentials and endpoint URLs before exposing exception details."""
+    text = text.encode('utf-8', 'backslashreplace').decode()
+    text = redactor.value(text)
+    return re.sub(r'https?://[^\s]+', '<REDACTED>', text, flags=re.IGNORECASE)
+
 
 SANDBOX_HINT = ('If this command runs inside an AI agent\'s command sandbox, the sandbox (not Docker) may be '
                 'denying access: re-run the SAME command with elevated/unsandboxed execution after the user '
                 'approves it. Never mount the Docker socket into a Pi child to work around this.')
 
 REMEDIES = {
+    'python-version': 'Install Python 3.12 or later, then re-run `doctor`.',
     'unsupported-pi-release': f'Select an explicitly reviewed Pi {release_contracts.describe()} native image. Verify the observed version and contract; do not bypass admission or fall back to another release.',
     'image-incompatible': 'The image installs a validator package (TypeBox or pi-schema) at a version the selected Pi release does not review, or its probe did not report them. Rebuild with `ensure-image --policy build` from the bundled Dockerfile, or select an image built for this exact Pi release; do not bypass admission.',
     'browser-sandbox-blocked': 'Review BROWSER.md and the explicit chromium-userns policy. Qualify it with browser-check on the selected native image, then freeze a new admitted run. Do not disable Chromium sandboxing, add capabilities or silently change a frozen campaign.',

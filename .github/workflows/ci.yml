@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - run: python3 tools/check_package.py --source skill --no-manifest
+      - run: python3 tools/check_examples.py --source skill
+      - run: python3 tools/validation/validate_standard.py --self-test
+      - run: python3 tools/check_links.py
+      - run: git diff --exit-code
+
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04-arm, ubuntu-24.04]
+        python: ['3.12', '3.13', '3.14']
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    # AMD64 and Python 3.11/3.13 are non-blocking for this release; failures require triage.
+    # Python 3.11 is deferred and is not included in the current matrix.
+    continue-on-error: ${{ matrix.runner == 'ubuntu-24.04' || matrix.python == '3.13' || matrix.python == '3.11' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build native image
+        env:
+          PYTHON_VERSION: ${{ matrix.python }}
+        run: |
+          set -eu
+          base="python:${PYTHON_VERSION}-slim-bookworm"
+          docker pull "$base"
+          digest=$(docker image inspect "$base" --format '{{index .RepoDigests 0}}')
+          docker build -f tools/ci/Dockerfile --build-arg "PYTHON_IMAGE=$digest" -t pi-agent-ci tools/ci
+      - name: Run container checks
+        run: python3 tools/docker_ci.py --image pi-agent-ci --report "$RUNNER_TEMP/ci-report.json"
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-${{ matrix.runner }}-python-${{ matrix.python }}
+          path: ${{ runner.temp }}/ci-report.json
+          if-no-files-found: warn
+
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - run: python3 tools/build_release.py --candidate --output-dir "$RUNNER_TEMP/archives"
+      - run: |
+          set -o pipefail
+          python3 tools/verify_release.py --archives "$RUNNER_TEMP/archives" --report "$RUNNER_TEMP/release-report.json" --test-timeout-seconds 1800 | tee "$RUNNER_TEMP/release-verifier-stdout.json"
+      - name: Measure synthetic host phases
+        if: always()
+        run: python3 tools/ci/macos_diagnostics.py "$RUNNER_TEMP/macos-diagnostics.json"
+      - name: Upload archives and report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos-release-verification
+          path: |
+            ${{ runner.temp }}/archives/
+            ${{ runner.temp }}/release-report.json
+            ${{ runner.temp }}/release-verifier-stdout.json
+            ${{ runner.temp }}/macos-diagnostics.json
+          if-no-files-found: warn
+
+  ci-ok:
+    if: always()
+    needs: [static, linux, macos]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check required jobs
+        env:
+          STATIC: ${{ needs.static.result }}
+          LINUX: ${{ needs.linux.result }}
+          MACOS: ${{ needs.macos.result }}
+        run: test "$STATIC" = success && test "$LINUX" = success && test "$MACOS" = success
