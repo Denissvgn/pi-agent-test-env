@@ -171,13 +171,17 @@ def _runner_identity():
 
 def add_arguments(sub, default_lock):
     for name, help_text in (
-        ('registry-inspect', 'Read-only offline registry inspection under the existing host lease'),
-        ('registry-recover', 'Reconcile prior ownership without dispatch; retain a separate recovery receipt')):
+        ('registry-inspect', 'Inspect the registry offline (experimental)'),
+        ('registry-recover', 'Reconcile prior ownership (experimental)'),
+    ):
         parser = sub.add_parser(name, help=help_text)
-        parser.add_argument('--lock-file', default=default_lock)
-        parser.add_argument('--lock-wait-seconds', type=float, default=0)
+        parser.add_argument('--lock-file', default=default_lock,
+                            help='Select the existing lease and its registry (default: PI_LAB_LOCK_FILE or shared per-user lease)')
+        parser.add_argument('--lock-wait-seconds', type=float, default=0,
+                            help='Wait this many seconds for the lease (default: %(default)s, fail if busy)')
         if name == 'registry-recover':
-            parser.add_argument('--output-dir', required=True, help='New owner-only receipt directory outside all retained execution paths')
+            parser.add_argument('--output-dir', required=True,
+                                help='Write the recovery receipt to a new owner-only directory outside retained execution paths (required)')
 
 
 def _check_lock(fd, path):

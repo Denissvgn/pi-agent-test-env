@@ -66,11 +66,15 @@ def assets_unchanged(receipt):
     return actual==receipt['assets'] and not any(p.is_symlink() for p in root.rglob('*'))
 
 
-def evaluate(contract,receipt,process,stdout,run_id,attempt_id):
-    result={'schema':1,'scorer_id':contract['id'] if contract else 'command-only',
+def blank(contract,receipt):
+    return {'schema':1,'scorer_id':contract['id'] if contract else 'command-only',
             'scorer_version':contract['version'] if contract else '1','scorer_sha256':receipt['sha256'] if receipt else None,
             'score_domain':contract['score_domain'] if contract else None,
             'status':'error','reason':None,'task_status':'unknown','score':None,'test_counts':None,'assertions':None}
+
+
+def evaluate(contract,receipt,process,stdout,run_id,attempt_id):
+    result=blank(contract,receipt)
     if process.get('cleanup_confirmed') is not True:result['reason']='cleanup_unconfirmed';return result
     if not contract:
         if process.get('timed_out') or process.get('cleanup_confirmed') is False:result['reason']='command_infrastructure_error';return result

@@ -1,6 +1,8 @@
 """Real local flock/signal boundaries; no Docker, endpoint, keys or participant."""
 import contextlib
+import errno
 import fcntl
+import os
 from pathlib import Path
 import signal
 import subprocess
@@ -54,6 +56,13 @@ class QueuedAdmissionTests(unittest.TestCase):
         self.assertIs(signal.getsignal(signal.SIGALRM), handler)
         self.assertEqual(signal.pthread_sigmask(signal.SIG_BLOCK, set()), self.mask)
 
+    def assert_timer_arms(self, arm, expected):
+        self.assertEqual(len(arm.call_args_list), len(expected))
+        for call, remaining in zip(arm.call_args_list, expected):
+            timer, seconds = call.args
+            self.assertEqual(timer, signal.ITIMER_REAL)
+            self.assertAlmostEqual(seconds, remaining)
+
     def test_kernel_queue_acquires_once_same_fd_and_registry_custody(self):
         child = self.holder(.12)
         original = resources.fcntl.flock
@@ -74,14 +83,22 @@ class QueuedAdmissionTests(unittest.TestCase):
         self.assertEqual(signal.getitimer(signal.ITIMER_REAL), (0, 0))
 
     def test_timeout_closes_fd_without_later_acquisition(self):
-        child = self.holder(.2)
-        started = time.monotonic()
-        with self.assertRaises(resources.AdmissionError) as caught:
+        child = self.holder()
+        with mock.patch.object(resources.fcntl, 'flock', wraps=fcntl.flock) as flock, \
+             mock.patch.object(signal, 'setitimer', wraps=signal.setitimer) as arm, \
+             self.assertRaises(resources.AdmissionError) as caught:
             with resources.admission_lock(self.path, .05):
                 self.fail('expired waiter entered')
         self.assertEqual(caught.exception.reason, 'host-admission-busy')
-        self.assertLess(time.monotonic()-started, .18)
-        child.wait(timeout=1)
+        self.assertLessEqual(arm.call_args_list[0].args[1], .05)
+        fd, operation = flock.call_args.args
+        self.assertEqual(operation, fcntl.LOCK_EX)
+        with self.assertRaises(OSError) as closed:
+            os.fstat(fd)
+        self.assertEqual(closed.exception.errno, errno.EBADF)
+        self.assertIsNone(child.poll(), 'the waiter must time out while the owner still holds the lock')
+        child.terminate()
+        child.wait(timeout=3)
         with resources.admission_lock(self.path):
             pass
         self.assert_restored(self.handler)
@@ -102,38 +119,50 @@ class QueuedAdmissionTests(unittest.TestCase):
                 self.assertEqual(signal.getitimer(signal.ITIMER_REAL), (0, 0))
 
     def test_later_outer_deadline_not_reset_by_inner_timeout(self):
-        self.holder()
+        now = 100.0
         events = []
         def outer(_signum, _frame):
-            events.append(time.monotonic())
+            events.append(now)
         signal.signal(signal.SIGALRM, outer)
-        started = time.monotonic()
-        signal.setitimer(signal.ITIMER_REAL, .18)
-        with self.assertRaises(resources.AdmissionError):
-            with resources.admission_lock(self.path, .05):
-                self.fail('busy')
-        remaining, interval = signal.getitimer(signal.ITIMER_REAL)
-        self.assertGreater(remaining, .05)
-        self.assertLess(remaining, .16)
-        self.assertEqual(interval, 0)
+        def delayed_flock(_fd, operation):
+            nonlocal now
+            self.assertEqual(operation, fcntl.LOCK_EX)
+            now += .08
+            signal.getsignal(signal.SIGALRM)(signal.SIGALRM, None)
+        with mock.patch.object(resources, 'time', mock.Mock(monotonic=lambda: now)), \
+             mock.patch.object(signal, 'getitimer', return_value=(.18, 0)), \
+             mock.patch.object(signal, 'setitimer') as arm, \
+             mock.patch.object(resources.fcntl, 'flock', side_effect=delayed_flock), \
+             self.assertRaises(resources.AdmissionError) as caught:
+            resources._queued_flock(-1, .05)
+        self.assertEqual(caught.exception.reason, 'host-admission-busy')
+        self.assert_timer_arms(arm, (.05, 0, .10))
         self.assert_restored(outer)
-        time.sleep(.2)
-        self.assertEqual(len(events), 1)
-        self.assertLess(events[0]-started, .23)
+        self.assertEqual(events, [])
 
     def test_success_preserves_outer_timer_inside_body(self):
-        self.holder(.05)
+        now = 100.0
         events = []
         def outer(_signum, _frame):
-            events.append(time.monotonic())
+            events.append(now)
         signal.signal(signal.SIGALRM, outer)
-        started = time.monotonic()
-        signal.setitimer(signal.ITIMER_REAL, .17)
-        with resources.admission_lock(self.path, .5):
-            self.assert_restored(outer)
-            time.sleep(.2)
-            self.assertEqual(len(events), 1)
-            self.assertLess(events[0]-started, .22)
+        real_flock = fcntl.flock
+        def elapsed_flock(fd, operation):
+            nonlocal now
+            real_flock(fd, operation)
+            if operation == fcntl.LOCK_EX:
+                now += .05
+        with mock.patch.object(resources, 'time', mock.Mock(wraps=time, monotonic=lambda: now)), \
+             mock.patch.object(signal, 'getitimer', return_value=(.17, 0)), \
+             mock.patch.object(signal, 'setitimer') as arm, \
+             mock.patch.object(resources.fcntl, 'flock', side_effect=elapsed_flock):
+            with resources.admission_lock(self.path, .5):
+                self.assert_restored(outer)
+                self.assert_timer_arms(arm, (.17, 0, .12))
+                now += arm.call_args.args[1]
+                signal.getsignal(signal.SIGALRM)(signal.SIGALRM, None)
+                self.assertEqual(len(events), 1)
+                self.assertAlmostEqual(events[0], 100.17)
 
     def test_returning_earlier_outer_callback_fires_once(self):
         self.holder()

@@ -1,4 +1,5 @@
 """Host owner-death fixtures; mocked Docker is never native qualification."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -6,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+import uuid
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'skill/scripts'))
 import ownership_registry as registry
 
@@ -467,75 +469,126 @@ class QualificationServiceCleanupTests(unittest.TestCase):
 
 class QualificationPreworkerTests(unittest.TestCase):
     """Synthetic stopped preworker campaign; no actual Docker or purge evidence."""
+    def put(self, path, value):
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        body = (json.dumps(value, sort_keys=True) + '\n').encode()
+        path.write_bytes(body)
+        path.chmod(0o600)
+        return {'path': str(path), 'sha256': hashlib.sha256(body).hexdigest()}
+
+    def campaign(self, root, roles, *, predecessor=None):
+        root.mkdir(mode=0o700, exist_ok=True)
+        manifest = {'document_type': 'application_client_qualification',
+                    'prepared_root': str(root), 'cells': [{'id': i} for i in range(28)]}
+        ledger = {'daemon': self.daemon, 'poisoned': True, 'started': 100,
+                  'deadline': 14500, 'started_wall': 1000, 'deadline_wall': 15400,
+                  'launches': []}
+        if predecessor is not None:
+            manifest['predecessor'] = {'root': predecessor['root'], **{
+                key + '_sha256': predecessor[key]['sha256'] for key in ('manifest', 'state', 'ledger')}}
+            ledger['carry'] = {'attempts': 7, 'participant_segments': 0}
+        for index, role in enumerate(roles):
+            cell = 'N01-fixture' if index < 6 else self.active['id']
+            record, row = self.launch_record(root, role, cell)
+            ledger['launches'].append(row)
+            if role == 'application-helper':
+                self.helper = record
+        return {'root': str(root),
+                'manifest': self.put(root / 'manifest.json', manifest),
+                'state': self.put(root / 'state.json', {'phase': 'blocked', 'active_cell': self.active}),
+                'ledger': self.put(root / 'launch-ledger/ledger.json', ledger)}
+
+    def launch_record(self, root, role, cell):
+        launch_id = str(uuid.uuid4())
+        container_id = hashlib.sha256(launch_id.encode()).hexdigest()
+        record = {'schema': 1, 'launch_id': launch_id, 'registry': self.registry.registry_id,
+                  'generation': self.registry.generation, 'container': 'owned-' + launch_id,
+                  'image': 'sha256:' + 'a' * 64, 'mounts': [], 'daemon': self.daemon,
+                  'binding': {key: self.active[key] for key in ('run_id', 'attempt_id')},
+                  'runroot': str(self.run), 'owner_pid': os.getpid()}
+        if role in ('fixture', 'scripted-inference'):
+            private = root / ('private-' + role)
+            private.mkdir(mode=0o700, parents=True)
+            record.update(application_helper=True, client_mode='qualification-' + role,
+                          qualification_role=role, qualification_cell=cell,
+                          mounts=[{'source': str(private), 'target': '/private', 'rw': False}])
+        if role == 'application-helper':
+            private = self.run / 'application-helpers' / uuid.uuid4().hex
+            private.parent.mkdir(mode=0o700)
+            record.update(application_helper=True, client_mode='application-execution',
+                          private_store=str(private), code_identity={'runtime/service.py': 'a' * 64},
+                          mounts=[{'source': str(private / 'code'), 'target': '/opt/pi-application', 'rw': False},
+                                  {'source': str(private / 'state'), 'target': '/pi-client/state', 'rw': True},
+                                  {'source': str(self.run / 'application-evidence' / record['container']),
+                                   'target': '/pi-client/evidence', 'rw': True}])
+        intent = json.dumps(record, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
+        record.update(status='absent', container_id=container_id)
+        if role in ('fixture', 'scripted-inference'):
+            identity = registry.observe_qualification_private(record)
+            private.rmdir()
+            reference = registry.write_qualification_service_cleanup(
+                record, root / (role + '-cleanup.json'), private_identity=identity,
+                physical_absence_confirmed=True, private_bootstrap_removed=True,
+                terminal_available=True, startup_readied=True)
+            record['qualification_service_cleanup'] = reference
+            self.service_refs.append(reference)
+        record['status'] = 'released'
+        self.registry.write(record)
+        row = {key: record[key] for key in ('launch_id', 'registry', 'generation', 'container_id')}
+        row.update(role=role, cell=cell, physical='absent', intent_sha256=hashlib.sha256(intent).hexdigest(),
+                   private_cleanup=cell != self.active['id'] or role not in ('probe', 'boundary', 'preflight'))
+        self.launches.append({key: row[key] for key in ('registry', 'generation', 'launch_id', 'container_id')}
+                             | {'physical_absence_confirmed': True, 'private_cleanup_confirmed': True})
+        return record, row
+
     def setUp(self):
-        import copy,hashlib,uuid
-        import test_application_launch as fixture
-        self.fixture=fixture.CampaignCarryTests();self.fixture.setUp();self.addCleanup(self.fixture.doCleanups)
-        f=self.fixture;self.root=f.root;self.registry=f.registry;self.command=mock.Mock();self.clean=mock.Mock()
-        self.registry.command=self.command;self.registry.recover_sensitive=self.clean
-        self.q=self.root/'successor';self.q.mkdir(mode=0o700)
-        self.active={'id':f.active['id'],'pid':2**31-1,'run_id':str(uuid.uuid4()),'attempt_id':str(uuid.uuid4())}
-        self.full=copy.deepcopy(f.full);self.full.update(prepared_root=str(self.q),qualification_id=f.current['qualification_id'],predecessor=f.predecessor)
-        self.full['source']['files']['tools/qualification/application_client.py']='7f9ad372c65564f34a8e92ccae4d0f250ff99a4b8b23b8ec838b3d4b339c940d'
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.q = self.root / 'successor'
+        self.q.mkdir(mode=0o700)
+        self.command = mock.Mock()
+        self.clean = mock.Mock()
+        self.daemon = 'fixture-daemon'
+        self.registry = registry.Registry(self.root / 'operation.lock.registry', self.command, self.clean)
+        self.registry.bind_daemon(self.daemon)
+        self.active = {'id': 'N02-0.87.1-request-and-persona-a', 'pid': 2**31-1,
+                       'run_id': str(uuid.uuid4()), 'attempt_id': str(uuid.uuid4())}
         self.run=self.q/'scripted-0.87.1/runs'/self.active['run_id'];self.run.mkdir(mode=0o700,parents=True)
         self.stage=str(uuid.uuid4());self.segment=str(uuid.uuid4());self.control=self.run/'controls'/self.stage;self.control.mkdir(mode=0o755,parents=True)
-        for name in ('task.json','endpoint.json','stage.json'):f.put(self.control/name,{'public_metadata':name})
+        for name in ('task.json','endpoint.json','stage.json'):self.put(self.control/name,{'public_metadata':name})
         (self.control/'inbox').mkdir();(self.control/'segments'/self.segment).mkdir(parents=True,mode=0o700)
         self.workspace=self.run/'workspace';self.workspace.mkdir();wi=self.workspace.stat();self.workspace.rmdir()
         self.descriptor={'stage_id':self.stage,'kind':'agent','label':'agent-1-participant',
             'run_id':self.active['run_id'],'attempt_id':self.active['attempt_id'],'admission_lock_file':str(self.root/'operation.lock'),
             'control':str(self.control),'workspace':str(self.workspace),'workspace_identity':[wi.st_dev,wi.st_ino]}
-        self.descriptor_ref=f.put(self.run/'stages'/self.stage/'descriptor.json',self.descriptor)
-        self.stage_ref=f.put(self.run/'stages'/self.stage/'state.json',{'status':'finalized','cleanup_confirmed':False,'segment_id':self.segment})
-        self.process_ref=f.put(self.run/'agent-1-participant/process.json',{'cleanup_confirmed':False,'termination_reason':'application_credential_cleanup'})
-        self.result_ref=f.put(self.run/'result.json',{'sealed':True,'status':'FAIL','exit_code':1,'agents':[],
+        self.descriptor_ref=self.put(self.run/'stages'/self.stage/'descriptor.json',self.descriptor)
+        self.stage_ref=self.put(self.run/'stages'/self.stage/'state.json',{'status':'finalized','cleanup_confirmed':False,'segment_id':self.segment})
+        self.process_ref=self.put(self.run/'agent-1-participant/process.json',{'cleanup_confirmed':False,'termination_reason':'application_credential_cleanup'})
+        self.result_ref=self.put(self.run/'result.json',{'sealed':True,'status':'FAIL','exit_code':1,'agents':[],
             'invocation':{'status':'invalid','attempted_stages':1},'infrastructure':{'phase':'agents','reason':'ApplicationExecutionError'},
             'run_id':self.active['run_id'],'attempt_id':self.active['attempt_id']})
-        f.put(self.q/'manifest.json',self.full)
-        ledger=fixture.launch.LaunchLedger.create(self.q/'launch-ledger',f.current,daemon_id=f.daemon,daemon_capacity=f.capacity,clock=f.clock,wall=f.wall)
-        service_refs=[f.service_reference];states={};self.helper=None
-        for cell in sorted(f.current['cells'],key=lambda cell:cell['group']!='N01'):
-            if cell['group']!='N01' and cell['id']!=self.active['id']:continue
-            roles=cell['role_limits'] if cell['group']=='N01' else {'fixture':1,'scripted-inference':1,'probe':1,'boundary':1,'preflight':1,'application-helper':1}
-            states[cell['id']]={'status':'PASS' if cell['group']=='N01' else 'BLOCKED','attempts':1}
-            for role in roles:
-                launchid=str(uuid.uuid4());cid=hashlib.sha256(launchid.encode()).hexdigest()
-                record={'schema':1,'launch_id':launchid,'registry':self.registry.registry_id,'generation':self.registry.generation,
-                    'status':'intent','container':'owned-'+launchid,'image':f.current['images']['core-'+cell['release']]['id'] if role in fixture.launch.EXTERNAL else cell['image_id'],
-                    'mounts':[],'binding':{'run_id':self.active['run_id'],'attempt_id':self.active['attempt_id']},'daemon':f.daemon,
-                    'runroot':str(self.run),'owner_pid':os.getpid()}
-                private=None
-                if role in ('fixture','scripted-inference'):
-                    private=self.root/('second-'+role);private.mkdir(mode=0o700)
-                    record.update(application_helper=True,client_mode='qualification-'+role,qualification_role=role,qualification_cell=cell['id'],
-                        mounts=[{'source':str(private),'target':'/private','rw':False}])
-                if role=='application-helper':
-                    private=self.run/'application-helpers'/uuid.uuid4().hex;private.mkdir(mode=0o700,parents=True)
-                    record.update(application_helper=True,client_mode='application-execution',private_store=str(private),code_identity={'runtime/service.py':'a'*64})
-                    record['mounts']=[{'source':str(private/'code'),'target':'/opt/pi-application','rw':False},
-                        {'source':str(private/'state'),'target':'/pi-client/state','rw':True},
-                        {'source':str(self.run/'application-evidence'/record['container']),'target':'/pi-client/evidence','rw':True}]
-                self.registry.write(record)
-                key=ledger.reserve(cell['id'],role,record,fixture.launch._role_weight(f.current,cell,role),{'id':f.daemon,**f.capacity})
-                ledger.note(key,pid=123,container_id=cid,physical='absent',private_cleanup=not(cell['group']=='N02' and role in ('probe','boundary','preflight')))
-                record.update(status='released',container_id=cid)
-                if role in ('fixture','scripted-inference'):
-                    record['status']='absent';identity=registry.observe_qualification_private(record);private.rmdir()
-                    ref=registry.write_qualification_service_cleanup(record,self.q/(role+'-cleanup.json'),private_identity=identity,
-                        physical_absence_confirmed=True,private_bootstrap_removed=True,terminal_available=True,startup_readied=True)
-                    record['qualification_service_cleanup']=ref;record['status']='released';service_refs.append(ref)
-                if role=='application-helper':private.rmdir();self.helper=record
-                self.registry.write(record)
-        ledger.poison_scope(self.active['id'],force=True)
-        f.put(self.q/'state.json',{'schema':1,'phase':'blocked','active_cell':self.active,'cells':states,'started_at':1000})
-        def entry(path):return {'root':str(path),**{k:{'path':str(path/rel),'sha256':hashlib.sha256((path/rel).read_bytes()).hexdigest()}
-            for k,rel in [('manifest','manifest.json'),('state','state.json'),('ledger','launch-ledger/ledger.json')]}}
-        self.envelope=self.root/'pi-qualification-cell-second';self.envelope.mkdir(mode=0o700);ei=self.envelope.stat();self.envelope.rmdir()
-        terminal=f.put(self.q/'terminal.json',{'actual_exit':2,'cwd':str(fixture.ROOT),'argv':['python3','tools/qualification/application_client.py','collect','--root',str(self.q),'--group','N02','--release','0.87.1']})
-        invocation=f.put(self.q/'invocation.json',{'argv':['python3',str(fixture.ROOT/'tools/qualification/application_client.py'),'_cell-run','--root',str(self.q),'--cell-id',self.active['id'],'--private-envelope',str(self.envelope/'initial.json')],
-            'cwd':str(fixture.ROOT),'classification':'native_scripted_protocol'})
-        ci=self.control.stat();allrows=json.loads((f.old/'launch-ledger/ledger.json').read_text())['launches']+json.loads((self.q/'launch-ledger/ledger.json').read_text())['launches']
-        self.proof={'qualification':{'lineage':[entry(f.old),entry(self.q)],'cumulative_attempts':19,'participant_segments':0},
+        self.launches, self.service_refs = [], []
+        previous = self.campaign(self.root / 'previous', ['probe'] * 6 + ['fixture'])
+        current = self.campaign(self.q, ['probe'] * 6 + [
+            'fixture', 'scripted-inference', 'probe', 'boundary', 'preflight', 'application-helper'],
+            predecessor=previous)
+        self.envelope = self.root / 'pi-qualification-cell-second'
+        self.envelope.mkdir(mode=0o700)
+        ei = self.envelope.stat()
+        self.envelope.rmdir()
+        # Preserve the historical command in the receipt fixture without depending on that script.
+        script = Path('tools/qualification') / 'application_client.py'
+        cwd = Path(__file__).resolve().parents[1]
+        terminal = self.put(self.q / 'terminal.json', {'actual_exit': 2, 'cwd': str(cwd),
+            'argv': ['python3', script.as_posix(), 'collect', '--root', str(self.q),
+                     '--group', 'N02', '--release', '0.87.1']})
+        invocation = self.put(self.q / 'invocation.json', {'cwd': str(cwd),
+            'argv': ['python3', str(cwd / script), '_cell-run', '--root', str(self.q), '--cell-id',
+                     self.active['id'], '--private-envelope', str(self.envelope / 'initial.json')],
+            'classification': 'native_scripted_protocol'})
+        ci = self.control.stat()
+        self.proof={'qualification':{'lineage':[previous,current],'cumulative_attempts':19,'participant_segments':0},
             'controller':{'pid':self.active['pid'],'parent_terminal':terminal,'original_invocation':invocation,'pid_absence_observed':True,'provenance':'terminal_parent_and_pid_absence'},
             'stage':{'descriptor':self.descriptor_ref,'state':self.stage_ref,'process':self.process_ref,'result':self.result_ref,'stage_id':self.stage,'segment_id':self.segment,'worker_launch_attempted':False,'application_context_issued':False},
             'private_cleanup':{'helper':{'source':self.helper['private_store'],'provenance':'prior_owned_cleanup','removed':True,'container_id_provenance':'original_guard_ledger'},
@@ -543,8 +596,7 @@ class QualificationPreworkerTests(unittest.TestCase):
                 'control':{'path':str(self.control),'device':ci.st_dev,'inode':ci.st_ino,'retained_files':[{'path':n,'sha256':hashlib.sha256((self.control/n).read_bytes()).hexdigest(),'bytes':(self.control/n).stat().st_size} for n in ('endpoint.json','stage.json','task.json')],
                     'directories':['inbox','segments','segments/'+self.segment],'private_contexts_absent':True,'all_parent_authorities_scanned':True},
                 'workspace':{'path':str(self.workspace),'device':wi.st_dev,'inode':wi.st_ino,'status':'discarded','provenance':'original_descriptor','all_parent_authorities_scanned':True}},
-            'launches':[{**{k:row[k] for k in ('registry','generation','launch_id','container_id')},'physical_absence_confirmed':True,'private_cleanup_confirmed':True} for row in allrows],
-            'service_receipts':service_refs}
+            'launches':self.launches,'service_receipts':self.service_refs}
         self.proofs=self.root/'owner-proof';self.proofs.mkdir(mode=0o700)
     def write(self):
         ref=registry.write_qualification_preworker_cleanup(self.helper,self.proofs/'preworker.json',proof=self.proof)

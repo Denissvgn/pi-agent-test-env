@@ -6,6 +6,16 @@ copyable plans and profiles belong in `assets/`; runnable examples belong in
 `examples/`. Keep maintainer tests, stored test output, publishing tools and
 planning history outside the skill.
 
+Add a new command as a module with a `register` function instead of editing
+`parser()` and `main()` in `skill/scripts/pi_lab.py`. Create
+`skill/scripts/<name>.py` that exposes `register(subparsers)`; it adds its
+subparsers and calls `set_defaults(handler=function)`, where `handler(args)`
+returns the exit code. Then add the module name as one line, in alphabetical
+order, to `COMMAND_MODULES` in `skill/scripts/command_modules.py`. On a merge
+conflict in that tuple keep both lines. A listed module that cannot be imported
+stops the program at start and names the module. Commands that existed before
+this seam stay in `parser()`.
+
 Runtime changes must retain Python 3.12+ and the standard-library-only host
 policy. Standards validation is development tooling and requires Python 3.11+;
 its pinned source and wheels are bundled in `tools/validation/` for offline use.
@@ -19,6 +29,7 @@ Run from the repository root:
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 python3 tools/validation/validate_standard.py --self-test
 python3 tools/check_package.py --source skill
+python3 tools/check_examples.py --source skill
 ```
 
 The tests use synthetic protocol data, mocked Docker boundaries, local
@@ -42,8 +53,7 @@ python3 tools/docker_ci.py --image pi-agent-ci:py3.12 --report /tmp/pi-ci-py3.12
 
 Repeat with the newest supported Python as well. The runner does not supply the
 synthetic read-only providers that the isolated owner-consumer tests use
-(`PI_SYNTHETIC_READER_PROVIDER`) or the operation SDK container fixture
-(`tools/qualification/operation_sdk_fixture.py`); those tests skip without them.
+(`PI_SYNTHETIC_READER_PROVIDER`), so those tests skip without it.
 
 ## Adopting a new Pi release
 
@@ -88,17 +98,17 @@ record the result in a `PI-<release>.md` reference. Then:
 4. Append the line that `python3 tests/test_release_registry.py --freeze <release>`
    prints to `REVIEWED_IDENTITIES`. Never edit an earlier line: receipts bind
    those identities.
-5. Add the new release identity to `PARALLEL_RELEASE_CONTRACTS` in
-   `tools/qualification/application_sdk_admission.py`.
-6. Update the documentation and add a changelog fragment. The manifest is
+5. Update the documentation and add a changelog fragment. The manifest is
    regenerated when the release is prepared, as described below.
 
-The maintainer suite fails until steps 1–5 are complete. A stable claim still
+The maintainer suite fails until steps 1–4 are complete. A stable claim still
 needs a native campaign on exact images. With three reviewed releases, select
 releases for the indexed campaign with `--release`: qualifying all of them at
 once exceeds its launch ceiling.
 
 ## Native qualification campaigns
+
+Completed application campaign tools and their tests remain available in tag `v4.10.0`.
 
 Offline checks never qualify live execution. A release that claims native
 qualification needs a fresh campaign on its exact code: the campaign tools record
@@ -192,7 +202,7 @@ incomplete API evidence and failing/in-progress checks block merging. No timeout
 or admin bypass turns them into a pass. Use `--match-head-commit` for the merge.
 See [the promotion procedure](skill/references/PULL-REQUESTS.md). The
 [opt-in parallel-agent design](docs/design/parallel-agents.md) sets the fixed verification order;
-serial execution remains the default. Experimental schema-2 selection requires
+serial execution remains the default. Opt-in schema-2 selection requires
 its documented cohort, resource and qualification contract. Build release
 artifacts from the final reviewed tree and preserve published tags/assets when
 shipping a corrective patch version.

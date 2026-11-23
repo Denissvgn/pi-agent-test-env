@@ -1262,18 +1262,25 @@ def requires_proof(registry, record):
 
 
 def add_arguments(sub, default_lock):
-    helps = {'application-owner-inspect': 'Read-only inspection of retained application owner proof; never authorizes admission',
-             'application-owner-recover': 'Explicit cleanup of exact released-helper owned files with immutable proof; no dispatch'}
-    for name in ('application-owner-inspect', 'application-owner-recover'):
-        parser = sub.add_parser(name, help=helps[name])
-        parser.add_argument('--lock-file', default=default_lock)
-        parser.add_argument('--lock-wait-seconds', type=float, default=0)
+    for name, help_text in (
+        ('application-owner-inspect', 'Inspect retained owner proof (experimental)'),
+        ('application-owner-recover', 'Clean up proven-owned files (experimental)'),
+    ):
+        parser = sub.add_parser(name, help=help_text)
+        parser.add_argument('--lock-file', default=default_lock,
+                            help='Select the existing lease and its registry (default: PI_LAB_LOCK_FILE or shared per-user lease)')
+        parser.add_argument('--lock-wait-seconds', type=float, default=0,
+                            help='Wait this many seconds for the lease (default: %(default)s, fail if busy)')
         if name == 'application-owner-inspect':
-            parser.add_argument('--summary', action='store_true', help='Emit closed inspection counts without identifiers')
+            parser.add_argument('--summary', action='store_true',
+                                help='Show only inspection counts, without identifiers (default: show helper records)')
         if name == 'application-owner-recover':
-            parser.add_argument('--request', required=True, help='Owner-only typed custody request with original terminal references')
-            parser.add_argument('--output-dir', required=True, help='New private receipt directory outside retained execution paths')
-            parser.add_argument('--discard-workspace', action='store_true', help='Authorize discard of the exact proven-owned disposable private scope')
+            parser.add_argument('--request', required=True,
+                                help='Read this owner-only custody request with original terminal references (required)')
+            parser.add_argument('--output-dir', required=True,
+                                help='Write the recovery receipt to a new private directory outside retained execution paths (required)')
+            parser.add_argument('--discard-workspace', action='store_true',
+                                help='Authorize discarding the proven-owned disposable private workspace (default: keep the workspace)')
 
 
 def _owner_docker(argv):

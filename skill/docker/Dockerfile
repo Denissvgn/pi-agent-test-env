@@ -1,5 +1,7 @@
 # Build on the developer HOST. Never install OS packages in the read-only runtime.
-ARG BASE_IMAGE=node:24-bookworm-slim
+# BASE_IMAGE has no default: the host runner passes the digest-pinned reference
+# from pins.json, so no build starts from a mutable tag.
+ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
 ARG PI_VERSION
 ARG WITH_BROWSER=0
@@ -14,8 +16,9 @@ RUN apt-get update \
     fi \
  && rm -rf /var/lib/apt/lists/*
 # Pi's find tool runs fd with --no-require-git outside git repositories, which
-# includes every snapshot. fd added that flag in 8.7.0 and Debian bookworm ships
-# fd-find 8.6.0, so install the pinned upstream static build after checking it.
+# includes every snapshot. fd added that flag in 8.7.0 and older Debian releases
+# ship an earlier fd-find, so install the pinned upstream static build after
+# checking it. The musl build does not depend on the base image's libc.
 RUN fd_version=10.5.0 \
  && case "$(dpkg --print-architecture)" in \
       arm64) fd_target=aarch64-unknown-linux-musl \

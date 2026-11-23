@@ -2,10 +2,10 @@
 
 Original general-source list reviewed on 2026-10-05; release-specific Pi inspection
 added on 2026-10-07. Mutable references below are background reading, not pins.
-[PI-COMPATIBILITY.md](PI-COMPATIBILITY.md) defines the exact 0.87.1 source-inspected
-candidate at `f07218c4d4bbc12bef056a7058c3dd49dfe41abe`, artifact integrity,
+[PI-COMPATIBILITY.md](PI-COMPATIBILITY.md) defines the exact source-inspected
+releases, artifact integrity,
 mandatory/optional interfaces and scoped native runtime evidence. It does
-not automatically select that version or qualify a different user configuration.
+not automatically select a version or qualify a different user configuration.
 
 ## Skill format and Pi
 
@@ -48,7 +48,7 @@ Per-container limits do not cap unrelated processes or the model server.
 - Puppeteer troubleshooting: https://pptr.dev/troubleshooting
 - Puppeteer configuration: https://pptr.dev/guides/configuration
 - Browser launch options: https://pptr.dev/api/puppeteer.launchoptions
-- Native Debian Chromium: https://packages.debian.org/bookworm/chromium
+- Native Debian Chromium: https://packages.debian.org/trixie/chromium
 - Chromium SwiftShader: https://chromium.googlesource.com/chromium/src/+/main/docs/gpu/swiftshader.md
 
 These support using the correct Linux executable/architecture, explicit browser
@@ -57,8 +57,6 @@ weakened modes rather than automatic fixes. Browser launch does not prove a UI t
 
 ## Source and test provenance
 
-This is a revised workflow package built from the user-provided
-`pi-local-agent-tests.zip`. It is not an official Pi/Docker/Unsloth release. The
-English documentation, generic templates, resource policy/builder code, and new
-tests are part of this revision. No upstream source files or font assets are
-redistributed. Test fixtures simulate protocol data only for unit testing.
+This workflow package is not an official Pi/Docker/Unsloth release. The bundled
+`assets/security/moby-default.json` is copied unchanged from Moby; see its
+[provenance](../assets/security/README.md). No font assets are redistributed. Test fixtures simulate protocol data only for unit testing.
