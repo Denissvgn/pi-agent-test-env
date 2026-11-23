@@ -111,6 +111,7 @@ BLOCKED_CONFIGURATION=frozenset((
     'application-credentials','browser-policy-invalid','browser-sandbox-blocked','budget-override-invalid',
     'image-missing','in-place-inspection-error','in-place-linked-entry','invalid-project','missing-secret',
     'model-not-found','resource-policy-invalid','secret-store-insecure','unsupported-agent-profile',
+    'python-version',
     'unsupported-event-contract','unsupported-pi-release','unsupported-pi-settings',
     'environment-broken','environment-invalid-input','environment-missing','environment-needs-confirmation',
     'environment-needs-session','environment-no-environment',
@@ -181,6 +182,11 @@ def _provider_errors(process):
     return errors
 
 
+def _provider_failure_reason(process):
+    """The provider stop that ends the stage: an unabsorbed `error`, never a later `length` or `aborted`."""
+    return 'error' if _provider_errors(process)>0 else None
+
+
 def _unconfirmed(process):
     """A supervisor receipt whose container removal was not confirmed."""
     receipt='termination_reason' in process or 'started' in process
@@ -240,7 +246,7 @@ def _derive(record):
         return endpoint or 'endpoint_error','preflight',stage if preflight else latest('preflight'),code if endpoint else reason
     provider=next((row for row in agents if _provider_errors(process(row))>0 and not _completed(process(row))),None)
     if provider is not None:
-        return 'endpoint_error','agent',_label(provider),_text(process(provider).get('termination_reason')) or reason
+        return 'endpoint_error','agent',_label(provider),_provider_failure_reason(process(provider)) or _text(process(provider).get('termination_reason')) or reason
     # 5. The runner, a supervisor, a check launch or a scorer failed.
     if lost:
         phase='check' if launched and scoring.get('status')=='error' else here
