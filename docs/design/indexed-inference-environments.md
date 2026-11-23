@@ -1,6 +1,7 @@
 # Indexed inference environments and native skill integration
 
-Status: design proposal for future implementation, not a supported 4.4.0 option.
+Status: historical design assessment. Indexed execution was implemented in 4.5.0;
+see [the current contract](../../skill/references/INFERENCE-ENVIRONMENTS.md).
 Assessment date: 14 October 2026. Repository baseline: released 4.4.0,
 commit `3664d60370ef48a3b2a696f66c3200618f081487`.
 

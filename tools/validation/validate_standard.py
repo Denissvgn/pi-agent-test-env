@@ -14,13 +14,13 @@ import venv
 HERE = Path(__file__).resolve().parent
 
 
-def checked_lock():
-    lock = json.loads((HERE / "toolchain.lock.json").read_text())
+def checked_lock(directory=HERE):
+    lock = json.loads((directory / "toolchain.lock.json").read_text())
     for item in lock["files"]:
         relative = Path(item["path"])
         if relative.is_absolute() or ".." in relative.parts:
             raise ValueError("Unsafe vendor path")
-        path = HERE / relative
+        path = directory / relative
         if path.is_symlink() or not path.is_file() or path.stat().st_size != item["bytes"] or hashlib.sha256(path.read_bytes()).hexdigest() != item["sha256"]:
             raise ValueError("Vendor integrity failure: " + item["path"])
     return lock
