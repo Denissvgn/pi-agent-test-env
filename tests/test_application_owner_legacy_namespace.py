@@ -186,8 +186,16 @@ class LegacyNamespaceTests(LegacyContractTests):
         self.rejects(fixture)
 
     def test_structural_source_promises_do_not_follow_edited_fixture_code_automatically(self):
-        self.assertEqual(hashlib.sha256(NAMESPACE_SOURCE).hexdigest(), NAMESPACE_SOURCE_SHA256)
-        self.assertEqual(hashlib.sha256(SUPERVISOR_SOURCE).hexdigest(), SUPERVISOR_SOURCE_SHA256)
+        self.assertEqual(
+            hashlib.sha256(NAMESPACE_SOURCE).hexdigest(), NAMESPACE_SOURCE_SHA256,
+            "Recompute NAMESPACE_SOURCE_SHA256 with hashlib.sha256(NAMESPACE_SOURCE).hexdigest() "
+            "after reviewing the fixture source change.",
+        )
+        self.assertEqual(
+            hashlib.sha256(SUPERVISOR_SOURCE).hexdigest(), SUPERVISOR_SOURCE_SHA256,
+            "Recompute SUPERVISOR_SOURCE_SHA256 with hashlib.sha256(SUPERVISOR_SOURCE).hexdigest() "
+            "after reviewing the fixture source change.",
+        )
 
     def test_empty_queues_for_a_valid_stage_are_metadata_not_issued_authority(self):
         fixture = self.build()

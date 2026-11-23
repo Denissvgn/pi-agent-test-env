@@ -9,8 +9,7 @@ must provide python3 (3.12+) and node; tools/ci/Dockerfile builds one.
 
 This qualifies the offline suite on one Python/platform. It does not provide the
 synthetic read-only providers that the isolated owner-consumer tests need
-(PI_SYNTHETIC_READER_PROVIDER) or the operation SDK container fixture, and it
-makes no Docker-in-Docker, model or Pi call.
+(PI_SYNTHETIC_READER_PROVIDER) and makes no Docker-in-Docker, model or Pi call.
 """
 import argparse
 import json

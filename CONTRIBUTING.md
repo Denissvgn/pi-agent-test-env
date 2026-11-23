@@ -29,6 +29,7 @@ Run from the repository root:
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 python3 tools/validation/validate_standard.py --self-test
 python3 tools/check_package.py --source skill
+python3 tools/check_examples.py --source skill
 ```
 
 The tests use synthetic protocol data, mocked Docker boundaries, local
@@ -52,8 +53,7 @@ python3 tools/docker_ci.py --image pi-agent-ci:py3.12 --report /tmp/pi-ci-py3.12
 
 Repeat with the newest supported Python as well. The runner does not supply the
 synthetic read-only providers that the isolated owner-consumer tests use
-(`PI_SYNTHETIC_READER_PROVIDER`) or the operation SDK container fixture
-(`tools/qualification/operation_sdk_fixture.py`); those tests skip without them.
+(`PI_SYNTHETIC_READER_PROVIDER`), so those tests skip without it.
 
 ## Adopting a new Pi release
 
@@ -98,16 +98,16 @@ record the result in a `PI-<release>.md` reference. Then:
 4. Append the line that `python3 tests/test_release_registry.py --freeze <release>`
    prints to `REVIEWED_IDENTITIES`. Never edit an earlier line: receipts bind
    those identities.
-5. Add the new release identity to `PARALLEL_RELEASE_CONTRACTS` in
-   `tools/qualification/application_sdk_admission.py`.
-6. Update the documentation and regenerate `skill/MANIFEST.sha256`.
+5. Update the documentation and regenerate `skill/MANIFEST.sha256`.
 
-The maintainer suite fails until steps 1–5 are complete. A stable claim still
+The maintainer suite fails until steps 1–4 are complete. A stable claim still
 needs a native campaign on exact images. With three reviewed releases, select
 releases for the indexed campaign with `--release`: qualifying all of them at
 once exceeds its launch ceiling.
 
 ## Native qualification campaigns
+
+Completed application campaign tools and their tests remain available in tag `v4.10.0`.
 
 Offline checks never qualify live execution. A release that claims native
 qualification needs a fresh campaign on its exact code: the campaign tools record

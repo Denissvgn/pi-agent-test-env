@@ -258,7 +258,11 @@ class LegacyControllerTests(LegacyContractTests):
         self.analysis_rejects(fixture)
 
     def test_artifact_structural_source_identity_is_fixed(self):
-        self.assertEqual(hashlib.sha256(ARTIFACT_SOURCE).hexdigest(), ARTIFACT_SOURCE_SHA256)
+        self.assertEqual(
+            hashlib.sha256(ARTIFACT_SOURCE).hexdigest(), ARTIFACT_SOURCE_SHA256,
+            "Recompute ARTIFACT_SOURCE_SHA256 with hashlib.sha256(ARTIFACT_SOURCE).hexdigest() "
+            "after reviewing the fixture source change.",
+        )
 
     def test_malformed_catalog_cannot_classify_source_privacy(self):
         fixture = self.build(); api = importlib.import_module('application_owner_legacy')

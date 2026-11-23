@@ -10,7 +10,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[2]
 PHASES = ('interpreter', 'filesystem', 'scheduling', 'raw_bind', 'reverse_lookup', 'resolver_control', 'http_sync', 'http_threaded',
-          'scripted', 'alarm', 'lock_timer')
+          'alarm', 'lock_timer')
 
 
 class MeasurementFailure(Exception):
@@ -67,21 +67,6 @@ def child(phase):
             instance = cls(('127.0.0.1', 0), BaseHTTPRequestHandler)
             instance.server_close()
         measure(phase, server)
-    elif phase == 'scripted':
-        sys.path.insert(0, str(ROOT / 'tools/qualification'))
-        import application_scripted as script
-        config = {'schema': 1, 'document_type': 'application_scripted_bootstrap',
-                  'case_id': 'reporting-and-reserve', 'model': 'application-script-a',
-                  'inference_key': 'synthetic-scripted-inference-key-123456789', 'lifetime_seconds': 30}
-        with tempfile.TemporaryDirectory() as directory:
-            holder = []
-            measure('scripted_construct', lambda: holder.append(script.ScriptedServer(config, Path(directory).resolve()/'observations.json')))
-            instance = holder[0]
-            try:
-                measure('scripted_sync', instance._note)
-                measure('scripted_start', instance.start)
-            finally:
-                measure('scripted_stop', instance.stop)
     elif phase == 'alarm':
         previous = signal.getsignal(signal.SIGALRM)
         fired = threading.Event()
