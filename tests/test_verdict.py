@@ -350,16 +350,11 @@ def refused_attempt(stream):
     return root,controls.read(root/'result.json')
 
 
-def assert_latest_unmodified(test,top):
+def assert_latest_unmodified(test,top,refused):
+    """A refused attempt never becomes `latest`; in a fresh results directory no link exists at all."""
     latest=top/'results/latest'
-    if latest.is_symlink():
-        target=latest.resolve()
-        test.assertTrue((target/'result.json').is_file())
-        result=controls.read(target/'result.json')
-        test.assertTrue(result.get('sealed'))
-        test.assertNotEqual(target.name, 'latest')
-    else:
-        test.assertFalse(latest.exists())
+    test.assertFalse(latest.is_symlink() or latest.exists(), 'a refused attempt published the latest-run link')
+    test.assertTrue(refused.is_dir())
 
 
 class SealedRunTests(unittest.TestCase):
@@ -518,7 +513,7 @@ class BudgetOverrideTests(unittest.TestCase):
                 self.assertEqual(result['verdict']['reason'],'budget-override-invalid')
                 self.assertFalse((root/'stages').exists());self.assertFalse((root/'plan.json').exists())
                 self.assertNotIn('budget_overrides',result)
-                assert_latest_unmodified(self,top)
+                assert_latest_unmodified(self,top,root)
 
     def test_combination_with_a_compiled_plan_is_refused_before_any_container_starts(self):
         import application_dispatch
@@ -537,7 +532,7 @@ class BudgetOverrideTests(unittest.TestCase):
                 self.assertEqual((result['verdict']['outcome'],result['verdict']['attribution']),('blocked','configuration'))
                 self.assertEqual((result['verdict']['phase'],result['verdict']['reason']),('admission','budget-override-invalid'))
                 self.assertFalse((root/'stages').exists());self.assertFalse((root/'plan.json').exists())
-                assert_latest_unmodified(self,top)
+                assert_latest_unmodified(self,top,root)
 
     def test_options_exist_on_run_only_and_a_native_budget_stays_consistent(self):
         for name in ('smoke','preflight'):
