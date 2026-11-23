@@ -38,10 +38,11 @@ be executed. The boundary stage requires `/tmp` to take a file and to be mounted
 caller's uid and for uid 65534. An image must not declare a `VOLUME` or rely on
 files baked into `/tmp`: the mount hides them. Native bind behavior depends on the selected image/daemon; see [QUALIFICATION.md](../QUALIFICATION.md).
 
-workspace-boundary.mjs adds write/edit lexical/realpath checks and a Bash regex
-for common attempts to modify protected paths. That regex is not a shell parser
-or general confinement mechanism; arbitrary shell/Python/application code can
-write any writable mount. Path checks alone are not race-proof host patching.
+workspace-boundary.mjs adds write/edit lexical/realpath checks (workspace or
+TMPDIR only) and a lexical Bash check that refuses commands writing under `/opt`.
+`/opt/pi-control/outbox` is mounted writable, so for the outbox that check is
+the only in-container guard. It is not general confinement: a script file or any
+program the agent runs can write any writable mount. Path checks alone are not race-proof host patching.
 Prompts are policy guidance, not isolation. Read-only stage workspace facts and
 network mode come from effective Docker arguments; PI_OFFLINE disables startup
 network activity, not inference or all external routing. No automatic destination

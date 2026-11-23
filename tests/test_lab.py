@@ -448,22 +448,293 @@ assert.strictEqual(blocked3?.block, true);
 const blockedBash = handler({{ toolName: 'bash', input: {{ command: 'echo hack > /opt/pi-control/tamper' }} }}, {{ cwd: '/workspace' }});
 assert.strictEqual(blockedBash?.block, true);
 
-// Disallowed writes and edits targeting .pi-runtime/inbox
-const blockedInboxWrite = handler({{ toolName: 'write', input: {{ path: '.pi-runtime/inbox/limits.json' }} }}, {{ cwd: '/workspace' }});
-assert.strictEqual(blockedInboxWrite?.block, true);
-assert.match(blockedInboxWrite?.reason, /protected control inbox/);
-
-const blockedInboxEdit = handler({{ toolName: 'edit', input: {{ path: '/workspace/.pi-runtime/inbox/steer.json' }} }}, {{ cwd: '/workspace' }});
-assert.strictEqual(blockedInboxEdit?.block, true);
-
-const blockedInboxBash = handler({{ toolName: 'bash', input: {{ command: 'echo hack > /workspace/.pi-runtime/inbox/limits.json' }} }}, {{ cwd: '/workspace' }});
-assert.strictEqual(blockedInboxBash?.block, true);
-
 console.log('NODE_TOOL_CALL_ASSERTIONS_OK');
 """
         proc = subprocess.run(['node', '--input-type=module', '-e', script], capture_output=True, text=True)
         self.assertEqual(proc.returncode, 0, f"Tool call assertions failed: {proc.stderr}")
         self.assertIn('NODE_TOOL_CALL_ASSERTIONS_OK', proc.stdout)
+
+    def test_is_blocked_command_table(self):
+        ext_path = ROOT / 'runtime' / 'workspace-boundary.mjs'
+        script = f"""
+import {{ isBlockedCommand }} from '{ext_path.as_uri()}';
+import assert from 'node:assert';
+
+const allowed = [
+  'cp slug.py slug.bak && python3 /opt/pi-lab/verify-unittest.py --start-dir tests',
+  'cat /opt/pi-lab/x',
+  'python3 /opt/pi-lab/verify-unittest.py > out.txt',
+  'python3 /opt/pi-lab/verify-unittest.py 2>&1 | tee out.txt',
+  'cp /opt/pi-lab/x ./x',
+  'ls /opt/pi-lab; touch notes.txt',
+  'rm -f build.tmp || true',
+  'echo hi >> /workspace/log.txt',
+  'chmod +x run.sh',
+  // Quoted documentation text: a > inside quotes is literal, not a redirect.
+  "printf '%s' 'Usage: example > /opt/example'",
+  'printf "%s" "Usage: example > /opt/example"',
+  "printf 'Usage: example >> /opt/example' > notes.txt",
+  "echo 'a; b | example > /opt/example'",
+  // fd redirections are metadata: harmless local operands stay allowed.
+  'cp a b 2>/dev/null',
+  'cp a b 2>&1',
+  'cp /opt/src b 2>&1',
+  'cp /opt/src b 2>/dev/null',
+  'cat /opt/src < input.txt',
+  'ls /opt/pi-lab 2>/dev/null',
+  'cp a b >&2',
+  'cp a b 2>&-',
+  // A quoted digit is an ordinary operand, so here the cp target is "2".
+  'cp a /opt/example "2">log.txt',
+];
+const blocked = [
+  'echo x > /opt/pi-control/task.json',
+  'echo x >> /opt/pi-control/task.json',
+  'cp a /opt/pi-lab/b',
+  'cp -r a b /opt/pi-lab/',
+  'rm /opt/pi-lab/x',
+  'true && tee /opt/x',
+  'touch /opt/x',
+  'mv a /opt/x',
+  'ln -s a /opt/x',
+  'install -m 644 a /opt/x',
+  'chmod 777 /opt/pi-lab/x',
+  'cp -t /opt/pi-lab a',
+  'ls; echo x >/opt/y',
+  // Actual redirect operators after quoted text, and quoted redirect targets.
+  "printf '%s' 'Usage: example' > /opt/example",
+  'printf "%s" "text" >> "/opt/example"',
+  "echo 'a > b' > '/opt/example'",
+  "echo 'note; text' ; echo x >/opt/y",
+  // The command's real target is still found when fd metadata is present.
+  'cp a /opt/example 2>/dev/null',
+  'cp a /opt/example 2>&1',
+  'cp a 2>/dev/null /opt/example',
+  'mv a /opt/example 2> err.log',
+  'cp a /opt/example < input.txt',
+  'cp a /opt/example &>/dev/null',
+  'install a /opt/example >out.log 2>&1',
+  'cp -t /opt/example a 2>/dev/null',
+  'mv /opt/example b 2>&1',
+  'touch /opt/example 1>&2',
+  'echo x 1>>/opt/example',
+  'echo x 2>/opt/example',
+];
+for (const command of allowed) assert.strictEqual(isBlockedCommand(command), false, command);
+for (const command of blocked) assert.strictEqual(isBlockedCommand(command), true, command);
+assert.strictEqual(isBlockedCommand(undefined), false);
+console.log('NODE_COMMAND_TABLE_OK');
+"""
+        proc = subprocess.run(['node', '--input-type=module', '-e', script], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, f"Command table failed: {proc.stderr}")
+        self.assertIn('NODE_COMMAND_TABLE_OK', proc.stdout)
+
+    # Writes under /opt hidden behind shell structure: separators, grouping,
+    # reserved words, wrappers, substitutions, nested shells, path spellings
+    # and a working directory inside /opt.
+    STRUCTURED_BLOCKED = [
+        "bash -c 'echo x > /opt/pi-control/outbox/r.json'",
+        "sh -c 'echo x > /opt/pi-control/outbox/r.json'",
+        "bash -lc 'echo x > /opt/pi-control/outbox/r.json'",
+        "bash -o pipefail -c 'rm /opt/pi-control/outbox/x'",
+        "env -i PATH=/bin bash -c 'touch /opt/pi-control/outbox/a'",
+        "true & rm /opt/pi-control/outbox/x",
+        "rm /opt/pi-control/outbox/x &",
+        "(rm /opt/pi-control/outbox/x)",
+        "{ rm /opt/pi-control/outbox/x; }",
+        "f() { rm /opt/pi-control/outbox/x; }; f",
+        "if true; then rm /opt/pi-control/outbox/x; fi",
+        "if rm /opt/pi-control/outbox/x; then :; fi",
+        "while false; do rm /opt/pi-control/outbox/x; done",
+        "if false; then :; else rm /opt/pi-control/outbox/x; fi",
+        "! rm /opt/pi-control/outbox/x",
+        "env rm /opt/pi-control/outbox/x",
+        "env -S 'rm /opt/pi-control/outbox/x'",
+        "command rm /opt/pi-control/outbox/x",
+        "nice rm /opt/pi-control/outbox/x",
+        "time rm /opt/pi-control/outbox/x",
+        "sudo rm /opt/pi-control/outbox/x",
+        "sudo -u nobody -- rm /opt/pi-control/outbox/x",
+        "xargs rm /opt/pi-control/outbox/x",
+        "nohup rm /opt/pi-control/outbox/x",
+        "timeout 5 rm /opt/pi-control/outbox/x",
+        "exec rm /opt/pi-control/outbox/x",
+        "busybox rm /opt/pi-control/outbox/x",
+        "/bin/rm /opt/pi-control/outbox/x",
+        "\\rm /opt/pi-control/outbox/x",
+        "r''m /opt/pi-control/outbox/x",
+        "a=1 rm /opt/pi-control/outbox/x",
+        "echo $(rm /opt/pi-control/outbox/x)",
+        "echo `rm /opt/pi-control/outbox/x`",
+        'echo "$(rm /opt/pi-control/outbox/x)"',
+        "echo $((1+$(rm /opt/pi-control/outbox/x)))",
+        "echo $(case a in a) rm /opt/pi-control/outbox/x;; esac)",
+        "cat <(rm /opt/pi-control/outbox/x)",
+        "cat <<EOF\n$(rm /opt/pi-control/outbox/x)\nEOF",
+        "eval 'rm /opt/pi-control/outbox/x'",
+        "trap 'rm /opt/pi-control/outbox/x' EXIT",
+        "watch -n1 'rm /opt/pi-control/outbox/x'",
+        "bash <<'EOF'\nrm /opt/pi-control/outbox/x\nEOF",
+        "echo 'rm /opt/pi-control/outbox/x' | bash",
+        "cp -t/opt/pi-control/outbox a",
+        "cp a b -t /opt/pi-control/outbox",
+        "cp --target-directory=/opt/pi-control/outbox a",
+        "echo x >| /opt/pi-control/outbox/r.json",
+        'echo x >"/opt/pi-control/outbox/r.json"',
+        "cat <<EOF > /opt/pi-control/outbox/x\nhi\nEOF",
+        "rm -rf /opt",
+        "rm -rf /*",
+        "rm //opt/pi-control/outbox/x",
+        "rm /workspace/../opt/pi-control/outbox/x",
+        "rm ~/../../opt/pi-control/outbox/x",
+        "rm $'\\x2fopt/pi-control/outbox/x'",
+        "rm /o?t/pi-control/outbox/x",
+        "rm /{opt,tmp}/pi-control/outbox/x",
+        "X=/opt/pi-control/outbox; rm $X/r.json",
+        "export D=/opt/pi-control; rm ${D}/outbox/x",
+        "rm ${D:-/opt/pi-control}/outbox/x",
+        "for f in /opt/pi-control/outbox/*; do rm \"$f\"; done",
+        "dd if=/dev/zero of=/opt/pi-control/outbox/x count=1",
+        "find /opt/pi-control/outbox -delete",
+        "find / -exec rm {} \\;",
+        "find . -name x -exec rm /opt/pi-control/outbox/x \\;",
+        "echo /opt/pi-control/outbox/x | xargs rm",
+        "xargs -I{} sh -c 'rm /opt/{}' < list",
+        "cd /opt/pi-control/outbox && rm x",
+        "cd /opt/pi-control/outbox; echo x > r.json",
+        "cd /opt/pi-control && cd outbox && touch y",
+        "pushd /opt/pi-control/outbox && rm x",
+        "cd /; rm -rf opt/pi-control/outbox/x",
+        "cd /opt/pi-control/outbox && python3 -c 'open(\"r\",\"w\")'",
+        "git -C /opt/pi-control/outbox init",
+        "ln -s /opt/pi-control/outbox out",
+        "sed -i s/a/b/ /opt/pi-control/outbox/x",
+        "perl -pi -e 's/a/b/' /opt/pi-control/outbox/x",
+        "python3 -c \"open('/opt/pi-control/outbox/r.json','w').write('x')\"",
+        "node -e \"require('fs').writeFileSync('/opt/pi-control/outbox/r','x')\"",
+        "python3 - <<'EOF'\nopen('/opt/pi-control/outbox/r','w')\nEOF",
+        "awk 'BEGIN{print 1 > \"/opt/pi-control/outbox/r\"}'",
+        "tar -xf a.tar -C /opt/pi-control/outbox",
+        "rsync a /opt/pi-control/outbox/",
+        "install -d /opt/pi-control/outbox/d",
+        "truncate -s0 /opt/pi-control/outbox/r",
+        "mkdir /opt/pi-control/outbox/d",
+        "gzip /opt/pi-control/outbox/r",
+        "curl -o /opt/pi-control/outbox/r http://x",
+        "flock /tmp/l rm /opt/pi-control/outbox/x",
+        # A command name only known at run time, with a protected operand.
+        "$(echo rm) /opt/pi-control/outbox/x",
+        "$CMD /opt/pi-control/outbox/x",
+        # Unbalanced quoting that mentions /opt fails closed.
+        "echo 'unbalanced > /opt/pi-control/outbox/x",
+    ]
+    # Ordinary commands that read, run or merely mention /opt stay allowed.
+    STRUCTURED_ALLOWED = [
+        'cat /opt/x',
+        'ls /opt',
+        'python3 -m pytest',
+        'grep foo /opt/x',
+        'echo "a > /opt/b"',
+        "echo '$(rm /opt/x)'",
+        "echo hi # > /opt/pi-control/outbox/x",
+        'bash -c \'python3 /opt/pi-lab/verify-unittest.py\'',
+        'cd /opt/pi-lab && ls',
+        'cd /opt/pi-lab && cat x; cd /workspace && rm y',
+        'cd /opt && cd - && rm x',
+        "find /opt/pi-lab -name '*.py'",
+        "find . -name '*.pyc' -delete",
+        "python3 -c \"print(open('/opt/pi-lab/manifest.json').read())\"",
+        "cat > notes.md <<'EOF'\nrm /opt/pi-control/outbox/x\nEOF",
+        'rm -rf "$TMPDIR"/scratch',
+        'echo x > $TMPDIR/a',
+        'sort -o out.txt /opt/pi-lab/list',
+        'tar -xf /opt/pi-lab/fixtures.tar -C /workspace',
+        'diff <(cat /opt/pi-lab/a) b',
+        'for f in src/*.py; do python3 -m py_compile "$f"; done',
+        'ls /opt/pi-lab | head',
+        'echo /opt/pi-lab/x | xargs cat',
+        'echo x | sh',
+        'git status',
+    ]
+
+    def test_is_blocked_command_shell_structure(self):
+        ext_path = ROOT / 'runtime' / 'workspace-boundary.mjs'
+        script = f"""
+import {{ isBlockedCommand }} from '{ext_path.as_uri()}';
+const env = {{ HOME: '/pi-state/home', TMPDIR: '/pi-state/tmp' }};
+const blocked = {json.dumps(self.STRUCTURED_BLOCKED)};
+const allowed = {json.dumps(self.STRUCTURED_ALLOWED)};
+const wrong = [];
+for (const c of blocked) if (isBlockedCommand(c, '/workspace', env) !== true) wrong.push('allowed: ' + JSON.stringify(c));
+for (const c of allowed) if (isBlockedCommand(c, '/workspace', env) !== false) wrong.push('blocked: ' + JSON.stringify(c));
+if (wrong.length) {{ console.error(wrong.join('\\n')); process.exit(1); }}
+console.log('NODE_STRUCTURE_TABLE_OK');
+"""
+        proc = subprocess.run(['node', '--input-type=module', '-e', script], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, f"Shell structure table failed:\n{proc.stderr}")
+        self.assertIn('NODE_STRUCTURE_TABLE_OK', proc.stdout)
+
+    def test_bash_tool_uses_session_cwd(self):
+        ext_path = ROOT / 'runtime' / 'workspace-boundary.mjs'
+        script = f"""
+import registerBoundary from '{ext_path.as_uri()}';
+import assert from 'node:assert';
+const handlers = [];
+registerBoundary({{ on(event, handler) {{ if (event === 'tool_call') handlers.push(handler); }} }});
+const handler = handlers[0];
+assert.strictEqual(handler({{ toolName: 'bash', input: {{ command: 'rm x' }} }}, {{ cwd: '/opt/pi-control/outbox' }})?.block, true);
+assert.strictEqual(handler({{ toolName: 'bash', input: {{ command: 'rm x' }} }}, {{ cwd: '/workspace' }}), undefined);
+assert.strictEqual(handler({{ toolName: 'bash', input: {{ command: 'rm -rf ../opt' }} }}, {{ cwd: '/workspace' }})?.block, true);
+console.log('NODE_BASH_CWD_OK');
+"""
+        proc = subprocess.run(['node', '--input-type=module', '-e', script], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, f"Bash cwd assertions failed: {proc.stderr}")
+        self.assertIn('NODE_BASH_CWD_OK', proc.stdout)
+
+    def test_tmpdir_root_or_protected_is_not_writable(self):
+        ext_path = ROOT / 'runtime' / 'workspace-boundary.mjs'
+        script = f"""
+import {{ isWritablePath }} from '{ext_path.as_uri()}';
+import assert from 'node:assert';
+assert.strictEqual(isWritablePath('/etc/hostname', '/workspace', '/workspace', '/'), false);
+assert.strictEqual(isWritablePath('/opt/pi-control/outbox/r', '/workspace', '/workspace', '/opt/pi-control'), false);
+console.log('NODE_TMPDIR_GUARD_OK');
+"""
+        proc = subprocess.run(['node', '--input-type=module', '-e', script], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, f"TMPDIR guard assertions failed: {proc.stderr}")
+        self.assertIn('NODE_TMPDIR_GUARD_OK', proc.stdout)
+
+    def test_write_and_edit_allowed_under_tmpdir(self):
+        ext_path = ROOT / 'runtime' / 'workspace-boundary.mjs'
+        with tempfile.TemporaryDirectory() as td:
+            tmpdir = os.path.realpath(td)
+            script = f"""
+import registerBoundary from '{ext_path.as_uri()}';
+import assert from 'node:assert';
+
+const handlers = [];
+registerBoundary({{ on(event, handler) {{ if (event === 'tool_call') handlers.push(handler); }} }});
+const handler = handlers[0];
+const tmp = process.env.TMPDIR;
+for (const toolName of ['write', 'edit']) {{
+  assert.strictEqual(handler({{ toolName, input: {{ path: tmp + '/scratch.txt' }} }}, {{ cwd: '/workspace' }}), undefined);
+  assert.strictEqual(handler({{ toolName, input: {{ path: 'SPEC-V4.md' }} }}, {{ cwd: '/workspace' }}), undefined);
+  const refused = handler({{ toolName, input: {{ path: '/etc/hostname' }} }}, {{ cwd: '/workspace' }});
+  assert.strictEqual(refused?.block, true);
+  assert.match(refused?.reason, /Security violation/);
+  assert.strictEqual(handler({{ toolName, input: {{ path: tmp + '/../escape.txt' }} }}, {{ cwd: '/workspace' }})?.block, true);
+}}
+console.log('NODE_TMPDIR_OK');
+"""
+            env = dict(os.environ, TMPDIR=tmpdir)
+            proc = subprocess.run(['node', '--input-type=module', '-e', script],
+                                  capture_output=True, text=True, env=env)
+        self.assertEqual(proc.returncode, 0, f"TMPDIR assertions failed: {proc.stderr}")
+        self.assertIn('NODE_TMPDIR_OK', proc.stdout)
+
+    def test_workspace_boundary_has_no_inbox_reference(self):
+        ext_path = ROOT / 'runtime' / 'workspace-boundary.mjs'
+        self.assertNotIn('.pi-runtime', ext_path.read_text(encoding='utf-8'))
 
     def test_worker_boundary_probe_checks_outside_dirs(self):
         worker_path = ROOT / 'runtime' / 'worker.py'
