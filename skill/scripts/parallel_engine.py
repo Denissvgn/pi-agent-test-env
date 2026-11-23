@@ -158,10 +158,23 @@ def collect(root,metadata,matrix,work,lab,registry,pool,session,inference,networ
             while active and clock()<cancellation_deadline:
                 for identity,item in list(active.items()):
                     if item['channel'].ready():
-                        try:
-                            message=item['channel'].receive(.2);reply=item['peer'].handle(message)
-                            item['channel'].send(reply)
-                        except (EOFError,OSError,ValueError):pass
+                        try:message=item['channel'].receive(.2)
+                        except (EOFError,OSError,ValueError):message=None
+                        if message is not None:
+                            # Interrupts are held here, so no lock wait may be
+                            # unbounded: a steer or extend-budget helper stopped
+                            # while it holds a control lock would otherwise
+                            # block this section past its deadline. A busy lock
+                            # or failed request is refused, never waited on.
+                            try:
+                                with controls.bounded_locks():reply=item['peer'].handle(message)
+                            except (ValueError,OSError,controls.ControlError) as exc:
+                                import indexed_contract
+                                diagnostic=indexed_contract.diagnostic(exc)
+                                reason=diagnostic['reason'] if diagnostic else getattr(exc,'reason',None)
+                                reply={'op':'rejected',**({'reason':reason} if isinstance(reason,str) else {})}
+                            try:item['channel'].send(reply)
+                            except (OSError,ValueError):pass
                     if item['process'].poll() is None:continue
                     try:
                         item['peer'].finalize_native_budget(stop_worker=True)

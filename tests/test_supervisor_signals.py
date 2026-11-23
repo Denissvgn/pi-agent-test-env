@@ -117,6 +117,87 @@ with controls.lock(run, stage):
     os.kill(os.getpid(), signal.SIGSTOP)
 '''
 
+# The parallel engine with one synthetic trial. On the engine's SIGINT the
+# worker asks for a native budget extension, which the real Peer.handle answers
+# by reading the intervention history (parallel_native_budget._command). The
+# test holds that history lock, as a stopped steer or extend-budget helper would.
+ENGINE_CANCEL = '''
+import json, os, signal, socket, sys, threading, time
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
+sys.path.insert(0, {scripts!r})
+import experiments, parallel_engine, resources
+import stage_control as controls
+from parallel_dispatch import Channel, Peer
+resources.install_interrupt_handlers()
+root, runroot = Path(sys.argv[1]), Path(sys.argv[2])
+(root / 'logs').mkdir(parents=True)
+replies = []
+
+class NativeBudget:
+    def extend(self, stage_id, command_id, max_tool_calls, remaining_seconds):
+        controls.history(runroot)
+        return {{'phase': 'active'}}
+    def finalize(self):
+        return True
+
+class TrialPeer(Peer):
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.runroot, self.entered, self.native_budget = runroot, True, NativeBudget()
+
+class Worker:
+    def __init__(self, channel):
+        self.channel, self.code = channel, None
+        threading.Thread(target=self.read, daemon=True).start()
+    def read(self):
+        while True:
+            try:
+                message = self.channel.receive(60)
+            except (EOFError, OSError, ValueError):
+                return
+            if message.get('op') in ('ok', 'rejected'):
+                replies.append(message)
+                self.code = 130
+    def poll(self):
+        return self.code
+    def send_signal(self, kind):
+        self.channel.send({{'op': 'native-budget-extend', 'stage_id': 's', 'command_id': 'c',
+                           'max_tool_calls': 10, 'remaining_seconds': 5}})
+    def kill(self):
+        self.code = -9
+    def wait(self, timeout=None):
+        return self.code
+
+def spawn(bootstrap, output, lease_fd):
+    ours, theirs = socket.socketpair()
+    # The user's Ctrl-C once the trial is running.
+    threading.Timer(0.3, os.kill, (os.getpid(), signal.SIGINT)).start()
+    return Worker(Channel(theirs)), Channel(ours)
+
+reservation = SimpleNamespace(state='reserved', binding={{}}, capability='cap', identity='t1')
+pool = SimpleNamespace(records={{'t1': reservation}}, request=lambda *a: None, dispatch=lambda: [],
+                       stop=lambda: None, release=lambda *a: True)
+registry = SimpleNamespace(generation=1, daemon=None, lease_fd=0, reconcile=lambda: None, release=lambda *a: None)
+metadata = {{'experiment_id': 'e', 'execution': {{'image': 'fixture'}}, 'release_contracts': [],
+            'policies': {{'on_failure': 'continue'}},
+            'concurrency': {{'collection_timeout_seconds': 600, 'max_trials': 1, 'queue_wait_seconds': 30}}}}
+work = [{{'trial_id': 't1'}}]
+intent = {{'run_id': 'r1', 'attempt_id': 'a1'}}
+with mock.patch.object(parallel_engine, 'Peer', TrialPeer), \\
+        mock.patch.object(experiments, 'directory'), \\
+        mock.patch.object(experiments, 'attempt_intents', return_value=[]), \\
+        mock.patch.object(experiments, 'reserve_attempt', return_value=(intent, root / 'intent.json')), \\
+        mock.patch.object(experiments, 'cleanup_known', return_value=True), \\
+        mock.patch.object(parallel_engine, 'finalize', return_value={{'status': 'INTERRUPTED'}}):
+    started = time.monotonic()
+    result = parallel_engine.collect(root, metadata, {{'cells': work}}, work, None, registry, pool, None,
+                                     {{'worker_resources': {{}}, 'trial': lambda intent: {{}}}},
+                                     lambda intent: None, lambda network: None, spawn=spawn)
+print(json.dumps({{'status': result['status'], 'replies': replies, 'seconds': time.monotonic() - started}}))
+'''
+
 # Exit status 0 when another process can take the history lock without waiting.
 HISTORY_PROBE = ('import fcntl, os, sys\n'
                  'fd = os.open(sys.argv[1], os.O_RDONLY)\n'
@@ -739,6 +820,33 @@ class BudgetHistoryTests(unittest.TestCase):
             self.assertEqual(native.extended, [request['id']])
             self.assertEqual(len(events(run, request, 'accepted')), 1)
             self.assertEqual(events(run, request, 'applied'), [])
+
+
+class EngineCancellationTests(unittest.TestCase):
+    def test_busy_history_during_cancel_is_refused_within_the_deadline(self):
+        # Interrupts are held while the engine settles its workers, so a worker
+        # request that reaches a held history lock must be refused, not waited on.
+        with tempfile.TemporaryDirectory() as td:
+            top = Path(td)
+            run = top / 'run'
+            run.mkdir()
+            HeldHistory(self, run)
+            script = top / 'engine.py'
+            script.write_text(ENGINE_CANCEL.format(scripts=str(SCRIPTS)))
+            process = subprocess.Popen([sys.executable, '-B', str(script), str(top / 'experiment'), str(run)],
+                                       env={**os.environ, 'PYTHONDONTWRITEBYTECODE': '1'}, start_new_session=True,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                out, err = process.communicate(timeout=30)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.communicate()
+                self.fail('The cancelling engine waited on the held history lock with interrupts deferred')
+            self.assertEqual(process.returncode, 0, err.decode(errors='replace'))
+            report = json.loads(out)
+            self.assertEqual(report['status'], 'interrupted')
+            self.assertEqual(report['replies'], [{'op': 'rejected', 'reason': 'control_lock_busy'}])
+            self.assertLess(report['seconds'], controls.LOCK_WAIT_SECONDS + 10)
 
 
 class BoundedLockTests(unittest.TestCase):
