@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Host-side orchestration for real Pi agents. Python >=3.10, local Docker daemon.
+"""Host-side orchestration for real Pi agents. Python 3.12+, local Docker daemon.
 
 The parent has Docker access; children do not. Results live outside the child mount.
 See SKILL.md and references/SECURITY.md before use.
@@ -9,6 +9,7 @@ import argparse
 import copy
 import datetime as dt
 import fnmatch
+from functools import partial
 import hashlib
 import json
 import math
@@ -2151,178 +2152,259 @@ def default_lock_file() -> str:
 
 
 def parser():
-    p = argparse.ArgumentParser(description=__doc__)
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=partial(argparse.HelpFormatter, max_help_position=32))
     p.add_argument('--version', action=_VersionAction, help='Show the skill version and exit')
-    sub = p.add_subparsers(dest='op', required=True)
+    sub = p.add_subparsers(dest='op', required=True, metavar='COMMAND')
+    lab_env.add_parser(sub)
+
+    doc = sub.add_parser('doctor', help='Check prerequisites and report remedies')
+    doc.add_argument('--image', default=DEFAULT_IMAGE, help='Inspect this Docker image (default: %(default)s)')
+    doc.add_argument('--endpoint', help='Check this endpoint JSON (default: saved environment, if present)')
+    doc.add_argument('--session', help='Check confirmation for this session (default: PI_LAB_SESSION, if set)')
+    doc.add_argument('--project', help='Scan this project for key-like files (default: skip the scan)')
+    doc.add_argument('--secrets-dir', help='Use this secret store (default: PI_LAB_SECRETS_DIR or per-user store)')
+    doc.add_argument('--skip-network', action='store_true', help='Skip the host model-list probe (default: probe when a key is available)')
+    doc.add_argument('--probe-image', action='store_true', help='Probe container capabilities with Docker (default: inspect image metadata only)')
+    doc.add_argument('--egress-proof', action='store_true',
+                     help='Also run a standalone endpoint-only containment proof with Docker (default: skip it)')
+    doc.add_argument('--lock-file', default=default_lock_file(),
+                     help='Select the host lease (default: PI_LAB_LOCK_FILE or shared per-user lease)')
+    doc.add_argument('--lock-wait-seconds', type=int, default=0,
+                     help='Wait this many seconds for the lease (default: %(default)s, fail if busy)')
+    doc.add_argument('--platform', choices=['linux/arm64', 'linux/amd64'],
+                     help='Select the container platform (default: native Docker platform)')
+    doc.add_argument('--profile', choices=['core', 'browser'], default='core',
+                     help='Select the capabilities to probe (default: %(default)s)')
+    doc.add_argument('--browser-sandbox-policy', choices=browser_security.POLICIES, default='docker-default',
+                     help='Select the browser sandbox policy (default: %(default)s)')
+    doc.add_argument('--environment', help='Probe extra capabilities from reviewed environment JSON (default: baseline only)')
+    doc.add_argument('--resources', help='Load resource limits from JSON (default: built-in resource policy)')
+    doc.add_argument('--memory', help='Override the runtime memory cap (default: resource policy)')
+    doc.add_argument('--cpus', type=float, help='Override the runtime CPU-equivalent ceiling (default: resource policy)')
+    doc.add_argument('--pids-limit', type=int, help='Override the runtime task and thread cap (default: resource policy)')
+    doc.add_argument('--jobs', type=int, help='Override the build/test thread limit within the CPU budget (default: resource policy)')
+    doc.add_argument('--allow-browser-no-sandbox', action='store_true',
+                     help='Permit unsandboxed Chromium for trusted local pages (default: require sandboxing)')
+    doc.add_argument('--software-webgl', action='store_true',
+                     help='Enable unsafe SwiftShader rendering for trusted tests (default: disabled)')
+    doc.add_argument('--uid', type=int, default=os.getuid() if hasattr(os, 'getuid') else 1000,
+                     help='Set the container user ID (default: host UID, or 1000 if unavailable)')
+    doc.add_argument('--gid', type=int, default=os.getgid() if hasattr(os, 'getgid') else 1000,
+                     help='Set the container group ID (default: host GID, or 1000 if unavailable)')
+    doc.add_argument('--inference-env', help='Check this named indexed environment (default: use the endpoint or saved environment)')
+    doc.add_argument('--catalog-dir', help='Use this indexed catalog (default: PI_LAB_CATALOG_DIR or per-user catalog)')
+
+    def add_runtime_parser(name, help_text):
+        q = sub.add_parser(name, help=help_text)
+        q.add_argument('--image', default=DEFAULT_IMAGE, required=name == 'browser-check',
+                       help='Check this Docker image (required)' if name == 'browser-check'
+                       else 'Select the Docker image (default: %(default)s)')
+        q.add_argument('--profile', choices=['core', 'browser'], default='browser' if name == 'browser-check' else 'core',
+                       help='Select the required image capabilities (default: %(default)s)')
+        q.add_argument('--browser-sandbox-policy', choices=browser_security.POLICIES, default='docker-default',
+                       help='Select the browser sandbox policy (default: %(default)s). '
+                            'chromium-userns retains Chromium namespace and seccomp sandboxing.')
+        q.add_argument('--environment', help='Probe extra capabilities from reviewed environment JSON (default: baseline only)')
+        q.add_argument('--host-gateway', action='store_true',
+                       help='Map host.docker.internal to host-gateway on Linux (default: no extra host mapping)')
+        q.add_argument('--platform', choices=['linux/arm64', 'linux/amd64'],
+                       help='Select the container platform (default: native Docker platform)')
+        q.add_argument('--uid', type=int, default=os.getuid() if hasattr(os, 'getuid') else 1000,
+                       help='Set the container user ID (default: host UID, or 1000 if unavailable)')
+        q.add_argument('--gid', type=int, default=os.getgid() if hasattr(os, 'getgid') else 1000,
+                       help='Set the container group ID (default: host GID, or 1000 if unavailable)')
+        q.add_argument('--resources', help='Load resource limits from JSON (default: 2 CPUs, 4 GiB, 256 PIDs, and 2 jobs '
+                                          'for runtime. CPU and memory are capped at half the Docker allocation by default.)')
+        q.add_argument('--memory', help='Override the runtime memory cap, e.g. 4g, with swap disabled (default: resource policy)')
+        q.add_argument('--cpus', type=float, help='Override the runtime CPU-equivalent ceiling (default: resource policy)')
+        q.add_argument('--pids-limit', type=int, help='Override the runtime task and thread cap (default: resource policy)')
+        q.add_argument('--jobs', type=int, help='Override the build/test thread limit within the CPU budget (default: resource policy)')
+        q.add_argument('--lock-file', default=default_lock_file(),
+                       help='Select the host lease (default: PI_LAB_LOCK_FILE or shared per-user lease)')
+        q.add_argument('--lock-wait-seconds', type=int, default=0,
+                       help='Wait this many seconds for the lease (default: %(default)s, fail if busy)')
+        q.add_argument('--allow-browser-no-sandbox', action='store_true',
+                       help='Permit unsandboxed Chromium for trusted local pages (default: require sandboxing)'
+                       if name != 'browser-check'
+                       else 'Request unsandboxed Chromium, which browser-check rejects (default: require sandboxing)')
+        q.add_argument('--software-webgl', action='store_true',
+                       help='Enable unsafe SwiftShader rendering for trusted tests (default: disabled)')
+        if name == 'browser-check':
+            q.add_argument('--results-dir', default=default_runs_dir(),
+                           help='Write browser evidence here (default: per-user runs directory)')
+        if name == 'ensure-image':
+            q.add_argument('--policy', choices=['auto', 'reuse', 'build'], default='auto',
+                           help='Choose reuse or build (default: %(default)s, try reuse before building)')
+            q.add_argument('--reuse', action='append', default=[], metavar='TRUSTED_IMAGE',
+                           help='Try an additional trusted image when reusing. Repeatable (default: no additional images).')
+            q.add_argument('--pi-version', default=DEFAULT_VERSION,
+                           help='Pin an exact reviewed Pi release (default: no pin for reuse). Builds require a pin.')
+            q.add_argument('--base-image', default='node:24-bookworm-slim',
+                           help='Select the base image for a build (default: %(default)s)')
+            q.add_argument('--apt-package', action='append', default=[],
+                           help='Install an extra APT package in the image. Repeatable (default: no extra packages).')
+            q.add_argument('--receipt', help='Write the image admission receipt to this path (default: no receipt file)')
+            q.add_argument('--dockerfile', help='Build from this reviewed Dockerfile (default: bundled Dockerfile). '
+                                                'It must honor PI_VERSION and supply the baseline tools.')
+            q.add_argument('--build-context', help='Use this dedicated environment-only build context (default: Dockerfile directory)')
+            q.add_argument('--build-cpus', type=float, help='Override the BuildKit CPU ceiling (default: resource policy)')
+            q.add_argument('--build-memory', help='Override the BuildKit memory cap with swap disabled (default: resource policy)')
+            q.add_argument('--build-parallelism', type=int,
+                           help='Override the maximum number of parallel BuildKit steps (default: resource policy)')
+            q.add_argument('--build-timeout', type=int,
+                           help='Override the build wall-time limit in seconds (default: resource policy)')
+            q.add_argument('--buildkit-image', default='moby/buildkit:buildx-stable-1',
+                           help='Use this trusted BuildKit image (default: %(default)s). Pin a digest for reproducibility.')
+        if name in ('run', 'smoke', 'preflight'):
+            q.add_argument('--inference-env',
+                           help='Use this confirmed indexed environment (default: bindings from a schema-2 plan, '
+                                'or direct inference for a schema-1 plan)' if name == 'run'
+                           else 'Use this confirmed indexed environment (default: explicit endpoint or saved environment)')
+            q.add_argument('--catalog-dir', help='Use this indexed catalog (default: PI_LAB_CATALOG_DIR or per-user catalog)')
+            q.add_argument('--endpoint', help='Use this endpoint JSON for direct inference (default: saved, session-confirmed environment)')
+            q.add_argument('--session', help='Use this session for environment confirmation (default: PI_LAB_SESSION)')
+            q.add_argument('--network', default='bridge',
+                           help='Select container networking (default: %(default)s). Use none, endpoint-only '
+                                'via the model relay, or an existing Docker network.')
+            q.add_argument('--allow-host-network', action='store_true',
+                           help='Permit host or container:<id> networking (default: refuse both)')
+            q.add_argument('--results-dir', default=default_runs_dir(),
+                           help='Write run evidence here (default: per-user runs directory)')
+            q.add_argument('--secrets-dir', help='Use this secret store (default: PI_LAB_SECRETS_DIR or per-user store)')
+            q.add_argument('--prompt-secret', action='store_true',
+                           help='Prompt in the terminal for a missing inference key (default: fail without prompting)')
+        if name in ('run', 'smoke'):
+            q.add_argument('--agent-profile', help='Use this reviewed integration profile (default: empty built-in profile)')
+            q.add_argument('--event-contract', choices=['settled', 'process-exit'], default='settled',
+                           help='Select the completion contract (default: %(default)s, requires agent_settled). '
+                                'Every reviewed Pi release rejects process-exit.')
+            q.add_argument('--project',
+                           help='Use this project directory (default: unset). Required with --plan or --compiled-plan.'
+                           if name == 'run' else 'Check this optional project path (default: unset). Smoke uses a fresh workspace.')
+            q.add_argument('--plan', help='Run this plan JSON (default: unset). Required with --project for an ordinary run.'
+                           if name == 'run' else 'Accept a plan path for CLI compatibility (default: unset). Smoke uses its built-in plan.')
+            if name == 'run':
+                q.add_argument('--compiled-plan',
+                               help='Run this frozen application plan.json (default: unset). Use --project with an isolated workspace.')
+                q.add_argument('--max-turns', type=int,
+                               help='Set every agent stage turn ceiling to 1–100 (default: keep plan values)')
+                q.add_argument('--max-total-tokens', type=int,
+                               help='Set every agent stage token ceiling to 1–10000000 (default: keep plan values)')
+                q.add_argument('--agent-timeout-seconds', type=int,
+                               help='Set every agent stage timeout to 1–3600 seconds (default: keep plan values)')
+            q.add_argument('--in-place', action='store_true',
+                           help='Run against the original project files (default: use an isolated copy)'
+                           if name == 'run' else 'Request an in-place workspace (default: off). Smoke always makes a fresh workspace.')
+            q.add_argument('--exclude', action='append', default=[],
+                           help='Exclude an additional name glob from the project snapshot. Repeatable (default: built-in exclusions only).'
+                           if name == 'run' else 'Accept an extra project exclusion glob (default: none). Smoke takes no project snapshot.')
+            q.add_argument('--max-project-mb', type=int, default=2048,
+                           help='Limit workspace snapshots to this many MiB (default: %(default)s)')
+            q.add_argument('--allow-setup-network', action='store_true',
+                           help='Allow plan setup steps to request networking (default: deny setup networking)')
+            q.add_argument('--allow-check-network', action='store_true',
+                           help='Allow plan check steps to request networking (default: deny check networking)')
+            q.add_argument('--score-after-cancel', action='store_true',
+                           help='Authorize eligible independent scoring after cancellation (default: skip scoring after cancellation)')
+
+    for name, help_text in (
+        ('ensure-image', 'Reuse or build an admitted Docker image'),
+        ('preflight', 'Check model access from the test container'),
+        ('smoke', 'Verify agent tool use with a built-in test'),
+        ('run', 'Run a plan and record its results'),
+    ):
+        add_runtime_parser(name, help_text)
+
+    status_cmd = sub.add_parser('status', help='Inspect run status and stage activity')
+    status_cmd.add_argument('--run', help='Inspect this run directory (default: latest run in --results-dir)')
+    status_cmd.add_argument('--results-dir', default=default_runs_dir(),
+                            help='Look up runs here (default: per-user runs directory)')
+    status_cmd.add_argument('--stage', help='Inspect the stage UUID or unique label (default: active stage, if any)')
+
+    validate = sub.add_parser('validate-plan', help='Validate a plan offline')
+    validate.add_argument('--plan', required=True, help='Read the plan JSON from this path (required)')
+    validate.add_argument('--external-inference-bindings', action='store_true',
+                          help='Allow experiment-owned schema-2 inference maps (default: validate the plan on its own)')
+    validate.add_argument('--agent-profile',
+                          help='Validate against this reviewed tool contract without loading tools (default: built-in profile)')
+
+    extend_cmd = sub.add_parser('extend-budget', help='Extend an active stage budget')
+    extend_cmd.add_argument('--run', help='Select this run directory (default: latest run in --results-dir)')
+    extend_cmd.add_argument('--results-dir', default=default_runs_dir(),
+                            help='Look up runs here (default: per-user runs directory)')
+    extend_cmd.add_argument('--stage', help='Select a stage UUID or unique label (default: active stage)')
+    extend_cmd.add_argument('--revision', type=int, help='Require this parent stage revision (default: no revision check)')
+    extend_cmd.add_argument('--turns', help='Add turns, e.g. +10, or set a new ceiling (default: keep the turn ceiling)')
+    extend_cmd.add_argument('--timeout', help='Add seconds, e.g. +300, or set a new ceiling (default: keep the timeout)')
+    extend_cmd.add_argument('--tokens', help='Add tokens or set a new ceiling (default: keep the token ceiling)')
+    extend_cmd.add_argument('--tool-calls',
+                            help='Increase a declared native call ceiling, keeping reserves and phase fixed (default: keep the ceiling)')
+    extend_cmd.add_argument('--budget-revision', type=int,
+                            help='Require this supervisor budget revision (default: no explicit expectation)')
+    extend_cmd.add_argument('--wait-seconds', type=float, default=0,
+                            help='Wait up to 10 seconds for the supervisor to apply the update (default: %(default)s, return immediately)')
+
+    steer_cmd = sub.add_parser('steer', help='Queue guidance for the next session segment')
+    steer_cmd.add_argument('--run', help='Select this run directory (default: latest run in --results-dir)')
+    steer_cmd.add_argument('--results-dir', default=default_runs_dir(),
+                           help='Look up runs here (default: per-user runs directory)')
+    steer_cmd.add_argument('--stage', help='Select a stage UUID or unique label (default: active stage)')
+    steer_cmd.add_argument('--revision', type=int, help='Require this parent stage revision (default: no revision check)')
+    steer_cmd.add_argument('--message', required=True, help='Inject this guidance into the next session segment (required)')
+    steer_cmd.add_argument('--interrupt', action='store_true',
+                           help='Request interruption and authorized linked continuation (default: queue without interrupting)')
+
+    patch_cmd = sub.add_parser('patch-session', help='Patch a prepared stage before it starts')
+    patch_cmd.add_argument('--run', help='Select this run directory (default: latest run in --results-dir)')
+    patch_cmd.add_argument('--results-dir', default=default_runs_dir(),
+                           help='Look up runs here (default: per-user runs directory)')
+    patch_cmd.add_argument('--stage', help='Select a stage UUID or unique label (default: active stage selection)')
+    patch_cmd.add_argument('--revision', type=int, help='Require this parent stage revision (default: no revision check)')
+    patch_cmd.add_argument('--file', required=True, help='Apply this host file to the workspace (required)')
+    patch_cmd.add_argument('--target', help='Write to this workspace path (default: relative --file path or its basename)')
+    patch_cmd.add_argument('--message', help='Request a steering message, which patch-session rejects (default: unset)')
+    patch_cmd.add_argument('--interrupt', action='store_true',
+                           help='Request interruption, which patch-session rejects (default: disabled)')
+
+    sec_cmd = sub.add_parser('secrets', help='Manage keys in the host secret store')
+    sec_sub = sec_cmd.add_subparsers(dest='secrets_op', required=True, metavar='COMMAND')
+    sec_set = sec_sub.add_parser('set', help='Store a key')
+    sec_set.add_argument('name', nargs='?', default='PI_API_KEY', help='Name the key to store (default: %(default)s)')
+    sec_set.add_argument('--stdin', action='store_true',
+                         help='Read the key from standard input (default: hidden terminal prompt unless --from-file is set)')
+    sec_set.add_argument('--from-file', help='Read the key from a local file (default: hidden terminal prompt unless --stdin is set)')
+    sec_set.add_argument('--secrets-dir', help='Use this secret store (default: PI_LAB_SECRETS_DIR or per-user store)')
+    sec_clear = sec_sub.add_parser('clear', help='Remove a stored key')
+    sec_clear.add_argument('name', nargs='?', default='PI_API_KEY', help='Name the key to remove (default: %(default)s)')
+    sec_clear.add_argument('--secrets-dir', help='Use this secret store (default: PI_LAB_SECRETS_DIR or per-user store)')
+    sec_status = sec_sub.add_parser('status', help='Show key fingerprints and sources')
+    sec_status.add_argument('names', nargs='*', help='Check these keys (default: endpoint key or PI_API_KEY)')
+    sec_status.add_argument('--endpoint', help='Read the default key name from this endpoint JSON (default: saved endpoint)')
+    sec_status.add_argument('--secrets-dir', help='Use this secret store (default: PI_LAB_SECRETS_DIR or per-user store)')
+
+    experiments.add_parser(sub)
+
+    profile = sub.add_parser('validate-agent-profile', help='Validate a reviewed agent profile')
+    profile.add_argument('--agent-profile', required=True, help='Read the agent profile JSON from this path (required)')
+    add_runtime_parser('browser-check', 'Verify browser sandboxing and DOM access')
+    pr_review_gate.add_arguments(sub.add_parser('pr-review-gate', help='Check GitHub PR review and check readiness'))
+
+    compile_app = sub.add_parser('compile-application-plan', help='Freeze an application plan (experimental)')
+    compile_app.add_argument('--spec', required=True, help='Read the application source specification from this path (required)')
+    compile_app.add_argument('--output-dir', required=True, help='Write the compiled plan and inputs to this new directory (required)')
+    compile_app.add_argument('--runtime-receipt', required=True, help='Bind the runtime using this admission receipt (required)')
+    selector = compile_app.add_mutually_exclusive_group(required=True)
+    selector.add_argument('--endpoint', help='Bind this endpoint JSON (default: unset). Choose it or --inference-env.')
+    selector.add_argument('--inference-env', help='Bind this indexed environment (default: unset). Choose it or --endpoint.')
+    compile_app.add_argument('--catalog-dir', help='Use this indexed catalog (default: PI_LAB_CATALOG_DIR or per-user catalog)')
+
     import registry_maintenance
     registry_maintenance.add_arguments(sub, default_lock_file())
     import application_owner_cleanup
     application_owner_cleanup.add_arguments(sub, default_lock_file())
     import run_cleanup
     run_cleanup.add_arguments(sub, default_lock_file(), default_runs_dir())
-    pr_review_gate.add_arguments(sub.add_parser('pr-review-gate', help='Read-only parent GitHub review readiness; no Docker/model execution'))
-    experiments.add_parser(sub)
-    profile=sub.add_parser('validate-agent-profile');profile.add_argument('--agent-profile',required=True)
-    validate = sub.add_parser('validate-plan')
-    validate.add_argument('--plan', required=True)
-    validate.add_argument('--external-inference-bindings',action='store_true',help='Offline schema-2 plan validation for experiment-owned maps')
-    validate.add_argument('--agent-profile',help='Explicit reviewed custom-tool contract; validation does not load it')
-    compile_app=sub.add_parser('compile-application-plan',help='Offline compile and freeze the final application representation')
-    compile_app.add_argument('--spec',required=True)
-    compile_app.add_argument('--output-dir',required=True)
-    compile_app.add_argument('--runtime-receipt',required=True)
-    selector=compile_app.add_mutually_exclusive_group(required=True)
-    selector.add_argument('--endpoint')
-    selector.add_argument('--inference-env')
-    compile_app.add_argument('--catalog-dir')
-
-    status_cmd = sub.add_parser('status', help='Inspect live or completed run status, heartbeat, and tool execution')
-    status_cmd.add_argument('--run', help='Path to specific run directory (defaults to latest run in results-dir)')
-    status_cmd.add_argument('--results-dir', default=default_runs_dir())
-    status_cmd.add_argument('--stage', help='Stage UUID or unique label')
-
-    extend_cmd = sub.add_parser('extend-budget', help='Dynamically extend turn, timeout, or token budgets for an active run')
-    extend_cmd.add_argument('--run', help='Path to run directory (defaults to latest in results-dir)')
-    extend_cmd.add_argument('--results-dir', default=default_runs_dir())
-    extend_cmd.add_argument('--stage', help='Specific stage name (defaults to active stage)')
-    extend_cmd.add_argument('--revision', type=int, help='Expected parent stage revision')
-    extend_cmd.add_argument('--turns', help='Additional turns (e.g. +10) or new turn ceiling')
-    extend_cmd.add_argument('--timeout', help='Additional timeout seconds (e.g. +300) or new timeout ceiling')
-    extend_cmd.add_argument('--tokens', help='Additional token budget or new token ceiling')
-    extend_cmd.add_argument('--tool-calls', help='Explicit increase to a previously declared native call ceiling; reserves and phase stay fixed')
-    extend_cmd.add_argument('--budget-revision', type=int, help='Expected supervisor budget revision')
-    extend_cmd.add_argument('--wait-seconds', type=float, default=0, help='Wait up to 10 seconds for supervisor application')
-
-    steer_cmd = sub.add_parser('steer', help='Queue guidance for the next exact-session segment; optional parent interrupt')
-    steer_cmd.add_argument('--run', help='Path to run directory (defaults to latest in results-dir)')
-    steer_cmd.add_argument('--results-dir', default=default_runs_dir())
-    steer_cmd.add_argument('--stage', help='Specific stage name (defaults to active stage)')
-    steer_cmd.add_argument('--revision', type=int, help='Expected parent stage revision')
-    steer_cmd.add_argument('--message', required=True, help='Steering prompt / directive to inject into the agent session')
-    steer_cmd.add_argument('--interrupt', action='store_true', help='Request supervisor interruption and authorized linked continuation')
-
-    patch_cmd = sub.add_parser('patch-session', help='Patch a prepared pending stage; active or uncertain writers are rejected')
-    patch_cmd.add_argument('--run', help='Path to specific run directory (defaults to latest in results-dir)')
-    patch_cmd.add_argument('--results-dir', default=default_runs_dir())
-    patch_cmd.add_argument('--stage', help='Specific stage name (defaults to active stage)')
-    patch_cmd.add_argument('--revision', type=int, help='Expected parent stage revision')
-    patch_cmd.add_argument('--file', required=True, help='Path to source file on host to apply as patch')
-    patch_cmd.add_argument('--target', help='Target path within workspace (defaults to relative path of --file or basename)')
-    patch_cmd.add_argument('--message', help='Unsupported for pending-stage patching; explicitly rejected')
-    patch_cmd.add_argument('--interrupt', action='store_true', help='Unsupported for pending-stage patching; explicitly rejected')
-
-    sec_cmd = sub.add_parser('secrets', help='Manage inference/application keys in the host-side owner-only secret store')
-    sec_sub = sec_cmd.add_subparsers(dest='secrets_op', required=True)
-    sec_set = sec_sub.add_parser('set', help='Store a key with hidden terminal input (or --stdin / --from-file)')
-    sec_set.add_argument('name', nargs='?', default='PI_API_KEY', help='Named host-store entry (default inference key: PI_API_KEY)')
-    sec_set.add_argument('--stdin', action='store_true', help='Read secret from stdin (e.g. piped from password manager)')
-    sec_set.add_argument('--from-file', help='Read secret from an existing local file')
-    sec_set.add_argument('--secrets-dir', help='Override secrets store directory')
-    sec_clear = sec_sub.add_parser('clear', help='Remove a stored key')
-    sec_clear.add_argument('name', nargs='?', default='PI_API_KEY', help='Named host-store entry (default inference key: PI_API_KEY)')
-    sec_clear.add_argument('--secrets-dir')
-    sec_status = sec_sub.add_parser('status', help='Show fingerprint and source (never the secret itself)')
-    sec_status.add_argument('names', nargs='*', help='Key names (defaults to key named in endpoint file, or PI_API_KEY)')
-    sec_status.add_argument('--endpoint')
-    sec_status.add_argument('--secrets-dir')
-
-    lab_env.add_parser(sub)
-
-    doc = sub.add_parser('doctor', help='Check every prerequisite and report all blockers at once with concrete remedies')
-    doc.add_argument('--image', default=DEFAULT_IMAGE)
-    doc.add_argument('--endpoint', help='Endpoint JSON (defaults to the saved environment)')
-    doc.add_argument('--session', help='Agent session id, to report the confirmation state')
-    doc.add_argument('--project', help='Project directory to check for leaked secrets')
-    doc.add_argument('--secrets-dir', help='Override secrets store directory')
-    doc.add_argument('--skip-network', action='store_true', help='Skip host /models network probe')
-    doc.add_argument('--probe-image', action='store_true', help='Run full container capability probe (requires Docker)')
-    doc.add_argument('--egress-proof', action='store_true',
-                     help='Run the endpoint-only containment proof alone, with no endpoint and no key (requires Docker)')
-    doc.add_argument('--lock-file', default=default_lock_file())
-    doc.add_argument('--lock-wait-seconds', type=int, default=0)
-    doc.add_argument('--platform', choices=['linux/arm64', 'linux/amd64'])
-    doc.add_argument('--profile', choices=['core', 'browser'], default='core')
-    doc.add_argument('--browser-sandbox-policy', choices=browser_security.POLICIES, default='docker-default')
-    doc.add_argument('--environment')
-    doc.add_argument('--resources')
-    doc.add_argument('--memory')
-    doc.add_argument('--cpus', type=float)
-    doc.add_argument('--pids-limit', type=int)
-    doc.add_argument('--jobs', type=int)
-    doc.add_argument('--allow-browser-no-sandbox', action='store_true')
-    doc.add_argument('--software-webgl', action='store_true')
-    doc.add_argument('--uid', type=int, default=os.getuid() if hasattr(os, 'getuid') else 1000)
-    doc.add_argument('--gid', type=int, default=os.getgid() if hasattr(os, 'getgid') else 1000)
-    doc.add_argument('--inference-env');doc.add_argument('--catalog-dir')
-
-    for name in ('ensure-image', 'preflight', 'smoke', 'run', 'browser-check'):
-        q = sub.add_parser(name)
-        q.add_argument('--image', default=DEFAULT_IMAGE, required=name=='browser-check')
-        q.add_argument('--profile', choices=['core', 'browser'], default='browser' if name=='browser-check' else 'core')
-        q.add_argument('--browser-sandbox-policy', choices=browser_security.POLICIES, default='docker-default',
-                       help='Explicit browser container policy; chromium-userns retains Chromium namespace/seccomp sandboxing')
-        q.add_argument('--environment', help='Reviewed JSON file with additional image commands/version probes')
-        q.add_argument('--host-gateway', action='store_true', help='Map host.docker.internal to host-gateway for local Linux Docker')
-        q.add_argument('--platform', choices=['linux/arm64', 'linux/amd64'])
-        q.add_argument('--uid', type=int, default=os.getuid() if hasattr(os, 'getuid') else 1000)
-        q.add_argument('--gid', type=int, default=os.getgid() if hasattr(os, 'getgid') else 1000)
-        q.add_argument('--resources', help='Resource policy JSON; defaults: 2 CPUs, 4 GiB, 256 PIDs, 2 jobs; auto-capped to half of Docker allocation')
-        q.add_argument('--memory', help='Override runtime hard memory cap, e.g. 4g; swap is disabled')
-        q.add_argument('--cpus', type=float, help='Override runtime CPU-equivalent ceiling (not CPU percent)')
-        q.add_argument('--pids-limit', type=int, help='Runtime maximum number of tasks/threads')
-        q.add_argument('--jobs', type=int, help='Advisory build/test thread limit, within the CPU budget')
-        q.add_argument('--lock-file', default=default_lock_file())
-        q.add_argument('--lock-wait-seconds', type=int, default=0, help='Wait for a cooperating run; default fails busy rather than stacking containers')
-        q.add_argument('--allow-browser-no-sandbox', action='store_true',
-                       help='Explicit opt-in for trusted local pages only; never auto-enabled')
-        q.add_argument('--software-webgl', action='store_true',
-                       help='Explicit opt-in to unsafe SwiftShader software rendering for trusted tests')
-        if name == 'browser-check':
-            q.add_argument('--results-dir', default=default_runs_dir())
-        if name == 'ensure-image':
-            q.add_argument('--policy', choices=['auto', 'reuse', 'build'], default='auto')
-            q.add_argument('--reuse', action='append', default=[], metavar='TRUSTED_IMAGE')
-            q.add_argument('--pi-version', default=DEFAULT_VERSION)
-            q.add_argument('--base-image', default='node:24-bookworm-slim')
-            q.add_argument('--apt-package', action='append', default=[])
-            q.add_argument('--receipt')
-            q.add_argument('--dockerfile', help='Reviewed custom environment Dockerfile; must honor PI_VERSION and supply baseline tools')
-            q.add_argument('--build-context', help='Dedicated trusted environment-only build context; defaults to Dockerfile directory')
-            q.add_argument('--build-cpus', type=float, help='CPU ceiling for the dedicated BuildKit container')
-            q.add_argument('--build-memory', help='Memory ceiling for BuildKit; swap disabled')
-            q.add_argument('--build-parallelism', type=int, help='Maximum parallel BuildKit steps')
-            q.add_argument('--build-timeout', type=int, help='Image-build wall-time budget in seconds')
-            q.add_argument('--buildkit-image', default='moby/buildkit:buildx-stable-1', help='Trusted BuildKit image; use a digest for reproducibility')
-        if name in ('run', 'smoke', 'preflight'):
-            q.add_argument('--inference-env',help='Explicit confirmed named indexed inference environment')
-            q.add_argument('--catalog-dir',help='Owner-private indexed catalog override')
-            q.add_argument('--endpoint', help='Explicit endpoint JSON; default is the saved, session-confirmed environment')
-            q.add_argument('--session', help='Agent session id (or PI_LAB_SESSION) for the saved-environment gate')
-            q.add_argument('--network', default='bridge',
-                           help='none, bridge (default), endpoint-only (agent and preflight containers reach only the '
-                                'model endpoint, through a relay) or an existing user-defined Docker network')
-            q.add_argument('--allow-host-network', action='store_true',
-                           help='Explicit opt-in for --network host or container:<id>; refused otherwise')
-            q.add_argument('--results-dir', default=default_runs_dir())
-            q.add_argument('--secrets-dir', help='Override secrets store directory')
-            q.add_argument('--prompt-secret', action='store_true', help='Prompt interactively on terminal if the inference key is missing')
-        if name in ('run', 'smoke'):
-            q.add_argument('--agent-profile',help='Explicit reviewed integration profile; defaults to empty built-in baseline')
-            q.add_argument('--event-contract', choices=['settled', 'process-exit'], default='settled',
-                           help='Default requires agent_settled; process-exit is explicit legacy Pi JSON one-shot compatibility')
-            q.add_argument('--project')
-            q.add_argument('--plan')
-            if name=='run':q.add_argument('--compiled-plan',help='Exact frozen application plan.json; competing selectors are rejected')
-            if name=='run':
-                q.add_argument('--max-turns', type=int, help='Replace max_turns of every agent stage of the plan (1..100)')
-                q.add_argument('--max-total-tokens', type=int, help='Replace max_total_tokens of every agent stage of the plan (1..10000000)')
-                q.add_argument('--agent-timeout-seconds', type=int, help='Replace timeout_seconds of every agent stage of the plan (1..3600)')
-            q.add_argument('--in-place', action='store_true')
-            q.add_argument('--exclude', action='append', default=[])
-            q.add_argument('--max-project-mb', type=int, default=2048)
-            q.add_argument('--allow-setup-network', action='store_true')
-            q.add_argument('--allow-check-network', action='store_true')
-            q.add_argument('--score-after-cancel', action='store_true', help='Explicitly authorize independent scoring after cancellation before any scorer starts')
     register_command_modules(sub)
     return p
 
