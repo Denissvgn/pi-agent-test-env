@@ -45,7 +45,9 @@ class NativeBudgetLockPortabilityTests(unittest.TestCase):
         self.ledger=self.fixture.ledger(profile='builtin');self.original=self.ledger.path.read_bytes()
     def child(self,role):
         process=subprocess.Popen([sys.executable,'-I','-B','-c',CHILD,str(ROOT/'skill/scripts'),str(self.ledger.path),json.dumps(self.fixture.binding),role],
-            stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
+            # Unbuffered: frame() must consume exactly one line, or communicate()
+            # (which reads the raw descriptor) loses lines read ahead into a buffer.
+            stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,bufsize=0,
             env={'PATH':os.environ.get('PATH','/usr/bin:/bin'),'PYTHONDONTWRITEBYTECODE':'1'})
         def stop():
             if process.poll() is None:process.terminate();process.wait(timeout=3)
