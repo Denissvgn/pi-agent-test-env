@@ -338,16 +338,19 @@ class IgnoredSigintEntryPointTests(unittest.TestCase):
 
     def test_pi_lab_exits_130_on_sigint_inherited_as_ignored(self):
         with tempfile.TemporaryDirectory() as td:
-            plan = Path(td) / 'plan.json'
-            os.mkfifo(plan)  # Reading it blocks until interrupted.
+            # Reading the key from a pipe that is never written blocks until
+            # interrupted. (load_plan rejects a FIFO, so a plan cannot block.)
             process = subprocess.Popen([sys.executable, '-B', str(SCRIPTS / 'pi_lab.py'),
-                                        'validate-plan', '--plan', str(plan)], preexec_fn=ignore_sigint,
+                                        'secrets', 'set', '--stdin', '--secrets-dir', str(Path(td) / 'store')],
+                                       preexec_fn=ignore_sigint, stdin=subprocess.PIPE,
                                        env={**os.environ, 'PYTHONDONTWRITEBYTECODE': '1'},
                                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             try:
                 self.assertEqual(self.interrupt_until_exit(process), 130)
                 self.assertIn('INTERRUPTED', process.stderr.read().decode(errors='replace'))
+                self.assertFalse((Path(td) / 'store').exists())
             finally:
+                process.stdin.close()
                 process.stderr.close()
 
     def test_parallel_worker_exits_130_on_sigint_inherited_as_ignored(self):
@@ -373,11 +376,18 @@ class IgnoredSigintEntryPointTests(unittest.TestCase):
                              and ast.unparse(node.test) == "__name__ == '__main__'")
                 statements = [ast.unparse(node) for node in block.body]
                 install = statements.index('resources.install_interrupt_handlers()')
-                self.assertLess(install, next(i for i, node in enumerate(block.body) if isinstance(node, ast.Try)))
-                handlers = [handler for node in ast.walk(block) if isinstance(node, ast.Try) for handler in node.handlers
+                if 'sys.exit(cli())' in statements:
+                    # pi_lab.py: cli() owns the interrupt path and returns 130.
+                    self.assertLess(install, statements.index('sys.exit(cli())'))
+                    body = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'cli')
+                    exit_text = 'return 130'
+                else:
+                    self.assertLess(install, next(i for i, node in enumerate(block.body) if isinstance(node, ast.Try)))
+                    body, exit_text = block, 'sys.exit(130)'
+                handlers = [handler for node in ast.walk(body) if isinstance(node, ast.Try) for handler in node.handlers
                             if handler.type is not None and ast.unparse(handler.type) == 'KeyboardInterrupt']
                 self.assertEqual(len(handlers), 1)
-                self.assertIn('sys.exit(130)', ast.unparse(handlers[0]))
+                self.assertIn(exit_text, ast.unparse(handlers[0]))
 
     def test_installed_handlers_route_hangup_and_quit_to_interrupt(self):
         saved = {kind: signal.getsignal(kind) for kind in resources.INTERRUPT_SIGNALS}
