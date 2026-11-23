@@ -1918,14 +1918,18 @@ def host_endpoint_check(endpoint: dict, key: str, timeout: float = 10.0) -> tupl
 def _host_lock_check(args) -> dict:
     """Report the lease in effect as free or held, without entering it or creating it."""
     import resources
-    lease = Path(args.lock_file).expanduser().absolute()
     selected = os.environ.get('PI_LAB_LOCK_FILE')
-    if selected is not None and Path(selected).expanduser().absolute() == lease:
-        selected_by, origin = 'PI_LAB_LOCK_FILE', 'selected by PI_LAB_LOCK_FILE'
-    elif not getattr(args, 'lock_file_explicit', False) and lease == Path(host_lock_file()).absolute():
-        selected_by, origin = 'default', 'shared host lease; PI_LAB_LOCK_FILE did not select it'
-    else:
-        selected_by, origin = '--lock-file', 'selected by --lock-file; PI_LAB_LOCK_FILE did not select it'
+    try:
+        lease = Path(args.lock_file).expanduser().absolute()
+        if selected is not None and Path(selected).expanduser().absolute() == lease:
+            selected_by, origin = 'PI_LAB_LOCK_FILE', 'selected by PI_LAB_LOCK_FILE'
+        elif not getattr(args, 'lock_file_explicit', False) and lease == Path(host_lock_file()).absolute():
+            selected_by, origin = 'default', 'shared host lease; PI_LAB_LOCK_FILE did not select it'
+        else:
+            selected_by, origin = '--lock-file', 'selected by --lock-file; PI_LAB_LOCK_FILE did not select it'
+    except (RuntimeError, OSError):
+        return {'check': 'host-lock', 'status': 'warn', 'state': 'unknown', 'path': None, 'selected_by': 'default',
+                'detail': 'No home directory is available to locate the shared host lease; pass --lock-file'}
     observed = resources.lease_state(lease)
     item = {'check': 'host-lock', 'status': 'ok', 'detail': f'free: {lease} ({origin})'}
     if observed['state'] == 'held':

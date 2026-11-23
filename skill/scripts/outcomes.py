@@ -163,17 +163,8 @@ def _provider_errors(process):
 
 
 def _provider_failure_reason(process):
-    """Return the last provider stop reason that remains after allowed retries."""
-    stops=_trace(process).get('unsuccessful_messages')
-    if not isinstance(stops,list):return None
-    retries=_trace(process).get('provider_retries')
-    absorbed=0
-    if isinstance(retries,dict) and retries.get('allowed') and type(retries.get('attempts')) is int:
-        absorbed=min(max(retries['attempts'],0),stops.count('error'))
-    remaining=list(stops)
-    for _ in range(absorbed):
-        remaining.remove('error')
-    return _text(remaining[-1]) if remaining else None
+    """The provider stop that ends the stage: an unabsorbed `error`, never a later `length` or `aborted`."""
+    return 'error' if _provider_errors(process)>0 else None
 
 
 def _unconfirmed(process):

@@ -29,6 +29,18 @@ class DedicatedLeaseTests(unittest.TestCase):
         self.assertEqual(observed['selected_by'],'--lock-file')
         self.assertEqual(observed['state'],'free')
 
+    def test_default_doctor_lease_without_home_warns_instead_of_failing(self):
+        with mock.patch.dict(os.environ, {}, clear=True), \
+             mock.patch.object(Path, 'home', side_effect=RuntimeError('uid has no passwd entry')), \
+             mock.patch.object(pi_lab, 'docker_info', side_effect=pi_lab.LabError('Docker unavailable','docker-cli-missing')):
+            output=io.StringIO()
+            with redirect_stdout(output):
+                pi_lab.main(['doctor','--skip-network'])
+            checks=json.loads(output.getvalue())['checks']
+            observed=next(item for item in checks if item['check']=='host-lock')
+        self.assertEqual((observed['status'],observed['state']),('warn','unknown'))
+        self.assertIn('--lock-file',observed['detail'])
+
     def test_unset_keeps_the_shared_host_lease(self):
         with mock.patch.dict(os.environ):
             os.environ.pop('PI_LAB_LOCK_FILE', None)

@@ -196,6 +196,12 @@ class VerdictTableTests(unittest.TestCase):
         self.assertEqual(outcomes.verdict(value),{'schema':1,'outcome':'endpoint_error','attribution':'endpoint',
             'phase':'agent','stage':'agent-1-dev','reason':'error','exit_code':1})
 
+    def test_provider_fatal_reason_ignores_a_later_non_error_stop(self):
+        for stops in (['error','length'],['error','aborted'],['error','error','length']):
+            with self.subTest(stops=stops):
+                value=record(**stopped('completed',segments=provider(stops,allowed=1,attempts=1 if stops.count('error')>1 else 0)))
+                self.assertEqual(outcomes.verdict(value)['reason'],'error')
+
     def test_closed_lists_are_the_decided_ones(self):
         self.assertEqual(list(outcomes.VERDICT_OUTCOMES),OUTCOMES)
         self.assertEqual(list(outcomes.VERDICT_PHASES),PHASES)
