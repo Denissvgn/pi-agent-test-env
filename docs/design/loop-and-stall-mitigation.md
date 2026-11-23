@@ -44,7 +44,7 @@ error. The opt-in keeps that default.
 
 - **Field.** An endpoint `transient_retries` of 0 to 3. It is part of the
   endpoint configuration, so changing it needs a new confirmation.
-- **Pi settings.** For Pi 1.2.0 only, Pi's agent-level retry is enabled with that
+- **Pi settings.** For Pi 1.2.0 and 1.5.2, Pi's agent-level retry is enabled with that
   `maxRetries` and a 2-second base delay. SDK-level provider retries stay off, so
   every attempt appears as `auto_retry_start`/`auto_retry_end` in the trace. Pi's
   own rule decides which errors are transient. It includes 5xx statuses,

@@ -1,4 +1,4 @@
-# A01 independent contract and compatibility fixtures
+# Independent contract and compatibility fixtures
 
 `positive.json` freezes the synthetic source, report, receipt and artifact shapes
 from the reviewed planning contract. It is deliberately independent of the
@@ -7,11 +7,11 @@ are examples only; it is not an executable plan or evidence of a new invocation.
 
 `completion.json` retains the independent completion fixture with its synthetic
 raw captures and expected diagnostic projection. These maintainer fixtures travel
-with the source archive; tests do not depend on the internal planning directory.
+with the source archive and are self-contained.
 
-`legacy-baseline.json` records hashes obtained before A01 production changes on
+`legacy-baseline.json` records hashes obtained before application-client production changes on
 2026-10-17. Its release identities, raw release-contract bytes, existing profile
-asset bytes and profile identities protect both reviewed releases. Its explicit
+asset bytes and profile identities protect the releases reviewed at the time. Its explicit
 legacy schema-1 and schema-2 normalization outputs protect existing defaults and
 the absence of application/reporting fields. Tests do not update these goldens.
 

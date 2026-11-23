@@ -44,6 +44,11 @@
       "command": "python3 scripts/pi_lab.py env status --session <SESSION>"
     },
     {
+      "name": "ensure-image",
+      "description": "Prepare or reuse a bounded runner image",
+      "command": "python3 scripts/pi_lab.py ensure-image --image <IMAGE> --policy reuse"
+    },
+    {
       "name": "doctor",
       "description": "Evaluate host prerequisites (Python, Docker, context, image, endpoint, secrets) in one pass",
       "command": "python3 scripts/pi_lab.py doctor --image <QUALIFIED_IMAGE> --session <SESSION>"
