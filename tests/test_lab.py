@@ -622,6 +622,9 @@ console.log('NODE_COMMAND_TABLE_OK');
         "gzip /opt/pi-control/outbox/r",
         "curl -o /opt/pi-control/outbox/r http://x",
         "flock /tmp/l rm /opt/pi-control/outbox/x",
+        # A command name only known at run time, with a protected operand.
+        "$(echo rm) /opt/pi-control/outbox/x",
+        "$CMD /opt/pi-control/outbox/x",
         # Unbalanced quoting that mentions /opt fails closed.
         "echo 'unbalanced > /opt/pi-control/outbox/x",
     ]

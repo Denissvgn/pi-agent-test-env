@@ -948,6 +948,10 @@ function analyzeArgv(argv, cmd, st, ctx, flags) {
   // In a protected working directory only read-only commands may run.
   if (cwdProtected && !READ_ONLY.has(name)) return true;
 
+  // The command name comes from an unknown expansion ($(...), an unset
+  // variable): refuse it when any operand names a protected path.
+  if (name.includes(UNKNOWN)) return args.some((a) => isProtectedPath(a, st.cwd));
+
   // A command fed unknown operands (xargs) that writes, in a command line that
   // mentions a protected path.
   if (flags.unknownArgs && !READ_ONLY.has(name) && ctx.mentions) return true;
