@@ -344,13 +344,28 @@ def suite(stack,receipts=None,evidence=None,completed=True):
     stack.enter_context(mock.patch.object(lab,'analyze',side_effect=analyzed))
     stack.enter_context(mock.patch.object(lab.segments,'aggregate',return_value={'agent_invocation_verified':completed,'completion_verified':completed,
         'invocation_status':'verified' if completed else 'invalid','errors':[],'final_text':'synthetic'}))
-    stack.enter_context(contextlib.redirect_stdout(io.StringIO()));stack.enter_context(contextlib.redirect_stderr(io.StringIO()))
+    stdout=io.StringIO();stack.enter_context(contextlib.redirect_stdout(stdout));stack.enter_context(contextlib.redirect_stderr(io.StringIO()))
+    stream.stdout=stdout
     return stream
 
 
 def sealed(top):
     root=(top/'results/latest').resolve();result=controls.read(root/'result.json')
     return root,result
+
+
+def refused_attempt(stream):
+    """Resolve the sealed attempt from run_suite's authoritative printed report."""
+    report=json.loads(stream.stdout.getvalue())
+    root=Path(report['run_dir'])
+    return root,controls.read(root/'result.json')
+
+
+def assert_latest_unmodified(test,top,refused):
+    """A refused attempt never becomes `latest`; in a fresh results directory no link exists at all."""
+    latest=top/'results/latest'
+    test.assertFalse(latest.is_symlink() or latest.exists(), 'a refused attempt published the latest-run link')
+    test.assertTrue(refused.is_dir())
 
 
 class SealedRunTests(unittest.TestCase):
@@ -467,6 +482,8 @@ class BudgetOverrideTests(unittest.TestCase):
             suite(stack)
             self.assertEqual(lab.run_suite(a),0)
             root,result=sealed(top)
+            self.assertTrue((top/'results/latest').is_symlink())
+            self.assertEqual((top/'results/latest').resolve(),root)
             self.assertEqual(result['budget_overrides'],{'max_turns':30,'max_total_tokens':800000})
             plan=controls.read(root/'plan.json')
             self.assertEqual([(t['max_turns'],t['max_total_tokens'],t['timeout_seconds']) for t in plan['agents']],[(30,800000,300),(30,800000,900)])
@@ -500,12 +517,14 @@ class BudgetOverrideTests(unittest.TestCase):
                 image=stack.enter_context(mock.patch.object(lab,'probe_image',side_effect=AssertionError('image reached')))
                 stage=stack.enter_context(mock.patch.object(lab,'run_stage',side_effect=AssertionError('stage reached')))
                 self.assertEqual(lab.run_suite(a),2)
-                root,result=sealed(top)
+                root,result=refused_attempt(stream)
                 for reached in (stream,host,image,stage):reached.assert_not_called()
                 self.assertEqual((result['status'],result['infrastructure']['phase'],result['infrastructure']['reason']),('BLOCKED','admission','budget-override-invalid'))
                 self.assertEqual((result['verdict']['outcome'],result['verdict']['attribution'],result['verdict']['phase']),('blocked','configuration','admission'))
+                self.assertEqual(result['verdict']['reason'],'budget-override-invalid')
                 self.assertFalse((root/'stages').exists());self.assertFalse((root/'plan.json').exists())
                 self.assertNotIn('budget_overrides',result)
+                assert_latest_unmodified(self,top,root)
 
     def test_combination_with_a_compiled_plan_is_refused_before_any_container_starts(self):
         import application_dispatch
@@ -518,10 +537,13 @@ class BudgetOverrideTests(unittest.TestCase):
                 prepare=stack.enter_context(mock.patch.object(application_dispatch,'prepare',side_effect=AssertionError('compiled plan read')))
                 stage=stack.enter_context(mock.patch.object(lab,'run_stage',side_effect=AssertionError('stage reached')))
                 self.assertEqual(lab.run_suite(a),2)
-                root,result=sealed(top)
+                root,result=refused_attempt(stream)
                 for reached in (stream,prepare,stage):reached.assert_not_called()
                 self.assertEqual((result['status'],result['infrastructure']['reason']),('BLOCKED','budget-override-invalid'))
                 self.assertEqual((result['verdict']['outcome'],result['verdict']['attribution']),('blocked','configuration'))
+                self.assertEqual((result['verdict']['phase'],result['verdict']['reason']),('admission','budget-override-invalid'))
+                self.assertFalse((root/'stages').exists());self.assertFalse((root/'plan.json').exists())
+                assert_latest_unmodified(self,top,root)
 
     def test_options_exist_on_run_only_and_a_native_budget_stays_consistent(self):
         for name in ('smoke','preflight'):

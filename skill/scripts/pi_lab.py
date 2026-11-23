@@ -1222,6 +1222,7 @@ def run_suite(args, smoke=False, initial_record=None, *, existing_lease_identity
             raise AdmissionError('resource-policy-invalid')
         lease=private.admission(args,attempt) if private is not None else _suite_admission(args,existing_lease_identity)
         with lease as registry:
+            attempt.publish_latest(args)
             if registry is not None:
                 registry.runroot=attempt.root
                 registry.binding={k:attempt.record[k] for k in ('run_id','attempt_id','trial_id') if k in attempt.record}
