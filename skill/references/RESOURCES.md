@@ -156,8 +156,21 @@ parent infrastructure, not an untrusted Pi child.
 Buildx's container driver convention `buildx_buildkit_<builder-name>0` is used for
 limit verification. If a future driver changes that convention, this runner stops
 instead of claiming a verified cap. The builder has a cold cache each time;
-prefer reusing a suitable already-built image. Pin `--buildkit-image` by digest for
-reproducible infrastructure. Default tags can change upstream.
+prefer reusing a suitable already-built image. Both the BuildKit image and the
+base image of the bundled Dockerfile are pinned by digest in `docker/pins.json`,
+which the runner reads; `--buildkit-image` and `--base-image` override them for one
+build. The `ensure-image` receipt records the base (`base_image`, `base_source`,
+`base_digest`), the BuildKit image (`buildkit`: reference, digest, `id`,
+`repo_digests`) and a hash of the installed Debian package list
+(`package_list_sha256`, over the `dpkg-query` list of installed packages). For a
+project's own `--dockerfile` the base is not known: `base_image` is null,
+`base_source` is `dockerfile` and `base_references` lists the image references of its
+`FROM` lines as written. A `--base-image` given with such a file is still forwarded
+as the `BASE_IMAGE` build argument; the receipt records it only as `base_argument`,
+with `base_argument_in_from` telling whether a `FROM` line uses it. A fresh image
+probe must report the installed TypeBox and pi-schema versions, and one that does not
+is refused, as is a mismatch with the selected Pi release, as `image-incompatible`.
+Saved receipts without that report are still read as before.
 
 The wall-time limit covers the build invocation; builder bootstrap has its own
 300-second bound. Docker daemon/buildx-client overhead and image transfer are not
