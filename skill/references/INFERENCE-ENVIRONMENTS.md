@@ -1,9 +1,9 @@
 # Named inference environments
 
-Indexed inference is an explicit experimental path. The root owns selection,
+Indexed inference is a stable opt-in path. The root owns selection,
 confirmation and frozen assignment; Pi cannot enumerate or choose another profile.
-The reviewed adapter is OpenAI-compatible Chat Completions for exact Pi 0.87.1 and
-1.2.0. Other API protocols, OAuth/ambient cloud chains and fallback are unsupported.
+The reviewed adapter is OpenAI-compatible Chat Completions for every reviewed release: Pi 0.87.1, 1.2.0 and
+1.5.2. Other API protocols, OAuth/ambient cloud chains and fallback are unsupported.
 Qualification is separate from configuration; inspect QUALIFICATION.md before use.
 
 An inference environment is distinct from `--environment FILE` (image capability

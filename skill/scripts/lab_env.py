@@ -409,62 +409,105 @@ EXIT_CODES = {'ready': 0, 'no-environment': EXIT_NO_ENV, 'needs-confirmation': E
 # --------------------------------------------------------------------------- CLI
 
 def add_parser(sub) -> None:
-    env = sub.add_parser('env', help='Saved model environment: status, discover, save, confirm, check, clear')
-    ops = env.add_subparsers(dest='env_op', required=True)
-    ops.add_parser('new-session', help='Print a fresh session id for this agent conversation')
-    st = ops.add_parser('status', help='Evaluate the gate: no-environment | needs-confirmation | ready | broken')
-    st.add_argument('--session')
-    st.add_argument('--no-check', action='store_true', help='Skip the live server check')
-    st.add_argument('--chat', action='store_true', help='Also run one tiny chat completion')
-    cf = ops.add_parser('confirm', help='Record that the user approved the saved environment for this session')
-    cf.add_argument('--session')
-    for command in (st,cf):
-        command.add_argument('--id',help='Explicit named indexed environment; uses offline per-profile state')
-        command.add_argument('--catalog-dir')
-        command.add_argument('--secrets-dir')
-    ds = ops.add_parser('discover', help='List models and parameters offered by a server')
-    ds.add_argument('--base-url', required=True)
-    ds.add_argument('--api-key-env', default='PI_API_KEY')
-    ds.add_argument('--timeout', type=float, default=10.0)
-    sv = ops.add_parser('save', help='Validate and save the chosen environment (and confirm it for the session)')
-    sv.add_argument('--base-url', required=True)
-    sv.add_argument('--host-base-url',help='Host discovery/health route; defaults to child --base-url')
-    sv.add_argument('--model', required=True)
-    sv.add_argument('--api-key-env', default='PI_API_KEY')
-    sv.add_argument('--context-window', type=int, required=True)
-    sv.add_argument('--max-tokens', type=int, required=True)
-    sv.add_argument('--image-input', action='store_true', help='Declare text+image input (only if the whole path handles images)')
-    sv.add_argument('--reasoning', action='store_true', help='Enable reasoning with default settings')
-    sv.add_argument('--reasoning-level', choices=['off', 'minimal', 'low', 'medium', 'high'], help='Thinking level for reasoning models')
-    sv.add_argument('--reasoning-budget', type=int, help='Requested reasoning budget; reviewed Pi 0.87.1 profile rejects numeric budgets (no hard ceiling promised)')
-    sv.add_argument('--max-tokens-field', choices=['max_tokens', 'max_completion_tokens'], default='max_tokens')
-    sv.add_argument('--sampling',help='JSON object of bounded qualified sampling controls')
-    sv.add_argument('--server-provenance',help='JSON object of optional user-declared server metadata')
-    sv.add_argument('--name', default='default')
+    env = sub.add_parser('env', help='Manage model environments')
+    ops = env.add_subparsers(dest='env_op', required=True, metavar='COMMAND')
+    ops.add_parser('new-session', help='Print a new conversation session ID')
+    st = ops.add_parser('status', help='Check environment readiness for a session')
+    st.add_argument('--session', help='Check readiness for this session (default: PI_LAB_SESSION)')
+    st.add_argument('--no-check', action='store_true',
+                    help='Skip the live check for the saved environment (default: check when confirmed)')
+    st.add_argument('--chat', action='store_true',
+                    help='Include a small chat completion in the saved environment check (default: list models only)')
+    cf = ops.add_parser('confirm', help='Record approval of an environment')
+    cf.add_argument('--session', help='Record approval for this session (default: PI_LAB_SESSION)')
+    for command in (st, cf):
+        command.add_argument('--id', help='Use offline state for this indexed environment (default: use the saved environment)')
+        command.add_argument('--catalog-dir', help='Use this indexed catalog (default: PI_LAB_CATALOG_DIR or per-user catalog)')
+        command.add_argument('--secrets-dir', help='Use this indexed secret store (default: PI_LAB_SECRETS_DIR or per-user store)')
+
+    ds = ops.add_parser('discover', help='List models and parameters from a server')
+    ds.add_argument('--base-url', required=True, help='List models at this server base URL (required)')
+    ds.add_argument('--api-key-env', default='PI_API_KEY', help='Look up the API key by this name (default: %(default)s)')
+    ds.add_argument('--timeout', type=float, default=10.0, help='Set the discovery timeout in seconds (default: %(default)s)')
+
+    sv = ops.add_parser('save', help='Save an environment and record approval')
+    sv.add_argument('--base-url', required=True, help='Set the server base URL used inside containers (required)')
+    sv.add_argument('--host-base-url', help='Set the host discovery and health-check URL (default: --base-url)')
+    sv.add_argument('--model', required=True, help='Set the model ID listed by the server (required)')
+    sv.add_argument('--api-key-env', default='PI_API_KEY', help='Look up the API key by this name (default: %(default)s)')
+    sv.add_argument('--context-window', type=int, required=True, help='Declare the model context window in tokens (required)')
+    sv.add_argument('--max-tokens', type=int, required=True, help='Declare the maximum output tokens per response (required)')
+    sv.add_argument('--image-input', action='store_true',
+                    help='Declare support for text and image input across the full path (default: text only)')
+    sv.add_argument('--reasoning', action='store_true',
+                    help='Enable reasoning with default settings (default: disabled unless requested by --reasoning-level)')
+    sv.add_argument('--reasoning-level', choices=['off', 'minimal', 'low', 'medium', 'high'],
+                    help='Set the thinking level (default: no explicit level)')
+    sv.add_argument('--reasoning-budget', type=int,
+                    help='Request a numeric reasoning budget in tokens (default: unset). '
+                         'No reviewed Pi release accepts a numeric budget.')
+    sv.add_argument('--max-tokens-field', choices=['max_tokens', 'max_completion_tokens'], default='max_tokens',
+                    help='Select the request field for the output token limit (default: %(default)s)')
+    sv.add_argument('--sampling', help='Declare bounded qualified sampling controls as a JSON object (default: no overrides)')
+    sv.add_argument('--server-provenance', help='Record user-declared server metadata as a JSON object (default: none)')
+    sv.add_argument('--name', default='default', help='Label the saved environment (default: %(default)s)')
     sv.add_argument('--no-auth', action='store_true',
-                    help='Server needs no key: store a nonsecret dummy value for the key variable if it is unset')
-    sv.add_argument('--no-verify', action='store_true', help='Do not run the live health check before saving')
-    sv.add_argument('--session', help='Confirm for this session after saving (default: PI_LAB_SESSION if set)')
-    ck = ops.add_parser('check', help='Live health check of the saved environment (models list + tiny chat)')
-    ck.add_argument('--id',help='Explicit indexed profile; bounded broker admission required')
-    ck.add_argument('--session');ck.add_argument('--catalog-dir');ck.add_argument('--secrets-dir')
-    ck.add_argument('--image');ck.add_argument('--resources');ck.add_argument('--platform',choices=['linux/arm64','linux/amd64'])
-    ck.add_argument('--no-chat', action='store_true')
+                    help='Allow a server without authentication by storing a dummy value if the key is missing '
+                         '(default: require a key)')
+    sv.add_argument('--no-verify', action='store_true',
+                    help='Skip the live health check before saving (default: verify before saving)')
+    sv.add_argument('--session', help='Record approval for this session after saving (default: PI_LAB_SESSION, if set)')
+
+    ck = ops.add_parser('check', help='Run a live environment health check')
+    ck.add_argument('--id', help='Check this indexed environment through the bounded broker (default: use the saved environment)')
+    ck.add_argument('--session', help='Use this session for indexed admission (required with --id)')
+    ck.add_argument('--catalog-dir', help='Use this indexed catalog (default: PI_LAB_CATALOG_DIR or per-user catalog)')
+    ck.add_argument('--secrets-dir', help='Use this indexed secret store (default: PI_LAB_SECRETS_DIR or per-user store)')
+    ck.add_argument('--image', help='Use this trusted image for indexed admission (required with --id)')
+    ck.add_argument('--resources', help='Use this resource policy JSON for indexed admission (required with --id)')
+    ck.add_argument('--platform', choices=['linux/arm64', 'linux/amd64'],
+                    help='Select the platform for indexed admission (default: linux/arm64)')
+    ck.add_argument('--no-chat', action='store_true',
+                    help='Only list models when checking the saved environment (default: also test chat)')
+
     cl = ops.add_parser('clear', help='Delete the saved environment')
-    cl.add_argument('--session', help='Also forget this session confirmation')
+    cl.add_argument('--session', help='Also forget approval for this session (default: leave session approvals in place)')
     ops.add_parser('path', help='Print the saved endpoint file path')
-    listing=ops.add_parser('list',help='Offline metadata-only indexed environment list')
-    listing.add_argument('--json',action='store_true');listing.add_argument('--catalog-dir');listing.add_argument('--secrets-dir')
-    inspect=ops.add_parser('inspect',help='Offline indexed inspection; detailed configuration is private-only')
-    inspect.add_argument('--id');inspect.add_argument('--index',type=int);inspect.add_argument('--catalog-revision',type=int)
-    inspect.add_argument('--private',action='store_true');inspect.add_argument('--json',action='store_true')
-    inspect.add_argument('--catalog-dir');inspect.add_argument('--secrets-dir')
-    for name in ('register','update','revoke','delete'):
-        indexed=ops.add_parser(name,help='Explicit offline indexed catalog mutation')
-        indexed.add_argument('--id',required=True);indexed.add_argument('--catalog-dir');indexed.add_argument('--secrets-dir')
-        if name in ('register','update'):
-            indexed.add_argument('--config',required=True);indexed.add_argument('--default',action='store_true')
-        if name!='register':indexed.add_argument('--expected-revision',type=int,required=True)
+
+    listing = ops.add_parser('list', help='List indexed environment metadata offline')
+    listing.add_argument('--json', action='store_true', help='Request JSON output (default: JSON)')
+    listing.add_argument('--catalog-dir', help='Use this indexed catalog (default: PI_LAB_CATALOG_DIR or per-user catalog)')
+    listing.add_argument('--secrets-dir', help='Use this store to check key availability (default: PI_LAB_SECRETS_DIR or per-user store)')
+
+    inspect = ops.add_parser('inspect', help='Inspect an indexed environment offline')
+    inspect.add_argument('--id', help='Select an entry by ID (default: unset). Use --id or --index.')
+    inspect.add_argument('--index', type=int,
+                         help='Select an entry by its one-based list index (default: unset). Requires --catalog-revision.')
+    inspect.add_argument('--catalog-revision', type=int,
+                         help='Match the catalog revision shown by env list (default: unset). Required with --index.')
+    inspect.add_argument('--private', action='store_true',
+                         help='Include private configuration and identity details (default: metadata only)')
+    inspect.add_argument('--json', action='store_true', help='Request JSON output (default: JSON)')
+    inspect.add_argument('--catalog-dir', help='Use this indexed catalog (default: PI_LAB_CATALOG_DIR or per-user catalog)')
+    inspect.add_argument('--secrets-dir', help='Use this store to check key availability (default: PI_LAB_SECRETS_DIR or per-user store)')
+
+    for name, help_text in (
+        ('register', 'Register an indexed environment offline'),
+        ('update', 'Update an indexed environment offline'),
+        ('revoke', 'Revoke an indexed environment offline'),
+        ('delete', 'Remove an indexed environment offline'),
+    ):
+        indexed = ops.add_parser(name, help=help_text)
+        indexed.add_argument('--id', required=True, help='Select this indexed environment ID (required)')
+        indexed.add_argument('--catalog-dir', help='Use this indexed catalog (default: PI_LAB_CATALOG_DIR or per-user catalog)')
+        indexed.add_argument('--secrets-dir', help='Use this indexed secret store (default: PI_LAB_SECRETS_DIR or per-user store)')
+        if name in ('register', 'update'):
+            indexed.add_argument('--config', required=True, help='Read the environment configuration from this JSON file (required)')
+            indexed.add_argument('--default', action='store_true',
+                                 help='Make this environment the catalog default (default: keep the current selection)')
+        if name != 'register':
+            indexed.add_argument('--expected-revision', type=int, required=True,
+                                 help='Require the existing entry to have this revision (required)')
 
 
 def run(args, validate_endpoint, store=None) -> int:
