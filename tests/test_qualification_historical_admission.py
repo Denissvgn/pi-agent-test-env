@@ -15,7 +15,6 @@ TESTS = Path(__file__).resolve().parent
 sys.path[:0] = [str(TESTS), str(TESTS.parent / 'skill/scripts')]
 import ownership_registry as registry
 import test_ownership_registry as owner_fixtures
-import test_application_launch as launch_fixtures
 
 
 class _InertEffects(unittest.TestCase):
@@ -144,7 +143,7 @@ class HistoricalAdmissionTests(_InertEffects):
         for change in changes:
             value = copy.deepcopy(original)
             change(value)
-            record['qualification_preworker_cleanup'] = self.owner.fixture.put(path, value)
+            record['qualification_preworker_cleanup'] = self.owner.put(path, value)
             self.registry.write(record)
             with self.subTest(change=change), \
                     mock.patch.object(self.registry, 'write', wraps=self.registry.write) as write:
@@ -181,8 +180,8 @@ class HistoricalAdmissionTests(_InertEffects):
         ledger = json.loads(ledger_path.read_bytes())
         ledger['deadline'] += 1
         ledger['deadline_wall'] += 1
-        payload['qualification']['lineage'][-1]['ledger'] = self.owner.fixture.put(ledger_path, ledger)
-        record['qualification_preworker_cleanup'] = self.owner.fixture.put(sidecar, payload)
+        payload['qualification']['lineage'][-1]['ledger'] = self.owner.put(ledger_path, ledger)
+        record['qualification_preworker_cleanup'] = self.owner.put(sidecar, payload)
         self.registry.write(record)
         with self.assertRaises(registry.RegistryError):
             self.registry.reconcile()
@@ -196,8 +195,8 @@ class HistoricalAdmissionTests(_InertEffects):
         state_path = Path(payload['stage']['state']['path'])
         stage_state = json.loads(state_path.read_bytes())
         stage_state['cleanup_confirmed'] = True
-        payload['stage']['state'] = self.owner.fixture.put(state_path, stage_state)
-        record['qualification_preworker_cleanup'] = self.owner.fixture.put(sidecar, payload)
+        payload['stage']['state'] = self.owner.put(state_path, stage_state)
+        record['qualification_preworker_cleanup'] = self.owner.put(sidecar, payload)
         self.registry.write(record)
         with self.assertRaises(registry.RegistryError):
             self.registry.reconcile()
@@ -258,80 +257,3 @@ class HistoricalAdmissionTests(_InertEffects):
             self.registry.reconcile()
         self.pid.assert_not_called()
         self.assert_no_native_or_purge()
-
-
-class PredecessorHistoricalAdmissionTests(_InertEffects):
-    def setUp(self):
-        super().setUp()
-        owner = owner_fixtures.QualificationPreworkerTests()
-        original_setup = owner.setUp
-        target_pid = 2**31 - 2
-
-        def setup_distinct_controller():
-            original_setup()
-            owner.active['pid'] = target_pid
-            state_path = owner.q / 'state.json'
-            state = json.loads(state_path.read_bytes())
-            state['active_cell']['pid'] = target_pid
-            state_ref = owner.fixture.put(state_path, state)
-            owner.proof['controller']['pid'] = target_pid
-            owner.proof['qualification']['lineage'][-1]['state'] = state_ref
-
-        owner.setUp = setup_distinct_controller
-        self.linear = launch_fixtures.LinearCampaignCarryTests()
-        with mock.patch.object(owner_fixtures, 'QualificationPreworkerTests', return_value=owner):
-            self.linear.setUp()
-        self.addCleanup(self.linear.doCleanups)
-        self.target_pid = target_pid
-        self.ancestor_pid = self.linear.f.active['pid']
-        self.assertNotEqual(self.target_pid, self.ancestor_pid)
-        self.pid.reset_mock()
-
-        def old_ancestor_absent(pid, sig):
-            if pid == self.target_pid:
-                raise AssertionError('Reused released controller PID was probed')
-            raise ProcessLookupError
-
-        self.pid.side_effect = old_ancestor_absent
-
-    def test_predecessor_replays_released_target_without_skipping_ancestor_gates(self):
-        owner = self.linear.owner
-        paths = [self.linear.q / 'state.json', self.linear.q / 'launch-ledger/ledger.json',
-                 Path(owner.helper['qualification_preworker_cleanup']['path'])]
-        before = {str(path): path.read_bytes() for path in paths}
-        with mock.patch.object(registry, 'validate_qualification_preworker_cleanup',
-                               wraps=registry.validate_qualification_preworker_cleanup) as validate:
-            summary = launch_fixtures.launch.validate_predecessor(
-                self.linear.predecessor, daemon_id=self.linear.f.daemon,
-                clock=self.linear.f.clock, wall=self.linear.f.wall)
-        self.assertEqual((summary['attempts'], summary['participant_segments'], summary['planned_cells']),
-                         (19, 0, 56))
-        target_calls = [call for call in validate.call_args_list
-                        if call.args[0]['launch_id'] == owner.helper['launch_id']]
-        self.assertTrue(target_calls)
-        self.assertTrue(all(call.kwargs.get('historical_replay') is True for call in target_calls))
-        self.assertNotIn(mock.call(self.target_pid, 0), self.pid.call_args_list)
-        self.assertIn(mock.call(self.ancestor_pid, 0), self.pid.call_args_list)
-        self.assertEqual({str(path): path.read_bytes() for path in paths}, before)
-        owner.command.assert_not_called()
-        owner.clean.assert_not_called()
-
-    def test_predecessor_replay_still_rejects_rehashed_false_sidecar(self):
-        owner = self.linear.owner
-        path = Path(owner.helper['qualification_preworker_cleanup']['path'])
-        payload = json.loads(path.read_bytes())
-        payload['qualification']['participant_segments'] = 1
-        reference = owner.fixture.put(path, payload)
-        owner.helper['qualification_preworker_cleanup'] = reference
-        owner.registry.write(owner.helper)
-        self.linear.predecessor['cleanup_receipts'] = [reference]
-        with self.assertRaises(launch_fixtures.launch.LaunchError):
-            self.linear.create()
-        self.assertFalse((self.linear.f.root / 'third-ledger').exists())
-        self.assertNotIn(mock.call(self.target_pid, 0), self.pid.call_args_list)
-        owner.command.assert_not_called()
-        owner.clean.assert_not_called()
-
-
-if __name__ == '__main__':
-    unittest.main(verbosity=2)

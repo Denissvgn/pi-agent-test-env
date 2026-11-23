@@ -7,6 +7,9 @@ and isolation.
 
 ## Scope
 
+Host prerequisite diagnostics may report `python-version` when the host is
+below the documented Python 3.12 floor.
+
 The runner evaluates a small application through reviewed CLI/API commands, with
 fresh snapshots, serial Pi trials, an independent key-free deterministic scorer,
 fixed finite budgets and the exact selected model. Start with the bundled Python
@@ -178,7 +181,7 @@ Precedence, first match wins:
 | 1 | `cancelled` | `termination.reason` is `cancelled`; the phase is where the run was |
 | 2 | `blocked`; `admission`, `image`, `preflight` or `setup` | no agent stage was launched, and the run was not stopped by one of the stage failures of rows 3 to 6 |
 | 3 | `infrastructure_fault`, `cleanup` | a removal was not confirmed in any stage: `termination.reason` or `trigger` is `cleanup_error`, or a stage receipt has `cleanup_confirmed` false |
-| 4 | `endpoint_unreachable`, `endpoint_auth_failed`, `endpoint_error`; `preflight` or `agent` | the endpoint preflight failed, or an agent stage ended without a verified completion on provider errors that the retry policy did not absorb |
+| 4 | `endpoint_unreachable`, `endpoint_auth_failed`, `endpoint_error`; `preflight` or `agent` | the endpoint preflight failed, or an agent stage ended without a verified completion on provider errors that the retry policy did not absorb; the reason is `error` |
 | 5 | `infrastructure_fault`; `agent` or `check`, or the phase the run was in when its controller was lost | the supervisor lost its controller; the runner failed after launch; a stage receipt carries a supervisor fault; a check command could not be started; a scorer could not be executed |
 | 6 | `setup_failed`, `setup` | a setup command ended with a failure |
 | 7 | `out_of_memory`; `agent` or `check` | the memory limit killed a stage (`oom`) |
@@ -219,7 +222,9 @@ outcome than was recorded:
   `unsuccessful_messages` in the trace evidence of its last Pi process, less the
   attempts in `provider_retries` when the endpoint allows retries. A model
   server that stops answering without returning an error leaves no such entry;
-  the stage ends as `agent_timeout`.
+  the stage ends as `agent_timeout`. For `endpoint_error` in an agent stage, `reason`
+  is `error`, the unabsorbed provider stop, rather than the overall run
+  termination reason or a later `length` or `aborted` stop.
 - The supervisor faults of row 5 are the receipt fields
   `native_tool_budget_error`, `recovery_error`, `observation_error`,
   `budget_error` and `capture_errors`.
@@ -235,7 +240,7 @@ four listed, is `infrastructure`.
 
 | Attribution | Reasons |
 |---|---|
-| `configuration` | `application-credentials`, `browser-policy-invalid`, `browser-sandbox-blocked`, `budget-override-invalid`, `image-missing`, `in-place-inspection-error`, `in-place-linked-entry`, `invalid-project`, `missing-secret`, `model-not-found`, `resource-policy-invalid`, `secret-store-insecure`, `unsupported-agent-profile`, `unsupported-event-contract`, `unsupported-pi-release`, `unsupported-pi-settings` |
+| `configuration` | `application-credentials`, `browser-policy-invalid`, `browser-sandbox-blocked`, `budget-override-invalid`, `image-incompatible`, `image-missing`, `in-place-inspection-error`, `in-place-linked-entry`, `invalid-project`, `missing-secret`, `model-not-found`, `resource-policy-invalid`, `secret-store-insecure`, `unsupported-agent-profile`, `unsupported-event-contract`, `unsupported-pi-release`, `unsupported-pi-settings` |
 | `configuration`, saved environment | `environment-broken`, `environment-invalid-input`, `environment-missing`, `environment-needs-confirmation`, `environment-needs-session`, `environment-no-environment`, `confirmation-conflict`, `confirmation-invalid`, `context-too-small`, `environment-corrupt`, `invalid-base-url`, `invalid-endpoint`, `invalid-session`, `missing-session` |
 | `configuration`, indexed environments | `catalog-insecure`, `catalog-invalid`, `credential-unavailable`, `environment-configuration-changed`, `environment-index-stale`, `environment-not-found`, `environment-revoked`, `environment-unconfirmed`, `inference-authority-changed`, `inference-configuration-secret`, `inference-input-unsafe`, `selection-conflict`, `transient-retries-unsupported`, `unsupported-api-adapter` |
 | `configuration`, class names | `LabError`, `ScorerError`, `ProfileError`, `JSONDecodeError` |
@@ -327,6 +332,62 @@ The final segment needs clean lifecycle completion, final stop text, exit 0 and
 no pending retry/tool/message. Retain earlier aborts/errors; mark recovered and
 assisted. Never validate arbitrary concatenated traces as a clean invocation.
 After sealing, any continuation requires a new linked assisted attempt/run.
+
+A check whose working directory no longer exists as a directory in the frozen
+workspace (removed, or replaced by a file or by a link that leaves it) is not
+started. It is recorded as a failed check: scorer status `error`, reason
+`check-target-missing`, a process record with `not_started` and no stage logs
+beyond `score.json`. The remaining checks run. The outcome is `check_failed` (see
+the verdict rows above), not `infrastructure_fault`.
+
+## Change record
+
+After the agent stages, and only when every removal was confirmed, the runner
+hashes the workspace again and writes `changes.json`: one entry per path whose
+value differs from the snapshot, `{"before": …, "after": …}`, with the values
+that `files-before.json` and `files-after.json` hold (`<mode>:<sha256>` for a
+regular file, `symlink:<target>` for a link, null for absent). File contents are
+never copied into it. No shape of change blocks a run: whether a change is
+acceptable is for the checks and for the caller.
+
+`summary.json` and `result.json` carry `changes` (null until the record exists):
+
+| field | meaning |
+| --- | --- |
+| `schema` | `1` |
+| `added`, `modified`, `deleted` | entries of `changes.json` that are new, differ in content or link target, or are gone |
+| `mode_only` | a regular file whose mode changed and whose content did not |
+| `type_changed` | a regular file that became a link or back; a directory replaced by a file (the file's path, while the paths that were below the directory count as `deleted`); a file replaced by a directory (the file's path, while the paths below the directory count as `added`) |
+| `links` | entries whose before or after value is a link; it overlaps the counts above |
+| `omitted` | at most 500 `{path, rule, kind}` entries, sorted by path |
+| `omitted_total` | present only when more than 500 paths were omitted |
+
+The counts of `added`, `modified`, `deleted`, `mode_only` and `type_changed` add up
+to the number of entries in `changes.json`. After the run one line on stderr gives
+the counts and, when `omitted` is not empty, the number of omitted paths and the
+first three.
+
+The hashes leave some paths out. `omitted` names them and the rule that kept each
+one out:
+
+- `excluded-name:<name>`: the topmost path under one of the excluded names (`.git`,
+  `.pi`, `.agents`, `.pi-runtime`, `.pi-lab`, `node_modules`, `.venv`, `venv`,
+  `__pycache__`, `.DS_Store`, `.npmrc`, `.netrc`, `.ssh`, `.aws`, `.kube`) that exists
+  after the run and not in the snapshot. Nothing below it is walked, and a link is
+  not followed. For an in-place run, where excluded names exist before the run, a
+  path that existed before is listed only when its own modification time is not
+  earlier than the start of the run; a change deeper inside an excluded directory
+  that leaves that directory's time unchanged is not seen.
+- `special-file`: a path that is neither a regular file, a directory nor a link
+  (`kind`: `fifo`, `socket`, `block-device`, `char-device`).
+- `unreadable:<ErrorName>`: a file that could not be opened or a directory that could
+  not be listed. Hashing continues. A previously recorded file that became
+  unreadable appears in `changes.json` as deleted and here with its reason. The
+  checks run on a copy that leaves such a path out.
+
+Empty directories are not recorded anywhere. The secret-name patterns apply to the
+project snapshot, not to `changes.json`: a new file named `.env.local` or `api.key`
+is an ordinary entry.
 
 ## Provenance and comparison
 

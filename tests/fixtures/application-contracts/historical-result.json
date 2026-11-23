@@ -9,7 +9,7 @@
   "retry_of_attempt_id": null,
   "status": "BLOCKED",
   "started_at": "2026-10-07T20:59:09.224250+00:00",
-  "run_dir": "/Users/bramen/Projects/pi-agentic-development/reports/wave-5/negative-changed/b52fa7a3-cddd-4980-830b-721127d2fbdf",
+  "run_dir": "/synthetic/runs/blocked",
   "workspace": null,
   "infrastructure": {
     "status": "failed",

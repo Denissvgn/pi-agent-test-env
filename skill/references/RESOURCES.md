@@ -27,7 +27,7 @@ are rejected. CLI runtime overrides are `--cpus`, `--memory`, `--pids-limit`, an
 `--build-parallelism`, and `--build-timeout`.
 
 Requested CPU and memory for runtime and build are independently capped against
-Docker's **total allocated** `NCPU` and `MemTotal`, not the Mac's physical CPU count
+Docker's **total allocated** `NCPU` and `MemTotal`, not the host physical CPU count
 or a promise of currently unused capacity. Both default fractions are 0.5. A
 policy can explicitly change them up to 0.9; never increase them just to hide a
 failure. Small allocations may produce too little RAM for Chromium or compilation;
@@ -156,8 +156,21 @@ parent infrastructure, not an untrusted Pi child.
 Buildx's container driver convention `buildx_buildkit_<builder-name>0` is used for
 limit verification. If a future driver changes that convention, this runner stops
 instead of claiming a verified cap. The builder has a cold cache each time;
-prefer reusing a suitable already-built image. Pin `--buildkit-image` by digest for
-reproducible infrastructure. Default tags can change upstream.
+prefer reusing a suitable already-built image. Both the BuildKit image and the
+base image of the bundled Dockerfile are pinned by digest in `docker/pins.json`,
+which the runner reads; `--buildkit-image` and `--base-image` override them for one
+build. The `ensure-image` receipt records the base (`base_image`, `base_source`,
+`base_digest`), the BuildKit image (`buildkit`: reference, digest, `id`,
+`repo_digests`) and a hash of the installed Debian package list
+(`package_list_sha256`, over the `dpkg-query` list of installed packages). For a
+project's own `--dockerfile` the base is not known: `base_image` is null,
+`base_source` is `dockerfile` and `base_references` lists the image references of its
+`FROM` lines as written. A `--base-image` given with such a file is still forwarded
+as the `BASE_IMAGE` build argument; the receipt records it only as `base_argument`,
+with `base_argument_in_from` telling whether a `FROM` line uses it. A fresh image
+probe must report the installed TypeBox and pi-schema versions, and one that does not
+is refused, as is a mismatch with the selected Pi release, as `image-incompatible`.
+Saved receipts without that report are still read as before.
 
 The wall-time limit covers the build invocation; builder bootstrap has its own
 300-second bound. Docker daemon/buildx-client overhead and image transfer are not
@@ -183,15 +196,16 @@ While a stage runs, use these on the parent host:
 
 ```bash
 docker ps --filter label=org.pi-agentic-development.managed=1
+docker ps --filter label=org.pi-agent-test-env.managed=1
 docker stats --no-stream
 docker inspect CONTAINER_ID --format \
   'CPU={{.HostConfig.NanoCpus}} memory={{.HostConfig.Memory}} swap={{.HostConfig.MemorySwap}} pids={{.HostConfig.PidsLimit}}'
 ```
 
-For your *already running* interactive Pi container, a separate manual change is:
+For an *already running* container you own, a separate manual change is:
 
 ```bash
-docker update --cpus 1.5 pi-workspace
+docker update --cpus 1.5 CONTAINER_ID
 ```
 
 This changes only that container's CPU quota. It is not persistent policy for
@@ -205,9 +219,9 @@ The local LLM server is separate. A request can consume CPU, RAM, GPU memory, an
 GPU compute there regardless of the Pi client's quota. Configure server-side
 request concurrency, context limits, and CPU/GPU budgets independently. Default
 sequential agents reduce overlapping requests but are not a server-wide limit.
-For a local model server (for example Unsloth), keep the default one-stage-at-a-time
+For a local model server, keep the default one-stage-at-a-time
 execution and do not add parallel agents until its parallel-request and loaded-context
-settings have been checked in Unsloth; a 262144-token context multiplies memory use
+settings have been checked; a 262144-token context multiplies memory use
 per concurrent request.
 
 Docker Desktop's Settings > Resources controls the whole VM's CPU/RAM allocation.

@@ -1,12 +1,11 @@
 # Indexed inference environments: implementation and qualification plan
 
-Status: fixed-order implementation plan; no indexed runtime feature or native
-execution is authorized by this document alone. Date: 14 October 2026.
+Status: historical implementation plan. Indexed execution shipped in 4.5.0;
+see [the current contract](../../skill/references/INFERENCE-ENVIRONMENTS.md). Date: 14 October 2026.
 Baseline: released 4.4.0 at `3664d60370ef48a3b2a696f66c3200618f081487`.
 The [impact assessment](indexed-inference-environments.md) supplies the rationale.
 Where its open questions differ from decisions below, this plan governs the
-initial implementation. Change this plan explicitly before implementing a
-different scope; do not improvise acceptance criteria during collection.
+initial implementation. The remaining text records the original plan and gates.
 
 ## Outcome and first release scope
 
@@ -18,7 +17,7 @@ services may have different base URLs, exact models, credentials, context/reply
 limits, reasoning and bounded sampling settings.
 
 Initial supported wire contract remains OpenAI-compatible Chat Completions.
-Preserve exact Pi 0.87.1 and 1.2.0 support, their release-specific events/profiles,
+The initial implementation preserved exact Pi 0.87.1 and 1.2.0 support, their release-specific events/profiles,
 serial defaults and the qualified homogeneous two-trial contract. “API” in the
 initial scope means a separately selected compatible service, not permission to
 pass arbitrary wire protocols, headers or provider plugins into Pi.

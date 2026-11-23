@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the offline maintainer checks in a bounded native Linux container.
 
-The published source allowlist is staged into a fresh directory and mounted
+The source archive file set is staged into a fresh directory and mounted
 read-only, so tests see exactly the files a source archive would contain and
 cannot change them. The container has no network, no capabilities, a read-only
 root filesystem, a private /tmp and fixed CPU/memory/process ceilings. The image
@@ -9,8 +9,7 @@ must provide python3 (3.12+) and node; tools/ci/Dockerfile builds one.
 
 This qualifies the offline suite on one Python/platform. It does not provide the
 synthetic read-only providers that the isolated owner-consumer tests need
-(PI_SYNTHETIC_READER_PROVIDER) or the operation SDK container fixture, and it
-makes no Docker-in-Docker, model or Pi call.
+(PI_SYNTHETIC_READER_PROVIDER) and makes no Docker-in-Docker, model or Pi call.
 """
 import argparse
 import json
@@ -38,10 +37,16 @@ def docker(*argv, timeout=60):
 
 
 def stage(destination):
-    for path in build_release.source_files(REPO):
+    paths = build_release.source_files(REPO)
+    contents, _, _ = build_release.package_inputs(REPO / 'skill', paths)
+    for path in paths:
         target = destination/path.relative_to(REPO)
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, target)
+        if path in contents:
+            target.write_bytes(contents[path])
+            shutil.copymode(path, target)
+        else:
+            shutil.copy2(path, target)
     return destination
 
 
@@ -83,7 +88,10 @@ def run(image, report, *, platform=None, limits=None, timeout=1800):
     identity = json.loads(docker('image', 'inspect', image))[0]
     if identity['Os'] != 'linux' or PLATFORMS.get(identity['Architecture']) != platform:
         raise ValueError('Image must match the native platform; emulation is not a qualification')
+    base = (identity.get('Config', {}).get('Labels') or {}).get('ci.python-image-reference', '')
+    digest = base.rsplit('@', 1)[-1] if re.fullmatch(r'.+@sha256:[0-9a-f]{64}', base) else None
     result = {'status': 'fail', 'image': image, 'image_id': identity['Id'], 'platform': platform,
+              'python_image_digest': digest,
               'limits': limits, 'network': 'none', 'source_read_only': True, 'jobs': []}
     with tempfile.TemporaryDirectory(prefix='pi-docker-ci-') as temporary:
         source = stage(Path(temporary).resolve()/'candidate')

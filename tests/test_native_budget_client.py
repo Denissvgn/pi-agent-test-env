@@ -126,6 +126,9 @@ class BudgetDockerFixture:
 
 
 class NativeBudgetClientTests(unittest.TestCase):
+    def test_public_budget_launch_metadata_has_no_application_actors(self):
+        self.assertEqual(self.authority().launch_spec()['actors'], [])
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix='native-budget-client-')
         self.addCleanup(temporary.cleanup)

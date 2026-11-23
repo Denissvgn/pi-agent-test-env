@@ -435,7 +435,7 @@ class HistoricalDiagnosticTests(unittest.TestCase):
         self.pid=patcher.start();self.addCleanup(patcher.stop)
         self.owner=test_ownership_registry.QualificationPreworkerTests()
         self.owner.setUp();self.addCleanup(self.owner.doCleanups);self.owner.write()
-        self.registry=self.owner.registry;self.docker.daemon=self.owner.fixture.daemon
+        self.registry=self.owner.registry;self.docker.daemon=self.owner.daemon
         self.lease=self.owner.root/'operation.lock'
         self.pid.reset_mock();self.pid.side_effect=AssertionError('Released historical PID was reused')
 

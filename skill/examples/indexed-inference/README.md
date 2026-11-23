@@ -19,7 +19,12 @@ the broker adds 0.25 CPU, 128 MiB and 64 PIDs. Parallel definitions explicitly
 permit two workers and one inference request. Deployment capacity remains unknown
 unless separately declared. Native qualification is still required.
 
-The recorded native ARM64 campaign passed on Pi 0.87.1 and 1.2.0 using two
-credential references against the same retained backend/model; see
-[QUALIFICATION.md](../../QUALIFICATION.md). Qualify your own selected scope before
-execution. This evidence does not establish distinct-backend/model/API support.
+For the configure command and its options, see the
+[indexed environment workflow](../../references/INFERENCE-ENVIRONMENTS.md). For
+qualification campaigns and their scope, see [QUALIFICATION.md](../../QUALIFICATION.md).
+Qualify your own selected scope before execution. Campaign evidence does not
+establish distinct-backend/model/API support.
+
+```bash
+python3 "$SKILL_DIR/examples/indexed-inference/configure.py" --image-receipt "$IMAGE_RECEIPT" --output-dir /path/to/new-definitions --a builder-local --b reviewer-local
+```

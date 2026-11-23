@@ -61,9 +61,10 @@ def manifest(body):
     return result
 
 
-def check(source, verify_manifest=True):
+def check(source, verify_manifest=True, *, contents=None):
     source = source.resolve(strict=True)
-    files = {p.relative_to(source).as_posix():p for p in export_skill.file_list(source)}
+    paths = export_skill.file_list(source) if contents is None else contents
+    files = {p.relative_to(source).as_posix():p for p in paths}
     require(REQUIRED_FILES <= files.keys(), 'Package lacks required entry/runtime/license files')
     require(all((source/name).is_dir() for name in REQUIRED_DIRECTORIES), 'Package lacks runtime resource directories')
     # Example subject tests are runtime acceptance inputs, unlike maintainer tests.
@@ -79,7 +80,8 @@ def check(source, verify_manifest=True):
     entry = (source/'SKILL.md').read_text()
     require(entry.startswith('---\nname: '+metadata['name']+'\n'), 'Skill frontmatter name mismatch')
     require('Package version: '+metadata['version']+'.' in entry, 'Entry version mismatch')
-    hashes = {name:sha(path) for name,path in files.items()}
+    hashes = {name: sha(path) if contents is None else hashlib.sha256(contents[path]).hexdigest()
+              for name, path in files.items()}
     if verify_manifest:
         rows = manifest((source/'MANIFEST.sha256').read_bytes())
         require(set(rows) == set(files)-{'MANIFEST.sha256'}, 'Incomplete or extra manifest coverage')
@@ -89,8 +91,10 @@ def check(source, verify_manifest=True):
         for target in re.findall(r'\[[^\]]*\]\(([^)]+)\)',path.read_text()):
             if target.startswith(('http:','https:','#','mailto:')): continue
             relative = target.split('#',1)[0]
-            require(not relative or (path.parent/relative).is_file(), 'Broken package link: '+str(path)+' -> '+target)
-            if relative: require((path.parent/relative).resolve().is_relative_to(source), 'Link escapes installed package')
+            if relative:
+                linked = (path.parent/relative).resolve()
+                require(linked.is_relative_to(source), 'Link escapes installed package')
+                require(linked.relative_to(source).as_posix() in files, 'Broken package link: '+str(path)+' -> '+target)
     return {'status':'pass','version':metadata['version'],'file_count':len(files),'manifest_entries':len(files)-1,
             'package_content_sha256':hashlib.sha256(json.dumps(hashes,sort_keys=True,separators=(',',':')).encode()).hexdigest(),
             'files':hashes,'scope':'Complete runtime package; no internal planning or stored validation output.'}
@@ -99,8 +103,9 @@ def check(source, verify_manifest=True):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--source',type=Path,default=REPO/'skill')
+    parser.add_argument('--no-manifest', action='store_true', help='Skip checksum manifest verification')
     args = parser.parse_args()
-    try: result = check(args.source)
+    try: result = check(args.source, verify_manifest=not args.no_manifest)
     except (OSError,ValueError,KeyError,TypeError) as exc:
         print(json.dumps({'status':'fail','reason':str(exc)})); return 1
     print(json.dumps(result,indent=2)); return 0
