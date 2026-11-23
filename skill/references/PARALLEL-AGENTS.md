@@ -1,4 +1,4 @@
-# Experimental two-trial execution
+# Opt-in two-trial execution
 
 Select this mode only for two independent experiment trials. Each trial keeps
 setup, Pi stages and independent checks sequential, with its own snapshot,

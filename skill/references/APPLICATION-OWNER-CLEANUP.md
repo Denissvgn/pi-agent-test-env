@@ -6,14 +6,14 @@ blocked, cleanup-unconfirmed or ineligible for qualification. It never resumes a
 campaign, repairs a participant report or certifies business completion.
 
 These operations hold the original existing host lease. Do not select another
-lock to bypass admission. Use the owning project's Python environment. The
+lock to bypass admission. Use Python 3.12 or later. The
 package remains self-contained; maintainer source-checkout tools are not loaded
 by an installed skill.
 
 ## Inspect first
 
 ```bash
-"$PROJECT_PYTHON" "$SKILL_DIR/scripts/pi_lab.py" application-owner-inspect \
+python3 "$SKILL_DIR/scripts/pi_lab.py" application-owner-inspect \
   --lock-file "$ORIGINAL_LOCK" --lock-wait-seconds 30
 ```
 
@@ -47,7 +47,7 @@ their original owning cleanup procedure. Qualification service and preworker
 subtypes retain their separate exact proof contracts.
 
 ```bash
-"$PROJECT_PYTHON" "$SKILL_DIR/scripts/pi_lab.py" application-owner-recover \
+python3 "$SKILL_DIR/scripts/pi_lab.py" application-owner-recover \
   --lock-file "$ORIGINAL_LOCK" --lock-wait-seconds 30 \
   --request /owner/private/original-custody-request.json \
   --output-dir /owner/private/new-cleanup-receipt \

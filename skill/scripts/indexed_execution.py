@@ -263,7 +263,8 @@ def admission(lab,args,attempt,registry,smoke=False):
     else:
         import agent_profiles
         profile=agent_profiles.load(args.agent_profile) if getattr(args,'agent_profile',None) else agent_profiles.builtin()
-        planpath=Path(args.plan);plan=lab.validate_plan(controls.read(planpath),planpath.parent,profile,external_bindings=bool(frozen))
+        planpath, raw = getattr(args, '_loaded_plan', None) or lab.load_plan(args.plan)
+        plan=lab.validate_plan(raw,planpath.parent,profile,external_bindings=bool(frozen))
         lab.budget_overrides(args,plan)  # admission below must see the budgets the stages will run with
         names=[t['name'] for t in plan['agents']]
     if frozen and set(frozen)!=set(names):raise IndexedError('selection-conflict')
@@ -277,6 +278,7 @@ def admission(lab,args,attempt,registry,smoke=False):
     selected_entries,keys,credentials=resolve(catalog,bindings,args.session,plan,project,attempt.root,lab)
     additional=getattr(args,'_indexed_redaction_keys',[])
     all_keys=[*keys.values(),*additional]
+    secret_store.remember_secrets(all_keys)
     contract.secret_free(list(bindings.values()),all_keys)
     if any(value in all_keys for assigned in credentials.values() for value in assigned.values()):raise application_credentials.CredentialError('Application credentials match a selected inference authority')
     budgeted=native_required(plan)
@@ -310,6 +312,7 @@ def admission(lab,args,attempt,registry,smoke=False):
         args.network=network;args.host_gateway=True
         local={'base_url':'http://pi-inference:8080/v1','host_base_url':inference['host_base_url'],'activate':inference['activate'],'admit':inference['admit']}
         context=Session(catalog,bindings,args.session,local,tokens,credentials,all_keys,contract_value)
+        secret_store.remember_secrets(context.redaction)
         if budgeted:
             registered_network(registry,network)
             context._native_owner={'pool':pool,'reservation':reservation,'registry':registry,'network':network,

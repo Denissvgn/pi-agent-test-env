@@ -117,8 +117,8 @@ FIXTURES=[
     ('endpoint_auth_failed',blocked('preflight','endpoint-auth-failed'),'endpoint_auth_failed','endpoint','preflight',None,'endpoint-auth-failed'),
     ('endpoint_error_preflight',blocked('preflight','LabError',termination={'reason':'process_error','process_exit_code':1},
         usage_summary=ran(('boundary','preflight'),('preflight','preflight'))),'endpoint_error','endpoint','preflight','preflight','process_error'),
-    ('endpoint_error_agent',record(**stopped('process_error',segments=provider(['error']))),'endpoint_error','endpoint','agent','agent-1-dev','process_error'),
-    ('endpoint_error_retries_exhausted',record(**stopped('process_error',segments=provider(['error','error','error'],2,2))),'endpoint_error','endpoint','agent','agent-1-dev','process_error'),
+    ('endpoint_error_agent',record(**stopped('process_error',segments=provider(['error']))),'endpoint_error','endpoint','agent','agent-1-dev','error'),
+    ('endpoint_error_retries_exhausted',record(**stopped('process_error',segments=provider(['error','error','error'],2,2))),'endpoint_error','endpoint','agent','agent-1-dev','error'),
     ('setup_failed',blocked('setup','LabError',termination={'reason':'process_error','process_exit_code':1},
         usage_summary=ran(('boundary','preflight'),('preflight','preflight'),('setup-1-prepare','setup'))),'setup_failed','configuration','setup','setup-1-prepare','process_error'),
     ('blocked_configuration',blocked('secret','missing-secret'),'blocked','configuration','admission',None,'missing-secret'),
@@ -191,6 +191,17 @@ PRECEDENCE=[
 
 
 class VerdictTableTests(unittest.TestCase):
+    def test_provider_fatal_reason_names_the_unabsorbed_provider_failure(self):
+        value=record(**stopped('completed',segments=provider(['error'])))
+        self.assertEqual(outcomes.verdict(value),{'schema':1,'outcome':'endpoint_error','attribution':'endpoint',
+            'phase':'agent','stage':'agent-1-dev','reason':'error','exit_code':1})
+
+    def test_provider_fatal_reason_ignores_a_later_non_error_stop(self):
+        for stops in (['error','length'],['error','aborted'],['error','error','length']):
+            with self.subTest(stops=stops):
+                value=record(**stopped('completed',segments=provider(stops,allowed=1,attempts=1 if stops.count('error')>1 else 0)))
+                self.assertEqual(outcomes.verdict(value)['reason'],'error')
+
     def test_closed_lists_are_the_decided_ones(self):
         self.assertEqual(list(outcomes.VERDICT_OUTCOMES),OUTCOMES)
         self.assertEqual(list(outcomes.VERDICT_PHASES),PHASES)
@@ -551,6 +562,7 @@ class BudgetOverrideTests(unittest.TestCase):
 class ReferenceTests(unittest.TestCase):
     STATUS={'clean_success':('PASS',0),'infrastructure_failure':('BLOCKED',2),'timeout_with_passing_task_score':('FAIL',1),
             'scorer_error':('FAIL',1),'authorized_recovery':('RECOVERED',1),'retry_original':('FAIL',1),'retry_success':('PASS',0),
+            'provider_fatal':('FAIL',1),
             'cancellation_before_scoring':('INTERRUPTED',2),'cancellation_during_scoring':('INTERRUPTED',2),'assisted_success':('ASSISTED',1)}
 
     def test_every_outcome_example_has_a_verdict_the_derivation_reproduces(self):

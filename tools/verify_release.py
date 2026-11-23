@@ -72,12 +72,16 @@ def extract(path,destination,expected):
 def verify(archives,report,repository=REPO,*,test_timeout_seconds=DEFAULT_TEST_TIMEOUT):
     require(type(test_timeout_seconds) is int and 60<=test_timeout_seconds<=1800,
             'Test timeout must be an integer in 60..1800 seconds')
+    repository = repository.resolve()
     source=repository/'skill';archives=archives.resolve(strict=True);report=report.absolute()
     for root in (source.resolve(),archives):
         try: build_release.export_skill.require_external_destination(root,report)
         except ValueError as exc: raise ValueError('Report must be outside inputs') from exc
     require(not report.exists() and not report.is_symlink(),'Verification report must be a new file')
-    package=check_package.check(source);version=package['version']
+    published = build_release.source_files(repository)
+    contents, package, current_manifest = build_release.package_inputs(source, published)
+    version = package['version']
+    state, _ = build_release.checkout_state(repository)
     source_before=check_package.inventory(source);archive_before=check_package.inventory(archives)
     source_zip=f'pi-agent-test-env-source-{version}.zip'
     layouts={f'pi-agent-test-env-{version}.zip':'pi-agent-test-env','pi-agent-test-env.zip':'pi-agent-test-env',
@@ -89,25 +93,33 @@ def verify(archives,report,repository=REPO,*,test_timeout_seconds=DEFAULT_TEST_T
     require((archives/'pi-agent-test-env.zip').read_bytes()==(archives/f'pi-agent-test-env-{version}.zip').read_bytes()
             ==(archives/'pi-agent-test-env-antigravity.zip').read_bytes(),'Universal aliases are not byte-identical')
     entry=build_release.changelog_entry(source)
-    result={'status':'pass','version':version,'changelog_entry':entry,'publishable':entry==version,
-            'archive_sha256':sums,'package':{k:v for k,v in package.items() if k!='files'},'layouts':[],
+    result={'status':'pass','version':version,'changelog_entry':entry,'publishable':entry==version and current_manifest and not state['dirty'],
+            'archive_sha256':sums,'layouts':[],
             'test_timeout_seconds':test_timeout_seconds}
     with tempfile.TemporaryDirectory(prefix='pi-published-verification-') as temporary:
         temp=Path(temporary).resolve();roots=[]
         # Archives carry canonical modes (0644, or 0755 when owner-executable),
         # not whatever permissions this checkout happens to have.
         canonical=build_release.export_skill.archive_mode
+        records = {}
+        for path in published:
+            body = contents[path] if path in contents else path.read_bytes()
+            records[path] = {'sha256': hashlib.sha256(body).hexdigest(), 'bytes': len(body),
+                             'mode': canonical(path.stat().st_mode)}
         for index,(name,prefix) in enumerate(layouts.items()):
-            expected={prefix+'/'+n:dict(r,mode=canonical(r['mode'])) for n,r in source_before.items() if 'sha256' in r and n in package['files']}
+            expected = {prefix + '/' + p.relative_to(source).as_posix(): records[p] for p in contents}
             if name.endswith('-claude.zip'):
                 body=build_release.export_skill.CLAUDE_COMMAND.encode()
                 expected['.claude/commands/pi-agent-test-env.md']={'sha256':hashlib.sha256(body).hexdigest(),'mode':0o600,'bytes':len(body)}
             extract(archives/name,temp/str(index),expected);root=temp/str(index)/prefix
-            check_package.check(root);roots.append(root)
+            verified = check_package.check(root)
+            if not roots:
+                result['package'] = {k: v for k, v in verified.items() if k != 'files'}
+            roots.append(root)
             result['layouts'].append({'archive':name,'members':len(expected),'entry_sha256':check_package.sha(root/'SKILL.md')})
         result['standard_validation']=run([sys.executable,str(repository/'tools/validation/validate_standard.py'),*[str(p) for p in roots]],repository)
-        clean_files=build_release.source_files(repository)
-        expected={'pi-agent-test-env-source/'+p.relative_to(repository).as_posix():{'sha256':check_package.sha(p),'mode':canonical(p.stat().st_mode),'bytes':p.stat().st_size} for p in clean_files}
+        expected = {'pi-agent-test-env-source/' + p.relative_to(repository).as_posix(): records[p]
+                    for p in published}
         extract(archives/source_zip,temp/'source',expected)
         checkout=temp/'source/pi-agent-test-env-source'
         require(check_package.inventory(checkout/'skill')==check_package.inventory(roots[0]),'Source and universal extracted packages differ')
