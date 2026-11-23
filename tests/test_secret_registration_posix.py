@@ -5,9 +5,11 @@ import os
 from pathlib import Path
 import stat
 import tempfile
+import sys
 from unittest import TestCase, mock
 
-from tools.qualification import secret_registration_posix as native
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'skill/scripts'))
+from operation_sdk import secret_registration_posix as native
 
 
 class RegistrationPosixTests(TestCase):

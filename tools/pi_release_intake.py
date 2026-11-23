@@ -772,8 +772,6 @@ def render_packet(report):
               '`pi_release` check in `skill/runtime/tool-budget.mjs`.',
               f'- [ ] Append the output of `python3 tests/test_release_registry.py --freeze {release}` to '
               '`REVIEWED_IDENTITIES`.',
-              '- [ ] Add the new release identity to `PARALLEL_RELEASE_CONTRACTS` in '
-              '`tools/qualification/application_sdk_admission.py`.',
               '- [ ] Update the documentation and `skill/MANIFEST.sha256`, then build exact images and run a native '
               f'campaign with `--release {release}` before any stable claim.', '']
     return '\n'.join(lines)

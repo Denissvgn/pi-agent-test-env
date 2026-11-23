@@ -35,8 +35,11 @@ import experiments
 import application_credentials
 import resources
 
-BASE = 'node@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20'
-BUILDKIT = 'moby/buildkit@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea'
+import builder
+
+# The campaign qualifies exactly the bundled recipe's pinned inputs.
+_PINS = builder.load_pins()
+BASE, BUILDKIT = _PINS['base_image'], _PINS['buildkit_image']
 REAL = ('N04', 'N05', 'N06', 'N07', 'N08')
 
 

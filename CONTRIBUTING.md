@@ -6,6 +6,16 @@ copyable plans and profiles belong in `assets/`; runnable examples belong in
 `examples/`. Keep maintainer tests, stored test output, publishing tools and
 planning history outside the skill.
 
+Add a new command as a module with a `register` function instead of editing
+`parser()` and `main()` in `skill/scripts/pi_lab.py`. Create
+`skill/scripts/<name>.py` that exposes `register(subparsers)`; it adds its
+subparsers and calls `set_defaults(handler=function)`, where `handler(args)`
+returns the exit code. Then add the module name as one line, in alphabetical
+order, to `COMMAND_MODULES` in `skill/scripts/command_modules.py`. On a merge
+conflict in that tuple keep both lines. A listed module that cannot be imported
+stops the program at start and names the module. Commands that existed before
+this seam stay in `parser()`.
+
 Runtime changes must retain Python 3.12+ and the standard-library-only host
 policy. Standards validation is development tooling and requires Python 3.11+;
 its pinned source and wheels are bundled in `tools/validation/` for offline use.
@@ -19,6 +29,7 @@ Run from the repository root:
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v
 python3 tools/validation/validate_standard.py --self-test
 python3 tools/check_package.py --source skill
+python3 tools/check_examples.py --source skill
 ```
 
 The tests use synthetic protocol data, mocked Docker boundaries, local
@@ -42,8 +53,7 @@ python3 tools/docker_ci.py --image pi-agent-ci:py3.12 --report /tmp/pi-ci-py3.12
 
 Repeat with the newest supported Python as well. The runner does not supply the
 synthetic read-only providers that the isolated owner-consumer tests use
-(`PI_SYNTHETIC_READER_PROVIDER`) or the operation SDK container fixture
-(`tools/qualification/operation_sdk_fixture.py`); those tests skip without them.
+(`PI_SYNTHETIC_READER_PROVIDER`), so those tests skip without it.
 
 ## Adopting a new Pi release
 
@@ -88,16 +98,17 @@ record the result in a `PI-<release>.md` reference. Then:
 4. Append the line that `python3 tests/test_release_registry.py --freeze <release>`
    prints to `REVIEWED_IDENTITIES`. Never edit an earlier line: receipts bind
    those identities.
-5. Add the new release identity to `PARALLEL_RELEASE_CONTRACTS` in
-   `tools/qualification/application_sdk_admission.py`.
-6. Update the documentation and regenerate `skill/MANIFEST.sha256`.
+5. Update the documentation and add a changelog fragment. The manifest is
+   regenerated when the release is prepared, as described below.
 
-The maintainer suite fails until steps 1–5 are complete. A stable claim still
+The maintainer suite fails until steps 1–4 are complete. A stable claim still
 needs a native campaign on exact images. With three reviewed releases, select
 releases for the indexed campaign with `--release`: qualifying all of them at
 once exceeds its launch ceiling.
 
 ## Native qualification campaigns
+
+Completed application campaign tools and their tests remain available in tag `v4.10.0`.
 
 Offline checks never qualify live execution. A release that claims native
 qualification needs a fresh campaign on its exact code: the campaign tools record
@@ -142,6 +153,35 @@ switches the default lease and session store to new, empty locations.
 Record the dated outcome, its cell counts, limits and lease choice in
 `skill/QUALIFICATION.md`.
 
+## Changelog fragments and version bumps
+
+A change that belongs in the changelog adds one fragment, `changes/<short-name>.md`
+(see [changes/README.md](changes/README.md)). Its first line is `kind:` followed by
+`added`, `changed`, `fixed`, `removed`, `security` or `upgrade-note`; the rest of the
+file is the text as it should read. Pull requests do not edit `skill/CHANGELOG.md`
+and do not touch `skill/MANIFEST.sha256`, so parallel changes never conflict there.
+Check fragments with `python3 tools/assemble_changelog.py --check`; it writes nothing.
+
+Release preparation runs these commands in order from the repository root, after
+the release's code is final:
+
+```bash
+python3 tools/bump_version.py X.Y.Z
+python3 tools/assemble_changelog.py --version X.Y.Z
+python3 skill/scripts/export_skill.py --manifest-only
+python3 tools/bump_version.py --check
+python3 tools/check_package.py --source skill
+```
+
+`bump_version.py` takes the version from `skill/skill.json` as the reference. It
+refuses when the listed places disagree, and it rewrites only the live places it
+lists. Dated campaign results and records of earlier releases keep the version they
+were recorded under. `assemble_changelog.py` inserts the new top entry above the
+existing entries, groups the fragments by kind, puts `upgrade-note` text under
+"Upgrading from <previous version>" and deletes the fragments. `--manifest-only`
+writes `skill/MANIFEST.sha256` and nothing else. Run it after the changelog is
+assembled, because the manifest covers `skill/CHANGELOG.md`.
+
 ## Prepare distributables
 
 Before merging a PR, read all review submissions and inline threads, including
@@ -162,7 +202,7 @@ incomplete API evidence and failing/in-progress checks block merging. No timeout
 or admin bypass turns them into a pass. Use `--match-head-commit` for the merge.
 See [the promotion procedure](skill/references/PULL-REQUESTS.md). The
 [opt-in parallel-agent design](docs/design/parallel-agents.md) sets the fixed verification order;
-serial execution remains the default. Experimental schema-2 selection requires
+serial execution remains the default. Opt-in schema-2 selection requires
 its documented cohort, resource and qualification contract. Build release
 artifacts from the final reviewed tree and preserve published tags/assets when
 shipping a corrective patch version.

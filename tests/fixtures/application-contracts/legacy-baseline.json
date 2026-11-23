@@ -161,9 +161,9 @@
       "sha256": "2a9ae4fa422b75c778eb4dceb3fee1a5873a148552dd914cdcfb6f0c398f79fa"
     }
   ],
-  "archived_bytes": {
-    "historical-result.json": "a1ee102b245e443320714b1022076a82586fe4dd7ed99aac667f3fef11669fe5",
-    "historical-experiment.json": "05b42d859106d9f52b0ba5b98ef90ecc68773a2ba7d50a6e0323e564dcf34581",
+  "fixture_bytes": {
+    "historical-result.json": "5add355df568961787ff9d85e2278b5b6085144f988c1406005da35e0e3e9245",
+    "historical-experiment.json": "f8e022e91da57f4ea31ca517d72fb2338662e18daecb1cf61d47a81c7e618311",
     "historical-matrix.json": "bfb804727e4411f2542f44bb5a0d98112610bcc9f4ad0602e8330dd9c8be19d5"
   }
 }

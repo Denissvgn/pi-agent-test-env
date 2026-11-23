@@ -34,6 +34,18 @@ def fresh():return str(uuid.uuid4())
 
 
 class ParallelApplicationTests(unittest.TestCase):
+    def test_public_authorities_include_all_references_and_only_actor_digests(self):
+        cohort = object.__new__(app.ApplicationCohort)
+        references = {f'PI_APP_ALIAS_{i}': f'STORE_ACTOR_{i}' for i in range(8)}
+        participants = [{'application_id': 'synthetic-app', 'tenant_id': 'synthetic-tenant',
+                         'actor_id': f'actor-{i}', 'role': 'writer'} for i in range(8)]
+        cohort.plans = {'trial': {'application': {'credentials': references},
+                                  'stages': [{'participant': participant} for participant in participants]}}
+        cohort._values = ['synthetic-private-value-not-a-reference']
+        expected = set(references.values()) | {'application-actor:' + c.digest(p) for p in participants}
+        self.assertEqual(len(expected), 16)
+        self.assertEqual(cohort.authorities('trial'), sorted(expected))
+
     def setUp(self):
         self.fixture=preparation_fixture.PreparationTests();self.fixture.setUp();self.addCleanup(self.fixture.doCleanups)
         if getattr(self,'source_factory',None):self.fixture.source=self.source_factory();self.fixture.write('source.json',self.fixture.source)
