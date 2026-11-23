@@ -397,7 +397,31 @@ def thread_environment(jobs):
 INTERRUPT_SIGNALS = frozenset({signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT})
 
 
+class _CleanupState:
+    """Main-thread interrupt state that raise_interrupt consults (see CleanupGuard).
+
+    phase is None outside a guard, 'body' while the guarded work may be
+    interrupted and 'cleanup' once it must not be; held is the first signal
+    that arrived during cleanup and interrupted records that the handler itself
+    raised in the body.
+    """
+    phase = None
+    held = None
+    interrupted = False
+
+
+_CLEANUP = _CleanupState()
+
+
 def raise_interrupt(signum, frame):
+    if _CLEANUP.phase == 'cleanup':
+        _CLEANUP.held = _CLEANUP.held or signum
+        return
+    if _CLEANUP.phase == 'body':
+        # Switch before raising, so the code that handles this interrupt
+        # (except clauses and the cleanup after them) already runs protected.
+        _CLEANUP.phase = 'cleanup'
+        _CLEANUP.interrupted = True
     raise KeyboardInterrupt
 
 
@@ -405,12 +429,88 @@ def install_interrupt_handlers():
     """Give an entry point one interrupt path, whatever dispositions it inherited.
 
     A process started as a shell background job inherits SIGINT ignored, and
-    Python then leaves it ignored. Install the default SIGINT handler explicitly
-    and route SIGTERM, SIGHUP and SIGQUIT to the same KeyboardInterrupt.
+    Python then leaves it ignored. Install the handler for SIGINT explicitly and
+    route SIGTERM, SIGHUP and SIGQUIT to the same KeyboardInterrupt. Outside a
+    CleanupGuard raise_interrupt behaves exactly like default_int_handler.
     """
-    signal.signal(signal.SIGINT, signal.default_int_handler)
-    for kind in INTERRUPT_SIGNALS - {signal.SIGINT}:
+    for kind in INTERRUPT_SIGNALS:
         signal.signal(kind, raise_interrupt)
+
+
+class CleanupGuard:
+    """Make the switch from interruptible work to its cleanup race-free.
+
+    Blocking signals at the top of a finally clause is not enough: an interrupt
+    can land after the try body ends and before the mask is set, and a signal
+    that arrived just before pthread_sigmask still has its Python handler run
+    just after it, so the cleanup is skipped. Here the handler decides instead.
+    Use it as:
+
+        guard = CleanupGuard()
+        try:
+            guard.open()
+            ...work...
+            guard.protect()
+        except BaseException:
+            guard.protect()
+            raise
+        finally:
+            with guard, deferred_interrupts():
+                ...cleanup...
+
+    raise_interrupt switches the phase to 'cleanup' itself before it raises in
+    the body, and every other way out of the body calls protect(), so control
+    never reaches the cleanup while the handler would still raise: a signal
+    then is only recorded, and leaving the guard's with block (release())
+    raises it as KeyboardInterrupt once the cleanup is done. This holds for signals routed to raise_interrupt
+    (install_interrupt_handlers) in the main thread, the only thread Python runs
+    handlers in; elsewhere the guard does nothing. Keep deferred_interrupts()
+    inside the guard too, so child processes the cleanup starts inherit the
+    mask, and a signal it releases is still recorded rather than raised.
+    """
+    def __init__(self):
+        self.active = threading.current_thread() is threading.main_thread()
+        self.previous = (_CLEANUP.phase, _CLEANUP.held, _CLEANUP.interrupted)
+        _CLEANUP.interrupted = False if self.active else _CLEANUP.interrupted
+
+    @property
+    def interrupted(self):
+        """Whether raise_interrupt raised in this guard's body."""
+        return self.active and _CLEANUP.interrupted
+
+    def open(self):
+        if self.active and _CLEANUP.phase != 'cleanup':
+            _CLEANUP.phase = 'body'
+
+    def protect(self):
+        if self.active:
+            _CLEANUP.phase = 'cleanup'
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        self.release()
+        return False
+
+    def release(self):
+        if not self.active:
+            return
+        phase, held, interrupted = self.previous
+        pending = _CLEANUP.held
+        _CLEANUP.interrupted = interrupted
+        if phase == 'cleanup':
+            # Nested in another cleanup: hand the signal to it.
+            _CLEANUP.held = held or pending
+            return
+        _CLEANUP.held = held
+        if pending is None:
+            _CLEANUP.phase = phase
+            return
+        # Deliver the held signal as raise_interrupt would in the outer phase.
+        _CLEANUP.phase = 'cleanup' if phase == 'body' else phase
+        _CLEANUP.interrupted = interrupted or phase == 'body'
+        raise KeyboardInterrupt
 
 
 @contextlib.contextmanager
@@ -423,6 +523,12 @@ def deferred_interrupts():
     terminal Ctrl-C sent to the foreground process group does not stop a cleanup
     command either. A signal that arrived meanwhile is delivered when the
     previous mask returns. Only wrap sections whose every step has a time bound.
+
+    The mask covers the calling thread only. A thread whose mask still allows
+    these signals (any thread not started through start_without_interrupts)
+    can receive one during the section, and Python then runs the handler in the
+    main thread at once, inside the section. To make entering a cleanup section
+    itself safe against an interrupt, use CleanupGuard as well.
     """
     previous = signal.pthread_sigmask(signal.SIG_BLOCK, INTERRUPT_SIGNALS)
     try:

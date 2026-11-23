@@ -81,6 +81,33 @@ except KeyboardInterrupt:
     sys.exit(130)
 '''
 
+# The same supervisor with a deterministic interrupt as control reaches the
+# cleanup: the first deferred_interrupts() that stream_run itself calls is the
+# one in its finally clause (the run exits on its own, so no limit cleanup
+# runs). SIGINT goes in just before it, and the sleep lets the handler run there,
+# where an interrupt between the end of the try body and the mask would land.
+FINALLY_RACE_SUPERVISOR = '''
+import os, signal, sys, time
+from pathlib import Path
+sys.path.insert(0, {scripts!r})
+import pi_lab as lab
+import resources
+resources.install_interrupt_handlers()
+real, fired = resources.deferred_interrupts, []
+def deferred_interrupts():
+    if sys._getframe(1).f_code is lab.stream_run.__code__ and not fired:
+        fired.append(True)
+        os.kill(os.getpid(), signal.SIGINT)
+        time.sleep(0.2)
+    return real()
+resources.deferred_interrupts = deferred_interrupts
+name = sys.argv[2]
+try:
+    lab.stream_run(['docker', 'run', '--name', name, 'fixture'], Path(sys.argv[1]), 600, name)
+except KeyboardInterrupt:
+    sys.exit(130 if fired else 3)
+'''
+
 # A steer or extend-budget helper stopped while it holds the stage lock.
 STOPPED_HOLDER = '''
 import os, signal, sys
@@ -383,6 +410,24 @@ class InterruptPathTests(unittest.TestCase):
             self.assertTrue(record['cleanup_confirmed'])
             self.assertEqual(record['termination_reason'], 'cancelled')
 
+    def test_interrupt_entering_cleanup_does_not_skip_it(self):
+        with tempfile.TemporaryDirectory() as td:
+            top = Path(td)
+            docker = FakeDocker(top)
+            (top / 'exit-now').write_text('')
+            name = 'pi-lab-' + uuid.uuid4().hex[:12]
+            script = top / 'supervisor.py'
+            script.write_text(FINALLY_RACE_SUPERVISOR.format(scripts=str(SCRIPTS)))
+            process = subprocess.run([sys.executable, '-B', str(script), str(top / 'logs'), name],
+                                     env=docker.environment(FAKE_RUN_UNTIL=str(top / 'exit-now')),
+                                     start_new_session=True, capture_output=True, timeout=60)
+            # The interrupt still ends the supervisor, after the cleanup.
+            self.assertEqual(process.returncode, 130, process.stderr.decode(errors='replace'))
+            self.assertIn('rm-done ' + name, docker.calls())
+            record = json.loads((top / 'logs' / 'process.json').read_text())
+            self.assertTrue(record['cleanup_confirmed'])
+            self.assertEqual(record['termination_reason'], 'completed')
+
     def test_deferred_interrupt_is_delivered_after_the_section(self):
         previous = signal.signal(signal.SIGINT, signal.default_int_handler)
         self.addCleanup(signal.signal, signal.SIGINT, previous)
@@ -476,8 +521,8 @@ class IgnoredSigintEntryPointTests(unittest.TestCase):
             self.addCleanup(signal.signal, kind, handler)
         signal.signal(signal.SIGINT, signal.SIG_IGN)
         resources.install_interrupt_handlers()
-        self.assertIs(signal.getsignal(signal.SIGINT), signal.default_int_handler)
-        for kind in (signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT):
+        self.assertIs(signal.getsignal(signal.SIGINT), resources.raise_interrupt)
+        for kind in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP, signal.SIGQUIT):
             with self.subTest(signal=kind.name), self.assertRaises(KeyboardInterrupt):
                 os.kill(os.getpid(), kind)
                 time.sleep(0.5)

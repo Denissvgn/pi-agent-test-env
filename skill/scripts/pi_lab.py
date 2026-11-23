@@ -327,7 +327,12 @@ def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
             return command(argv,timeout=min(limit,cleanup_time()),required=False)
         except (LabError,OSError) as exc:
             return argparse.Namespace(returncode=1,stdout='',stderr=str(exc))
+    # Every way out of the body below makes the guard protect the cleanup
+    # before control reaches it, so no interrupt can skip it (CleanupGuard).
+    guard=resources.CleanupGuard()
+    cancelled=False
     try:
+        guard.open()
         if stage:
             with controls.bounded_locks():
                 budget=controls.read(controls.budget_path(stage[0],stage[1])) if resume_budget else controls.start_budget(stage[0],stage[1],start,grace,native_control=native_control)
@@ -387,15 +392,19 @@ def stream_run(argv: list[str], logdir: Path, timeout: int, name: str,
         if any(t.is_alive() for t in threads) or capture_errors:
             result['exit_code'] = 2
             result['capture_errors'] = capture_errors or ['Log reader did not finish']
-    except KeyboardInterrupt:
-        result['exit_code'] = 130
-        result['cancelled']=True
+        guard.protect()
+    except BaseException as exc:
+        cancelled=isinstance(exc,KeyboardInterrupt)
+        guard.protect()
         raise
     finally:
         # Every step below has a time bound: Docker calls carry timeouts and the
         # control locks are bounded. Interrupts that arrive meanwhile, such as a
         # second Ctrl-C, are held and delivered once process.json is written.
-        with resources.deferred_interrupts():
+        with guard, resources.deferred_interrupts():
+            if cancelled or guard.interrupted:
+                result['exit_code'] = 130
+                result['cancelled']=True
             if cleanup_deadline is None:cleanup_deadline=time.monotonic()+grace
             if stage and budget is not None:
                 try:
