@@ -212,7 +212,11 @@ def large_history(total):
                     try:recovered.network_intent('pi-synthetic-over-capacity')
                     except reg.RegistryCapacityError:capacity_denied=True
                     assert capacity_denied
-            return {'total':total,'counts':counts(recovered),'unrelated_records_byte_preserved':len(retained),'synthetic_docker_observations':len(docker.calls),'new_intent_at_capacity_denied':capacity_denied}
+                admitted=counts(recovered)
+            # Above half of the limit, the terminal close archives released history.
+            archived=(recovered.root/reg.ARCHIVE_NAME).read_text().splitlines()
+            return {'total':total,'counts':admitted,'unrelated_records_byte_preserved':len(retained),'synthetic_docker_observations':len(docker.calls),
+                    'new_intent_at_capacity_denied':capacity_denied,'remaining_after_close':counts(recovered),'archived_after_close':len(archived)}
 
 class ReconciliationDiagnosticsTests(unittest.TestCase):
     def test_failed_preflight_lifecycle_preserves_original_sealed_result(self):
@@ -258,6 +262,7 @@ class ReconciliationDiagnosticsTests(unittest.TestCase):
                 value=large_history(total)
                 self.assertEqual(value['unrelated_records_byte_preserved'],total-3)
                 self.assertEqual(value['counts'],{'released':total})
+                self.assertEqual((value['remaining_after_close'],value['archived_after_close']),({},total))
 
     def test_partial_release_is_reported_and_revalidated_on_next_admission(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -459,8 +464,23 @@ class HistoricalDiagnosticTests(unittest.TestCase):
         self.docker.calls.clear()
         with resources.admission_lock(self.lease) as recovered:
             self.assertEqual(counts(recovered),{'released':reg.MAX_RECORDS})
-        self.assertTrue(all(p.read_bytes()==body for p,body in originals.items()))
+            self.assertTrue(all(p.read_bytes()==body for p,body in originals.items()))
+        # The terminal close archives only released ordinary history; the
+        # qualification helper and its proofs keep their bytes.
+        archived={}
+        for line in (owner.root/reg.ARCHIVE_NAME).read_text().splitlines():
+            row=json.loads(line);row.pop('archived_at');archived[row['launch_id']]=row
+        for p,body in originals.items():
+            if p.exists():self.assertEqual(p.read_bytes(),body)
+            else:
+                self.assertEqual(p.parent,owner.root)
+                self.assertEqual(archived[p.stem],json.loads(body))
+        helper=self.owner.helper['launch_id']+'.json'
+        self.assertEqual((owner.root/helper).read_bytes(),originals[owner.root/helper])
         self.assertEqual(len(self.docker.calls),4);self.pid.assert_not_called()
+        # Historical proof replay still finds every record the helper names.
+        with resources.admission_lock(self.lease) as again:
+            again.validate_history(again.load())
 
     def test_historical_proof_tamper_and_io_failure_remain_distinct_and_nonsecret(self):
         receipt=Path(self.owner.helper['qualification_preworker_cleanup']['path'])

@@ -7,4 +7,5 @@ Keep one name per line, in alphabetical order.
 """
 COMMAND_MODULES: tuple[str, ...] = (
     'init_plan',
+    'registry_compaction',
 )

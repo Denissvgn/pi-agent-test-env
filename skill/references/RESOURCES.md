@@ -265,11 +265,15 @@ placement, admission and effect contract has been separately qualified.
 intent or the planned collection's headroom. The registry retains at most 8192
 committed records; observation separately bounds 32 secure atomic temporary files.
 New container, network and builder intents reject before creation at capacity;
-existing-record cleanup updates remain possible. Records are not automatically
-deleted or archived, since abandoned-attempt reconciliation can require released
-ownership history. Request reviewed maintenance or a separately reviewed bounded
-capacity change; never delete records or select another lock to continue. This
-host metadata bound does not increase Docker worker or inference concurrency.
+existing-record cleanup updates remain possible. Released records that no pending,
+quarantined, application-helper or owner-proof record needs are archived to
+`released-archive.jsonl` in the registry directory and then removed: a normal
+close does this once more than half of the limit is in use, and
+`registry-compact [--dry-run]` does it on demand. `doctor` and `registry-inspect`
+warn with `registry-nearly-full` from 75% of the limit. Admission never reads the
+archive. See [registry compaction](REGISTRY-RECOVERY.md#compact-released-records).
+Never delete records by hand or select another lock to continue. This host
+metadata bound does not increase Docker worker or inference concurrency.
 
 ## Indexed inference opt-in
 

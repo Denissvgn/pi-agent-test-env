@@ -22,7 +22,7 @@ import registry_diagnostics
 ADMISSION_FAILURES = MappingProxyType({
     'host-registry-capacity': (
         'The bounded host launch registry has insufficient capacity',
-        'Keep dependent execution stopped. Preserve ownership and failure history; request reviewed registry maintenance or a bounded capacity change before fresh dispatch. Do not delete records or bypass the host lease.'),
+        'Keep dependent execution stopped. Run `registry-compact` with the same lease to archive released records that no retained ownership needs; if pending, quarantined or owner-proof records still fill the registry, resolve them with registry-recover or the owner cleanup procedure. Do not delete records by hand or bypass the host lease.'),
     'host-registry-unsafe': (
         'Prior owned execution cannot be safely reconciled',
         'Keep dependent execution stopped. Inspect the owner-only launch registry and confirm owned writer absence and sensitive cleanup before requesting recovery; do not delete records or bypass the host lease.'),

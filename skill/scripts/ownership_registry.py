@@ -26,6 +26,17 @@ RUN_LABEL='org.pi-agent-test-env.run'
 NO_RUN='none'
 MAX_RECORDS=8192
 MAX_TRANSIENT_RECORDS=32
+# Released records leave the registry only through compaction, which appends
+# them to this owner-only file first. Admission and history validation never
+# read it; it is the durable history of what was compacted.
+ARCHIVE_NAME='released-archive.jsonl'
+# A normal close compacts once more than half of the limit is in use, and the
+# diagnostics warn from three quarters.
+COMPACT_ABOVE=MAX_RECORDS//2
+WARN_FROM=MAX_RECORDS*3//4
+MAX_ARCHIVE_LINE=2*1024*1024
+_UUID=re.compile(r'[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}')
+_QUALIFICATION_KEYS=('qualification_role','qualification_service_cleanup','qualification_preworker_cleanup')
 
 
 @diagnostics.scoped('registry_initialization')
@@ -643,6 +654,7 @@ class Registry:
         paths=[];transient=0
         with diagnostics.operation('inventory_read'), os.scandir(self.root) as entries:
             for entry in entries:
+                if entry.name==ARCHIVE_NAME:continue # compaction history, never admission input
                 path=self.root/entry.name
                 if observe and re.fullmatch(r'\.[a-f0-9-]{36}\.json-[a-f0-9]{32}',path.name):
                     # An observation sees only committed records. Admission remains
@@ -906,6 +918,138 @@ class Registry:
                 if controls.read(receipt).get('status')!='removed':
                     raise RegistryError('Sensitive state has not been purged', condition='sensitive_cleanup_pending')
         for record in current:self.release(record,True)
+        if len(self._paths())>COMPACT_ABOVE:
+            # Housekeeping never vetoes a confirmed cleanup. A refused compaction
+            # leaves every record in place; doctor and registry-inspect warn
+            # before the limit, and registry-compact reports the cause.
+            try:self.compact()
+            except RegistryError:pass
+
+    def _owner_record(self,record):
+        """Application-helper and owner-proof records are never compacted."""
+        if (record.get('application_helper') is True or record.get('schema')==3 or 'owner_cleanup_contract' in record
+                or str(record.get('client_mode','')).startswith('qualification-')
+                or any(k in record for k in _QUALIFICATION_KEYS)):
+            return True
+        import application_owner_cleanup as owner
+        proofs=(owner._index(self,record),owner._selection(self,record),owner._anchor(self,record),
+                owner._custody_path(self,record).parent)
+        return any(os.path.lexists(path) for path in proofs)
+
+    def compaction_candidates(self,records):
+        """Released container, network and builder records that nothing retained needs.
+
+        A pending, quarantined or owner-proof record protects every record of its
+        generation and run root, and every record whose launch id it names.
+        """
+        generations=set();runroots=set();named=set();released=[]
+        for record in records:
+            if record['status']=='released' and not self._owner_record(record):
+                released.append(record);continue
+            generations.add(record['generation'])
+            if record.get('runroot'):runroots.add(record['runroot'])
+            named.update(_UUID.findall(json.dumps(record)))
+        selected=[]
+        for record in released:
+            if (record.get('kind','container') not in ('container','network','builder')
+                    or record['generation'] in generations or record['launch_id'] in named
+                    or (record.get('runroot') and record['runroot'] in runroots)):
+                continue
+            selected.append(record)
+        return sorted(selected,key=lambda r:(str(r.get('created_at','')),r['launch_id']))
+
+    @diagnostics.observed('archive_open')
+    def _open_archive(self,dirfd,*,create):
+        flags=(os.O_RDWR|os.O_CREAT) if create else os.O_RDONLY
+        fd=os.open(ARCHIVE_NAME,flags|os.O_NOFOLLOW|os.O_NONBLOCK,0o600,dir_fd=dirfd)
+        try:
+            st=os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode) or st.st_uid!=os.getuid() or st.st_nlink!=1 or stat.S_IMODE(st.st_mode)&0o077:
+                raise RegistryError('Registry archive is insecure', condition='unsafe_record')
+            return fd
+        except BaseException:
+            os.close(fd);raise
+
+    @diagnostics.observed('archive_read')
+    def _scan_archive(self,fd,wanted):
+        """Return the archived copies of `wanted` ids and the end of the last complete line.
+
+        Only the selected ids are kept, so memory stays bounded however long the
+        archive grows. A trailing fragment without its newline is never complete:
+        its records were not removed, because removal follows the archive sync.
+        """
+        found={};offset=0;complete=0;pending=b''
+        os.lseek(fd,0,os.SEEK_SET)
+        while True:
+            chunk=os.read(fd,1024*1024)
+            if not chunk:break
+            pending+=chunk
+            while True:
+                end=pending.find(b'\n')
+                if end<0:break
+                line=pending[:end];pending=pending[end+1:];offset+=end+1
+                try:value=json.loads(line)
+                except ValueError:value=None
+                if (type(value) is not dict or not controls.valid_id(value.get('launch_id'))
+                        or type(value.get('archived_at')) is not str):
+                    raise RegistryError('Malformed registry archive', condition='malformed_record')
+                if value['launch_id'] in wanted:
+                    if value['launch_id'] in found:raise RegistryError('Duplicate registry archive line', condition='malformed_record')
+                    found[value['launch_id']]={k:v for k,v in value.items() if k!='archived_at'}
+                complete=offset
+            if len(pending)>MAX_ARCHIVE_LINE:raise RegistryError('Registry archive line exceeds its bounded limit', condition='inventory_unbounded')
+        return found,complete,complete+len(pending)
+
+    @diagnostics.scoped('registry_compaction')
+    def compact(self,*,dry_run=False):
+        """Archive released records nothing retained needs, then remove their files.
+
+        Call only under the host lease. Each record is appended as one JSON line
+        with `archived_at`, the archive and the directory are synced, and only
+        then are the record files removed. Records that are archived and still
+        present (an interrupted compaction) are removed without a second line.
+        """
+        with self._write_lock:
+            records=self.load()
+            selected=self.compaction_candidates(records)
+            wanted={r['launch_id']:r for r in selected}
+            report={'dry_run':dry_run is True,'before':len(records),'selected':len(selected),
+                    'archived':0,'already_archived':0,'after':len(records),'limit':MAX_RECORDS}
+            with diagnostics.operation('directory_open'):
+                dirfd=os.open(self.root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+            fd=None
+            try:
+                if dry_run is True or not selected:
+                    try:fd=self._open_archive(dirfd,create=False)
+                    except FileNotFoundError:found={}
+                    else:found=self._scan_archive(fd,wanted)[0]
+                    report['already_archived']=len(found)
+                    return report
+                fd=self._open_archive(dirfd,create=True)
+                found,complete,size=self._scan_archive(fd,wanted)
+                for launch_id,copy in found.items():
+                    if copy!=wanted[launch_id]:
+                        raise RegistryError('Archived record differs from the retained record', condition='unsafe_record')
+                if size!=complete:
+                    with diagnostics.operation('archive_append',mutating=True):os.ftruncate(fd,complete)
+                stamp=controls.now()
+                body=b''.join((json.dumps({**r,'archived_at':stamp},ensure_ascii=False,separators=(',',':'))+'\n').encode()
+                              for r in selected if r['launch_id'] not in found)
+                with diagnostics.operation('archive_append',mutating=True):
+                    os.lseek(fd,0,os.SEEK_END);view=memoryview(body)
+                    while view:view=view[os.write(fd,view):]
+                with diagnostics.operation('file_fsync',mutating=True):os.fsync(fd)
+                with diagnostics.operation('directory_fsync',mutating=True):os.fsync(dirfd)
+                for record in selected:
+                    with diagnostics.operation('record_remove',mutating=True):
+                        try:os.unlink(record['launch_id']+'.json',dir_fd=dirfd)
+                        except FileNotFoundError:pass
+                with diagnostics.operation('directory_fsync',mutating=True):os.fsync(dirfd)
+                report.update(archived=len(selected)-len(found),already_archived=len(found),after=len(self._paths()))
+                return report
+            finally:
+                if fd is not None:os.close(fd)
+                os.close(dirfd)
 
     def check_cancel(self):
         pass

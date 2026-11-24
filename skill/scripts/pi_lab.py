@@ -2334,6 +2334,11 @@ def cmd_doctor(args) -> int:
             add('project-secrets', 'ok', 'No key-like files in the project')
 
     checks.append(_host_lock_check(args))
+    import registry_maintenance
+    try:
+        checks.append(registry_maintenance.doctor_check(args.lock_file))
+    except (RuntimeError, OSError):
+        add('host-registry', 'warn', 'No home directory is available to locate the registry; pass --lock-file')
 
     if args.probe_image and docker_ok:
         requested_policy(args)

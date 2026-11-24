@@ -32,9 +32,9 @@ not establish a cause. Invalid diagnostic objects cannot supply public fields.
 
 | Field | Meaning |
 | --- | --- |
-| `phase` | Registry initialization/inventory, qualification service/preworker cleanup, ordinary application cleanup, daemon observation, inference termination, writer inspection/termination, absent persistence, network cleanup, sensitive recovery, private-store cleanup, release persistence, registry write, terminal close, or recovery receipt; `unspecified` is a bounded fallback |
+| `phase` | Registry initialization/inventory, qualification service/preworker cleanup, ordinary application cleanup, daemon observation, inference termination, writer inspection/termination, absent persistence, network cleanup, sensitive recovery, private-store cleanup, release persistence, registry write, terminal close, recovery receipt, or registry compaction; `unspecified` is a bounded fallback |
 | `condition` | The failed closed prerequisite, such as `application_cleanup_pending`, `owned_application_cleanup_required`, `daemon_changed`, `ownership_mismatch`, `cleanup_proof_invalid`, or `filesystem_operation_failed` |
-| `operation` | The enclosing operation: validation, inventory/record/proof read, temporary creation, file write/fsync, atomic replacement, temporary cleanup, directory open/fsync, daemon info, container/network inspection/removal, or purge |
+| `operation` | The enclosing operation: validation, inventory/record/proof read, temporary creation, file write/fsync, atomic replacement, temporary cleanup, directory open/fsync, daemon info, container/network inspection/removal, purge, archive open/read/append, or record removal |
 | `os_error` | `none`, `permission_denied`, `read_only`, `storage_exhausted`, `io_error`, `missing`, `unsafe_link`, `invalid_operation`, `unsupported`, `resource_exhausted`, or `other` |
 | `effects` | `none_observed` or `may_have_occurred`; an attempted mutation remains visible even if its error is caught and rethrown later |
 
@@ -60,6 +60,12 @@ Docker, model or application requests, does not quarantine records, and does not
 purge or update anything. The JSON includes counts and validated launch UUID
 references for pending records and released application helpers, never private
 paths. Required referenced cleanup evidence is still read.
+
+The report also carries `capacity` (committed records, the 8,192 limit and the
+warning threshold) and `warnings`. From 75% of the limit (6,144 records) the
+warning has reason `registry-nearly-full` and the remedy to run
+`registry-compact`; `doctor` reports the same warning in its `host-registry`
+check, which counts record names beside the lease without taking it.
 
 `OBSERVED` / exit 0 means those passive checks completed. The report always has
 `admission_authorized: false` and lists untested daemon/writer observations,
@@ -113,6 +119,58 @@ reported as unconfirmed and is not retried automatically.
 All reports retain `admission_authorized: false`. A final receipt persistence
 failure can block the command even when `reconciliation` is `completed`; this
 does not imply that successful physical cleanup was rolled back.
+
+## Compact released records
+
+Every container start and every network leaves a record, and the registry holds
+at most 8,192. Compaction keeps a long-running host below that limit by moving
+released records into an archive:
+
+```bash
+python3 "$SKILL_DIR/scripts/pi_lab.py" registry-compact --dry-run
+python3 "$SKILL_DIR/scripts/pi_lab.py" registry-compact --lock-wait-seconds 30
+```
+
+It takes the existing lease exactly as inspection does: it never creates the
+lease or the registry, and a busy lease is `host-admission-busy`. It uses no
+Docker or model requests. A record is selected only when all of these hold:
+
+- its status is `released` and its kind is container, network or builder;
+- it is not an application-helper record (`application_helper`, schema 3, an
+  owner cleanup contract or a qualification cleanup field) and has no owner
+  proof (index, selection, anchor or custody entry) in the owner-proof stores;
+- no pending, quarantined, application-helper or owner-proof record shares its
+  generation or run root or names its launch id.
+
+Each selected record is appended, with an `archived_at` time, as one JSON line
+to the owner-only `released-archive.jsonl` in the registry directory. The archive
+file and the directory are synced to disk, and only then are the record files
+removed. A crash between the two steps leaves records that are both archived and
+present; the next compaction recognises them by launch id, removes the files and
+writes no second line. A torn final line, which a crash during the append can
+leave, is cut back to the last complete line; its records were never removed. An
+archived copy that differs from the present record, a malformed line or an
+insecure archive blocks compaction with `host-registry-unsafe` in phase
+`registry_compaction`, and nothing is removed.
+
+Admission, reconciliation and history validation never read the archive; it is
+the durable record of what was compacted, not ownership authority. Pending,
+quarantined, application-helper and owner-proof records stay byte for byte.
+
+A normal terminal close compacts automatically when more than half of the limit
+(4,096 records) is in use. A refused automatic compaction leaves every record in
+place and does not fail the run; `registry-compact` then reports the cause.
+
+| Outcome | Meaning |
+| --- | --- |
+| `COMPACTED` / 0 | `before`, `after`, `selected`, `archived` and `already_archived` give the counts |
+| `DRY_RUN` / 0 | With `--dry-run`: `selected` is what would be archived; nothing changed and no archive is created |
+| `BLOCKED` / 2 | The lease, the registry or the archive refused; no record was removed unless `effects` says it may have been |
+| `INTERRUPTED` / 130 | Explicit interruption; the next compaction completes an interrupted removal |
+
+Clients released before compaction refuse a registry directory that contains
+`released-archive.jsonl` as an unknown entry and dispatch nothing. Keep older
+clients that share the lease quiesced, as for other registry format changes.
 
 ## What one run left behind
 
@@ -197,8 +255,10 @@ carry the run's label, or `unknown` when Docker cannot be asked.
   retained ordinary-helper cleanup receipt. Unsupported owner scopes stay blocked.
 - For daemon, writer or inference uncertainty, establish the exact required
   identity and termination evidence. Never remove a mismatched writer.
-- For capacity failure, preserve history and request reviewed maintenance. This
-  interface does not delete records or raise limits.
+- For capacity failure, run `registry-compact` with the same lease. It archives
+  released records that no retained ownership needs and never raises the limit.
+  When pending, quarantined or owner-proof records themselves fill the registry,
+  resolve them with `registry-recover` or the owner cleanup procedure first.
 
 Run-level preflight exceptions can leave physically absent records for the next
 admission because normal terminal close follows a successful context-body exit.

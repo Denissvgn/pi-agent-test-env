@@ -189,6 +189,7 @@ class StatedDefaultTests(unittest.TestCase):
             (('env', 'inspect'), '--json', 'off', False),
             (('ensure-image',), '--pi-version', 'empty', ''),
             (('env', 'check'), '--platform', 'none', None),
+            (('registry-compact',), '--dry-run', 'off', False),
         ]
         for path, option, stated, default in cases:
             with self.subTest(command=' '.join(path), option=option):
