@@ -71,6 +71,40 @@ custom file only uses them if it explicitly declares/handles them. Do not assume
 a custom builder inherits the stock Dockerfile's packages or secret exclusions.
 Verify the actual required versions.
 
+## Generating a plan
+
+`init-plan` writes a validated plan for a project instead of editing a copied
+template:
+
+```bash
+python3 "$SKILL_DIR/scripts/pi_lab.py" init-plan --project /absolute/path/project \
+  --task "Describe the change" [--check 'pytest -q tests/unit'] [--protect docs/spec.md] \
+  [--no-reviewer] [--output plan.json]
+```
+
+Use `--task-file FILE` instead of `--task` for a longer brief. The project kind is
+the first match: `pyproject.toml`, `setup.cfg`, `requirements.txt` or a `tests/`
+directory with Python files is Python; `package.json` is Node.js; `go.mod` is Go;
+`Cargo.toml` is Rust; anything else is generic. The default check is
+`python3 /opt/pi-lab/verify-unittest.py --start-dir tests` for Python with a
+`tests/` directory, `node --test`, `go test ./...` or `cargo test --offline`. A
+generic project, or a Python project without `tests/`, has no default, so `--check`
+is required; a default is never guessed, because a check that passes without
+testing anything gives false confidence. `--check` replaces the default, may be
+repeated and is split into arguments as a shell would quote them. It is never run
+through a shell, and a string with a pipe, redirect, list, substitution or subshell
+is refused.
+
+Protected paths are every `--protect` path, the `tests/`, `test/` and `spec/`
+directories when present, and the task file when it lies inside the project. The
+plan has an implementer (the Python template's tools and budgets) and, unless
+`--no-reviewer` is given, that template's read-only reviewer. Setup is empty: when
+the project has a dependency manifest the command says that setup must install the
+dependencies and that the network is off unless a stage declares `inherit` and the
+run allows it. The command prints how many checks the plan has, validates the plan
+before writing and refuses to overwrite an existing file (default `./pi-plan.json`).
+Read the generated prompts and checks before running the plan.
+
 ## Project layouts and test commands
 
 `required_paths` are exact project-relative paths that must exist before execution.

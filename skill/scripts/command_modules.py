@@ -6,4 +6,5 @@ Each name below is a module in this directory that exposes
 Keep one name per line, in alphabetical order.
 """
 COMMAND_MODULES: tuple[str, ...] = (
+    'init_plan',
 )

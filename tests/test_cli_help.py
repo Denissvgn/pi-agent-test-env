@@ -104,6 +104,7 @@ DESCRIPTIVE_DEFAULTS = {
         'hidden terminal prompt unless --from-file is set', 'endpoint key or PI_API_KEY',
         '--base-url', 'active stage', 'active stage selection', 'active stage, if any',
         'latest run in --results-dir', 'all runs', 'relative --file path or its basename',
+        'by project kind; required for a generic project', './pi-plan.json',
     ),
     HOST_VALUE: (
         'resource policy', 'built-in resource policy', 'native Docker platform',
@@ -120,7 +121,7 @@ DESCRIPTIVE_DEFAULTS = {
         'queue without interrupting', 'skip scoring after cancellation', 'deny check networking',
         'deny setup networking', 'refuse both', 'no extra host mapping',
         'disabled unless requested by --reasoning-level', 'hidden terminal prompt unless --stdin is set',
-        'keep the current selection',
+        'keep the current selection', 'also a read-only reviewer',
     ),
 }
 
