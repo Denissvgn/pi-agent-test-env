@@ -20,7 +20,7 @@ def register(subparsers):
     parser = subparsers.add_parser(
         'registry-compact', help='Archive released registry records to free capacity (experimental)')
     parser.add_argument('--dry-run', action='store_true',
-                        help='Report what would be archived and change nothing (default: compact)')
+                        help='Report what would be archived and change nothing (default: off, which archives and removes the selected records)')
     parser.add_argument('--lock-file', default=_default_lock(),
                         help='Select the existing lease and its registry (default: PI_LAB_LOCK_FILE or shared per-user lease)')
     parser.add_argument('--lock-wait-seconds', type=float, default=0,
