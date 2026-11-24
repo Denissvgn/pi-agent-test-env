@@ -20,6 +20,45 @@ import resources
 import stage_control as controls
 
 MAX_RECEIPT_BYTES = 4 * 1024 * 1024
+NEARLY_FULL_REMEDY = (
+    'Run `registry-compact` with the same lease (`--dry-run` first shows what it selects) to archive released '
+    'records that no retained ownership needs. Do not delete records by hand, raise the limit or select another lease.')
+
+
+def capacity_warnings(count):
+    """The registry-nearly-full warning from three quarters of the record limit."""
+    if count < ownership_registry.WARN_FROM:
+        return []
+    return [{'reason': 'registry-nearly-full', 'records': count, 'limit': ownership_registry.MAX_RECORDS,
+             'remedy': NEARLY_FULL_REMEDY}]
+
+
+def doctor_check(lease):
+    """Count committed record names beside the lease without entering it or reading a record."""
+    root = Path(str(Path(lease).expanduser().absolute()) + '.registry')
+    item = {'check': 'host-registry', 'status': 'ok', 'limit': ownership_registry.MAX_RECORDS}
+    try:
+        info = os.lstat(root)
+    except FileNotFoundError:
+        item.update(records=0, detail=f'no registry yet; limit {ownership_registry.MAX_RECORDS} records')
+        return item
+    except OSError:
+        info = None
+    try:
+        if info is None or not stat.S_ISDIR(info.st_mode):
+            raise OSError('not a directory')
+        with os.scandir(root) as entries:
+            count = sum(1 for entry in entries if len(entry.name) == 41 and entry.name.endswith('.json')
+                        and controls.valid_id(entry.name[:-5]))
+    except OSError:
+        item.update(status='warn', records=None, detail='The registry cannot be inspected; run `registry-inspect`')
+        return item
+    item.update(records=count, detail=f'{count} of {ownership_registry.MAX_RECORDS} records')
+    warnings = capacity_warnings(count)
+    if warnings:
+        item.update(status='warn', reason=warnings[0]['reason'], remedy=warnings[0]['remedy'],
+                    detail=f'{count} of {ownership_registry.MAX_RECORDS} records; at the limit new runs are refused')
+    return item
 
 
 @diagnostics.observed('directory_open')
@@ -344,6 +383,9 @@ def command(args, *, registry_factory=None):
             records = registry.load()
             report['before'] = _summary(records)
             if inspect:
+                report['capacity'] = {'records': len(records), 'limit': ownership_registry.MAX_RECORDS,
+                                      'warn_from': ownership_registry.WARN_FROM}
+                report['warnings'] = capacity_warnings(len(records))
                 report['untested'] = ['daemon_and_writer_observation', 'inference_termination',
                     'sensitive_recovery', 'record_write_and_fsync', 'durable_release']
                 # Metadata references are validated launch UUIDs, never private paths.

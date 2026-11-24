@@ -18,6 +18,7 @@ PHASES = frozenset({
     'sensitive_recovery', 'private_store_cleanup', 'persist_release',
     'registry_write', 'terminal_close', 'lease_observation', 'recovery_receipt',
     'owner_legacy_validation', 'owner_legacy_scope', 'owner_legacy_publication', 'owner_legacy_replay',
+    'registry_compaction',
 })
 CONDITIONS = frozenset({
     'validation_failed', 'filesystem_operation_failed', 'command_timeout',
@@ -37,7 +38,8 @@ OPERATIONS = frozenset({
     'temporary_create', 'file_write', 'file_fsync', 'atomic_replace',
     'temporary_cleanup', 'directory_open', 'directory_fsync', 'daemon_info',
     'container_inspect', 'container_remove', 'network_inspect', 'network_remove',
-    'purge', 'lease_open', 'lease_lock',
+    'purge', 'lease_open', 'lease_lock', 'archive_open', 'archive_read', 'archive_append',
+    'record_remove',
 })
 OS_ERRORS = frozenset({'none', 'permission_denied', 'read_only', 'storage_exhausted',
     'io_error', 'missing', 'unsafe_link', 'invalid_operation', 'unsupported',
