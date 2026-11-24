@@ -462,7 +462,7 @@ def add_arguments(sub, default_lock, default_results=None):
                             help='Look up run directories here (default: per-user runs directory)')
         parser.add_argument('--lock-file', default=default_lock,
                             help='Select the host lease (default: PI_LAB_LOCK_FILE or shared per-user lease)')
-        parser.add_argument('--json', action='store_true', help='Print the report as JSON (default: text)')
+        parser.add_argument('--json', action='store_true', help='Print the report as JSON (default: off, which prints text)')
         if name == 'cleanup':
             parser.add_argument('--yes', action='store_true',
                                 help='Remove managed Docker resources for the selected run (default: report only)')

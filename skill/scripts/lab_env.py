@@ -466,7 +466,8 @@ def add_parser(sub) -> None:
     ck.add_argument('--image', help='Use this trusted image for indexed admission (required with --id)')
     ck.add_argument('--resources', help='Use this resource policy JSON for indexed admission (required with --id)')
     ck.add_argument('--platform', choices=['linux/arm64', 'linux/amd64'],
-                    help='Select the platform for indexed admission (default: linux/arm64)')
+                    help='Select the platform for indexed admission (default: none). With --id and no platform, '
+                         'admission uses linux/arm64; without --id the flag is ignored.')
     ck.add_argument('--no-chat', action='store_true',
                     help='Only list models when checking the saved environment (default: also test chat)')
 
@@ -475,7 +476,7 @@ def add_parser(sub) -> None:
     ops.add_parser('path', help='Print the saved endpoint file path')
 
     listing = ops.add_parser('list', help='List indexed environment metadata offline')
-    listing.add_argument('--json', action='store_true', help='Request JSON output (default: JSON)')
+    listing.add_argument('--json', action='store_true', help='Request JSON output (default: off; output is always JSON)')
     listing.add_argument('--catalog-dir', help='Use this indexed catalog (default: PI_LAB_CATALOG_DIR or per-user catalog)')
     listing.add_argument('--secrets-dir', help='Use this store to check key availability (default: PI_LAB_SECRETS_DIR or per-user store)')
 
@@ -487,7 +488,7 @@ def add_parser(sub) -> None:
                          help='Match the catalog revision shown by env list (default: unset). Required with --index.')
     inspect.add_argument('--private', action='store_true',
                          help='Include private configuration and identity details (default: metadata only)')
-    inspect.add_argument('--json', action='store_true', help='Request JSON output (default: JSON)')
+    inspect.add_argument('--json', action='store_true', help='Request JSON output (default: off; output is always JSON)')
     inspect.add_argument('--catalog-dir', help='Use this indexed catalog (default: PI_LAB_CATALOG_DIR or per-user catalog)')
     inspect.add_argument('--secrets-dir', help='Use this store to check key availability (default: PI_LAB_SECRETS_DIR or per-user store)')
 
