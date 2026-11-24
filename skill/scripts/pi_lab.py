@@ -2484,7 +2484,7 @@ def parser():
     doc.add_argument('--pids-limit', type=int, help='Override the runtime task and thread cap (default: resource policy)')
     doc.add_argument('--jobs', type=int, help='Override the build/test thread limit within the CPU budget (default: resource policy)')
     doc.add_argument('--allow-browser-no-sandbox', action='store_true',
-                     help='Permit unsandboxed Chromium for trusted local pages (default: require sandboxing)')
+                     help='Permit unsandboxed Chromium for trusted local pages (default: off, which requires sandboxing)')
     doc.add_argument('--software-webgl', action='store_true',
                      help='Enable unsafe SwiftShader rendering for trusted tests (default: disabled)')
     doc.add_argument('--uid', type=int, default=os.getuid() if hasattr(os, 'getuid') else 1000,
@@ -2524,9 +2524,10 @@ def parser():
         q.add_argument('--lock-wait-seconds', type=int, default=0,
                        help='Wait this many seconds for the lease (default: %(default)s, fail if busy)')
         q.add_argument('--allow-browser-no-sandbox', action='store_true',
-                       help='Permit unsandboxed Chromium for trusted local pages (default: require sandboxing)'
+                       help='Permit unsandboxed Chromium for trusted local pages (default: off, which requires sandboxing)'
                        if name != 'browser-check'
-                       else 'Request unsandboxed Chromium, which browser-check rejects (default: require sandboxing)')
+                       else 'Request unsandboxed Chromium; browser-check refuses it with browser-policy-invalid '
+                            '(default: off, which requires sandboxing)')
         q.add_argument('--software-webgl', action='store_true',
                        help='Enable unsafe SwiftShader rendering for trusted tests (default: disabled)')
         if name == 'browser-check':
@@ -2538,7 +2539,7 @@ def parser():
             q.add_argument('--reuse', action='append', default=[], metavar='TRUSTED_IMAGE',
                            help='Try an additional trusted image when reusing. Repeatable (default: no additional images).')
             q.add_argument('--pi-version', default=DEFAULT_VERSION,
-                           help='Pin an exact reviewed Pi release (default: no pin for reuse). Builds require a pin.')
+                           help='Pin an exact reviewed Pi release (default: empty). Reuse takes no pin; builds require one.')
             q.add_argument('--base-image',
                            help='Select the base image of the bundled Dockerfile (default: the digest-pinned reference in docker/pins.json)')
             q.add_argument('--apt-package', action='append', default=[],
